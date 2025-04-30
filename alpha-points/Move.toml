@@ -1,0 +1,8 @@
+[package]
+name    = "alpha_points"
+version = "1.0.0"
+authors = ["Alpha4 Team"]
+edition = "2024.alpha"
+
+[addresses]
+alpha_points = "0x5"

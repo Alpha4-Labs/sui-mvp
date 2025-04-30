@@ -1,299 +1,246 @@
 // escrow.move - Holds underlying assets backing points/stakes
 module alpha_points::escrow {
-    use sui::object::{Self, ID, UID, delete};
-    use sui::coin::{Self, Coin};
-    use sui::balance::{Self, Balance, zero, value, join, split};
-    use sui::tx_context::{Self, TxContext, sender};
-    use sui::transfer::{Self, share_object, public_transfer};
+    use sui::object::{Self, UID, ID};
+    use sui::coin::Coin;
+    use sui::balance::{Balance, value as balance_value};
+    use sui::tx_context::{Self, TxContext};
+    use sui::transfer::share_object;
     use sui::event;
 
-    // Import the capability type from the admin module
-    use alpha_points::admin::{GovernCap}; // Removed unused Config import
-
-    // Functions marked public(package) are callable from other modules in this package
-    // (Replacing deprecated 'friend')
+    use alpha_points::admin::GovernCap; // Only need GovernCap
 
     // === Structs ===
-    // Added 'public' visibility
-    public struct EscrowVault<phantom T> has key {
-        id: UID,
-        balance: Balance<T>,
-    }
+    public struct EscrowVault<phantom T> has key { id: UID, balance: Balance<T> }
 
     // === Events ===
-    // Added 'public' visibility
-    public struct VaultCreated<phantom T> has copy, drop {
-        vault_id: ID,
-        creator: address
-    }
-
-    // Added 'public' visibility and renamed 'depositor' to 'by'
-    public struct EscrowDeposited<phantom T> has copy, drop { // Renamed Event struct
-        vault_id: ID,
-        amount: u64,
-        by: address // Address that initiated the deposit tx
-    }
-
-    // Added 'public' visibility, renamed 'recipient' to 'by' (initiator), added 'recipient' field
-    public struct EscrowWithdrawn<phantom T> has copy, drop { // Renamed Event struct
-        vault_id: ID,
-        amount: u64,
-        by: address, // Address that initiated the withdraw tx
-        recipient: address // Address that received the withdrawn assets
-    }
-
-    // Event for vault destruction
-     public struct VaultDestroyed has copy, drop {
-        vault_id: ID,
-        destroyed_by: address
-    }
+    public struct VaultCreated<phantom T> has copy, drop { vault_id: ID, creator: address }
+    public struct EscrowDeposited<phantom T> has copy, drop { vault_id: ID, amount: u64, by: address }
+    public struct EscrowWithdrawn<phantom T> has copy, drop { vault_id: ID, amount: u64, by: address, recipient: address }
+    public struct VaultDestroyed has copy, drop { vault_id: ID, destroyed_by: address }
 
     // === Errors ===
-    // Standardized error codes
-    const EZERO_DEPOSIT: u64 = 1;       // Cannot deposit zero amount
-    const EINSUFFICIENT_FUNDS: u64 = 2; // Not enough balance in vault to withdraw
-    const EUNAUTHORIZED: u64 = 3;       // Caller lacks required capability (GovernCap)
-    const EVAULT_NOT_EMPTY: u64 = 4;    // Cannot destroy a vault that still holds assets
+    const EZERO_DEPOSIT: u64 = 1;
+    const EINSUFFICIENT_FUNDS: u64 = 2;
+    // EUNAUTHORIZED removed (implicit check)
+    const EVAULT_NOT_EMPTY: u64 = 4;
 
     // === Public Functions ===
-
-    /// Creates a new, empty EscrowVault for asset type T.
-    /// Requires GovernCap for authorization. The vault is shared upon creation.
-    public entry fun create_escrow_vault<T: store>( // T needs store to be held in Balance
-        _gov_cap: &GovernCap, // Authorization check
-        ctx: &mut TxContext
+    public entry fun create_escrow_vault<T: store>( 
+        _gov_cap: &GovernCap, 
+        ctx: &mut TxContext 
     ) {
+        let vault_id = object::new(ctx);
         let vault = EscrowVault<T> {
-            id: object::new(ctx),
-            balance: zero<T>(),
+            id: vault_id,
+            balance: sui::balance::zero<T>()
         };
-
-        let creator_address = sender(ctx);
-        event::emit(VaultCreated<T> {
-            vault_id: object::id(&vault),
-            creator: creator_address
+        
+        // Fixed: using object::uid_to_inner instead of id()
+        let vault_id_inner = object::uid_to_inner(&vault.id);
+        event::emit(VaultCreated<T> { 
+            vault_id: vault_id_inner, 
+            creator: tx_context::sender(ctx) 
         });
-
-        // Share the vault object so it can be accessed by other transactions/modules
+        
         share_object(vault);
     }
-
-    /// Destroys an EscrowVault. Requires GovernCap.
-    /// Vault must be empty (balance must be zero).
-    public entry fun destroy_empty_escrow_vault<T: store>(
-        _gov_cap: &GovernCap, // Authorization check
-        vault: EscrowVault<T>, // Takes ownership of the vault object
-        ctx: &TxContext
+    
+    public entry fun destroy_empty_escrow_vault<T: store>( 
+        _gov_cap: &GovernCap, 
+        vault: EscrowVault<T>, 
+        ctx: &TxContext 
     ) {
-        // Ensure the vault is empty before allowing destruction
-        assert!(value(&vault.balance) == 0, EVAULT_NOT_EMPTY);
-
-        let vault_id = object::id(&vault);
-        let destroyer_address = sender(ctx);
-
-        // Unpack the vault struct to get the UID for deletion
         let EscrowVault { id, balance } = vault;
-        balance::destroy_zero(balance); // Destroy the zero balance object
-        delete(id); // Delete the EscrowVault object itself
-
-        event::emit(VaultDestroyed {
-            vault_id,
-            destroyed_by: destroyer_address
+        let balance_amount = balance_value(&balance);
+        assert!(balance_amount == 0, EVAULT_NOT_EMPTY);
+        
+        // Fixed: using object::uid_to_inner instead of id()
+        let vault_id = object::uid_to_inner(&id);
+        event::emit(VaultDestroyed { 
+            vault_id, 
+            destroyed_by: tx_context::sender(ctx) 
         });
+        
+        sui::balance::destroy_zero(balance);
+        object::delete(id);
     }
-
 
     // === Package-Protected Functions ===
-    // (Callable only from within the 'alpha_points' package)
-
-    /// Deposits a Coin<T> into the specified EscrowVault.
-    /// Called by other modules within the package (e.g., integration::route_stake).
-    public(package) fun deposit<T: store>(
-        vault: &mut EscrowVault<T>,
-        coin_to_deposit: Coin<T>,
-        ctx: &TxContext
+    public(package) fun deposit<T: store>( 
+        vault: &mut EscrowVault<T>, 
+        coin_to_deposit: Coin<T>, 
+        ctx: &TxContext 
     ) {
-        let amount = coin::value(&coin_to_deposit);
-        assert!(amount > 0, EZERO_DEPOSIT);
-
-        let deposited_balance = coin::into_balance(coin_to_deposit);
-        join(&mut vault.balance, deposited_balance);
-
-        // Emit event using the sender of the current transaction context
-        event::emit(EscrowDeposited<T> {
-            vault_id: object::id(vault),
-            amount,
-            by: sender(ctx) // The address executing this deposit action
+        let deposit_amount = sui::coin::value(&coin_to_deposit);
+        assert!(deposit_amount > 0, EZERO_DEPOSIT);
+        
+        let coin_balance = sui::coin::into_balance(coin_to_deposit);
+        sui::balance::join(&mut vault.balance, coin_balance);
+        
+        // Fixed: using object::uid_to_inner instead of id()
+        let vault_id = object::uid_to_inner(&vault.id);
+        event::emit(EscrowDeposited<T> { 
+            vault_id, 
+            amount: deposit_amount, 
+            by: tx_context::sender(ctx) 
         });
     }
-
-    /// Withdraws a specified amount of assets from the EscrowVault, returning a Coin<T>.
-    /// Transfers the withdrawn Coin<T> to the specified recipient address.
-    /// Called by other modules within the package (e.g., integration::redeem_stake, integration::redeem_points).
-    public(package) fun withdraw<T: store>(
-        vault: &mut EscrowVault<T>,
-        amount: u64,
-        recipient: address,
-        ctx: &TxContext
+    
+    public(package) fun withdraw<T: store>( 
+        vault: &mut EscrowVault<T>, 
+        amount: u64, 
+        recipient: address, 
+        ctx: &mut TxContext 
     ) {
-        // Amount > 0 check can often be omitted if the calling logic ensures it,
-        // or rely on balance::split potentially handling 0 amount gracefully (check Sui docs).
-        // Adding it for explicit safety:
-        assert!(amount > 0, EZERO_DEPOSIT); // Reusing EZERO_DEPOSIT or add specific withdraw error
-
-        assert!(value(&vault.balance) >= amount, EINSUFFICIENT_FUNDS);
-
-        let withdrawn_balance = split(&mut vault.balance, amount);
-        let withdrawn_coin = coin::from_balance(withdrawn_balance, ctx);
-
-        let withdrawer_address = sender(ctx);
-
-        event::emit(EscrowWithdrawn<T> {
-            vault_id: object::id(vault),
-            amount,
-            by: withdrawer_address, // The address executing this withdraw action
-            recipient // The address receiving the withdrawn coin
+        assert!(balance_value(&vault.balance) >= amount, EINSUFFICIENT_FUNDS);
+        
+        let withdrawn_balance = sui::balance::split(&mut vault.balance, amount);
+        let withdrawn_coin = sui::coin::from_balance(withdrawn_balance, ctx);
+        
+        // Fixed: using object::uid_to_inner instead of id()
+        let vault_id = object::uid_to_inner(&vault.id);
+        event::emit(EscrowWithdrawn<T> { 
+            vault_id, 
+            amount, 
+            by: tx_context::sender(ctx), 
+            recipient 
         });
-
-        // Transfer the newly created coin to the recipient
-        public_transfer(withdrawn_coin, recipient);
+        
+        sui::transfer::public_transfer(withdrawn_coin, recipient);
     }
 
     // === Public View Functions ===
-
-    /// Returns the total balance of assets held within the EscrowVault.
-    public fun total_value<T>(vault: &EscrowVault<T>): u64 {
-        value(&vault.balance)
+    public fun total_value<T>(vault: &EscrowVault<T>): u64 { 
+        balance_value(&vault.balance) 
     }
 }
 
-// === Test Submodule (Optional but Recommended) ===
+// === Test Submodule ===
 #[test_only]
 module alpha_points::escrow_tests {
-    use sui::test_scenario::{Self, Scenario, next_tx, ctx, take_shared, return_shared, take_from_sender, return_to_sender, inventory_contains};
-    use sui::coin::{Self, Coin, mint_for_testing, burn_for_testing};
-    use sui::balance::value;
-    use sui::object::id;
+    use sui::test_scenario::{
+        Self, Scenario, next_tx, ctx, take_shared, return_shared, 
+        take_from_sender, return_to_sender, end as end_scenario, begin
+    };
+    use sui::coin::{Coin, mint_for_testing, burn_for_testing, value as coin_value};
 
-    use alpha_points::admin::{Self as admin, GovernCap}; // Import admin module for testing
-    use alpha_points::escrow::{Self, EscrowVault, VaultCreated, EscrowDeposited, EscrowWithdrawn, VaultDestroyed, EZERO_DEPOSIT, EINSUFFICIENT_FUNDS, EVAULT_NOT_EMPTY};
+    use alpha_points::admin::{GovernCap, OracleCap, init}; // Need admin module for setup
+    use alpha_points::escrow::{
+        Self, EscrowVault, total_value, deposit, withdraw, 
+        destroy_empty_escrow_vault, create_escrow_vault, 
+        EVAULT_NOT_EMPTY, EINSUFFICIENT_FUNDS
+    }; // Import needed items
 
-    // Test addresses
-    const ADMIN: address = @0xA1;
-    const USER1: address = @0xB1;
-    const USER2: address = @0xB2;
+    const ADMIN_ADDR: address = @0xA1;
+    const USER1_ADDR: address = @0xB1;
+    const USER2_ADDR: address = @0xB2;
 
-    // Test coin type
-    struct TEST_COIN {}
+    // Test coin type needs public and store
+    public struct TEST_COIN has store, drop {}
 
     // Helper to initialize admin and get GovernCap
-    fun init_admin_get_cap(scenario: &mut Scenario): GovernCap {
-        next_tx(scenario, ADMIN);
-        admin::init(ctx(scenario));
-        take_from_sender<GovernCap>(scenario) // Take gov cap, ignore others for escrow tests
+    fun setup_admin_get_cap(scenario: &mut Scenario): GovernCap {
+        next_tx(scenario, ADMIN_ADDR);
+        
+        // Initialize admin module directly for testing
+        init(ctx(scenario));
+        
+        // Fixed: properly handle OracleCap by transferring it back to sender
+        let oracle_cap = take_from_sender<OracleCap>(scenario);
+        return_to_sender(scenario, oracle_cap);
+        
+        take_from_sender<GovernCap>(scenario)
     }
 
     #[test]
     fun test_create_vault_and_deposit_withdraw() {
-        let scenario = test_scenario::begin(ADMIN);
-        let gov_cap = init_admin_get_cap(&mut scenario);
+        let scenario = begin(ADMIN_ADDR);
+        let gov_cap = setup_admin_get_cap(&mut scenario);
 
-        // Create vault
-        next_tx(&mut scenario, ADMIN);
-        escrow::create_escrow_vault<TEST_COIN>(&gov_cap, ctx(&mut scenario));
-        let vault = take_shared<EscrowVault<TEST_COIN>>(&mut scenario);
-        assert!(escrow::total_value(&vault) == 0, 0);
+        next_tx(&mut scenario, ADMIN_ADDR);
+        create_escrow_vault<TEST_COIN>(&gov_cap, ctx(&mut scenario)); // Call directly
+        let mut vault = take_shared<EscrowVault<TEST_COIN>>(&scenario);
+        assert!(total_value(&vault) == 0, 0);
 
-        // Deposit
-        next_tx(&mut scenario, USER1);
+        next_tx(&mut scenario, USER1_ADDR);
         let coin = mint_for_testing<TEST_COIN>(100, ctx(&mut scenario));
-        escrow::deposit(&mut vault, coin, ctx(&mut scenario));
-        assert!(escrow::total_value(&vault) == 100, 1);
+        deposit(&mut vault, coin, ctx(&mut scenario)); // Call directly
+        assert!(total_value(&vault) == 100, 1);
 
-        // Withdraw
-        next_tx(&mut scenario, USER2); // Simulate another user/contract withdrawing
-        escrow::withdraw(&mut vault, 70, USER2, ctx(&mut scenario)); // Withdraw to USER2
-        assert!(escrow::total_value(&vault) == 30, 2); // 100 - 70 = 30 left
+        next_tx(&mut scenario, USER2_ADDR); // Simulate another user/contract withdrawing
+        withdraw(&mut vault, 70, USER2_ADDR, ctx(&mut scenario)); // Call directly
+        assert!(total_value(&vault) == 30, 2);
 
-        // Verify USER2 received the coin
-        assert!(inventory_contains<Coin<TEST_COIN>>(&scenario, USER2), 3);
+        // Verify USER2 received the coin by taking it
+        let received_coin = take_from_sender<Coin<TEST_COIN>>(&scenario);
+        assert!(coin_value(&received_coin) == 70, 3);
+        burn_for_testing(received_coin); // Clean up
 
-        // Cleanup
         return_shared(vault);
-        return_to_sender(&mut scenario, gov_cap); // Return gov cap to ADMIN
-        test_scenario::end(scenario); // Automatically cleans up USER2's coin
+        return_to_sender(&mut scenario, gov_cap);
+        end_scenario(scenario);
     }
 
-     #[test]
-     #[expected_failure(abort_code = escrow::EINSUFFICIENT_FUNDS)]
+    #[test]
+    #[expected_failure(abort_code = EINSUFFICIENT_FUNDS)] // Use code from escrow module
     fun test_withdraw_insufficient_funds() {
-        let scenario = test_scenario::begin(ADMIN);
-        let gov_cap = init_admin_get_cap(&mut scenario);
+        let scenario = begin(ADMIN_ADDR);
+        let gov_cap = setup_admin_get_cap(&mut scenario);
 
-        // Create vault
-        next_tx(&mut scenario, ADMIN);
-        escrow::create_escrow_vault<TEST_COIN>(&gov_cap, ctx(&mut scenario));
-        let vault = take_shared<EscrowVault<TEST_COIN>>(&mut scenario);
+        next_tx(&mut scenario, ADMIN_ADDR);
+        create_escrow_vault<TEST_COIN>(&gov_cap, ctx(&mut scenario));
+        let mut vault = take_shared<EscrowVault<TEST_COIN>>(&scenario);
 
-        // Deposit 50
-        next_tx(&mut scenario, USER1);
+        next_tx(&mut scenario, USER1_ADDR);
         let coin = mint_for_testing<TEST_COIN>(50, ctx(&mut scenario));
-        escrow::deposit(&mut vault, coin, ctx(&mut scenario));
+        deposit(&mut vault, coin, ctx(&mut scenario));
 
-        // Try to withdraw 100 (fails)
-        next_tx(&mut scenario, USER1);
-        escrow::withdraw(&mut vault, 100, USER1, ctx(&mut scenario));
+        next_tx(&mut scenario, USER1_ADDR);
+        withdraw(&mut vault, 100, USER1_ADDR, ctx(&mut scenario)); // Fails
 
-        // Cleanup (won't be reached)
+        // Cleanup (won't reach)
         return_shared(vault);
         return_to_sender(&mut scenario, gov_cap);
-        test_scenario::end(scenario);
+        end_scenario(scenario);
     }
 
-     #[test]
+    #[test]
     fun test_destroy_empty_vault() {
-        let scenario = test_scenario::begin(ADMIN);
-        let gov_cap = init_admin_get_cap(&mut scenario);
+        let scenario = begin(ADMIN_ADDR);
+        let gov_cap = setup_admin_get_cap(&mut scenario);
 
-        // Create vault
-        next_tx(&mut scenario, ADMIN);
-        escrow::create_escrow_vault<TEST_COIN>(&gov_cap, ctx(&mut scenario));
-        let vault = take_shared<EscrowVault<TEST_COIN>>(&mut scenario);
-        let vault_id = id(&vault);
+        next_tx(&mut scenario, ADMIN_ADDR);
+        create_escrow_vault<TEST_COIN>(&gov_cap, ctx(&mut scenario));
+        let vault = take_shared<EscrowVault<TEST_COIN>>(&scenario);
 
-        // Destroy vault (should succeed as it's empty)
-        escrow::destroy_empty_escrow_vault<TEST_COIN>(&gov_cap, vault, ctx(&mut scenario));
+        destroy_empty_escrow_vault<TEST_COIN>(&gov_cap, vault, ctx(&mut scenario)); // Consumes vault
 
-        // Verify vault is gone (attempting to take it again would fail, difficult to test directly)
-        // Test framework should handle object deletion checks implicitly if end() passes.
-
-        // Cleanup
         return_to_sender(&mut scenario, gov_cap);
-        test_scenario::end(scenario);
+        end_scenario(scenario);
     }
 
-     #[test]
-     #[expected_failure(abort_code = escrow::EVAULT_NOT_EMPTY)]
+    #[test]
+    #[expected_failure(abort_code = EVAULT_NOT_EMPTY)] // Use code from escrow module
     fun test_destroy_non_empty_vault_fails() {
-        let scenario = test_scenario::begin(ADMIN);
-        let gov_cap = init_admin_get_cap(&mut scenario);
+        let scenario = begin(ADMIN_ADDR);
+        let gov_cap = setup_admin_get_cap(&mut scenario);
 
-        // Create vault
-        next_tx(&mut scenario, ADMIN);
-        escrow::create_escrow_vault<TEST_COIN>(&gov_cap, ctx(&mut scenario));
-        let mut vault = take_shared<EscrowVault<TEST_COIN>>(&mut scenario);
+        next_tx(&mut scenario, ADMIN_ADDR);
+        create_escrow_vault<TEST_COIN>(&gov_cap, ctx(&mut scenario));
+        let mut vault = take_shared<EscrowVault<TEST_COIN>>(&scenario);
 
-        // Deposit
-        next_tx(&mut scenario, USER1);
+        next_tx(&mut scenario, USER1_ADDR);
         let coin = mint_for_testing<TEST_COIN>(1, ctx(&mut scenario));
-        escrow::deposit(&mut vault, coin, ctx(&mut scenario));
+        deposit(&mut vault, coin, ctx(&mut scenario));
 
-        // Try to destroy (should fail)
-        next_tx(&mut scenario, ADMIN);
-        escrow::destroy_empty_escrow_vault<TEST_COIN>(&gov_cap, vault, ctx(&mut scenario));
+        next_tx(&mut scenario, ADMIN_ADDR);
+        // Need to take shared object again to pass by value
+        return_shared(vault);
+        let vault_to_destroy = take_shared<EscrowVault<TEST_COIN>>(&scenario);
+        destroy_empty_escrow_vault<TEST_COIN>(&gov_cap, vault_to_destroy, ctx(&mut scenario)); // Fails
 
-        // Cleanup (won't be reached)
+        // Cleanup (won't reach)
         return_to_sender(&mut scenario, gov_cap);
-        test_scenario::end(scenario);
+        end_scenario(scenario);
     }
 }
