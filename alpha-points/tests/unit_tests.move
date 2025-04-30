@@ -23,6 +23,7 @@ module alpha_points::alpha_points_unit_tests { // Renamed module
 
     // === Test Constants ===
     // Only define test addresses
+    #[allow(unused_const)]
     const DUMMY_ADDR_1: address = @0xAAA;
 
     // Define dummy asset type within the test module
@@ -68,13 +69,13 @@ module alpha_points::alpha_points_unit_tests { // Renamed module
     }
 
     #[test]
-    #[expected_failure(abort_code = ledger::invalid_math_params_error())] // Fixed error syntax
+    #[expected_failure(abort_code = 5)] // Use numeric code instead of function call
     fun test_ledger_calculate_points_fail_zero_input() {
         ledger::calculate_points(100, 0, 1, 1);
     }
 
     #[test]
-    #[expected_failure(abort_code = ledger::emission_overflow_error())] // Fixed error syntax
+    #[expected_failure(abort_code = 6)] // Use numeric code instead of function call
     fun test_ledger_calculate_points_fail_overflow() {
         // Create values that would cause overflow
         let principal = 18446744073709551615; // Max u64
@@ -107,7 +108,7 @@ module alpha_points::alpha_points_unit_tests { // Renamed module
     }
 
     #[test]
-    #[expected_failure(abort_code = oracle::conversion_overflow_error())] // Fixed error syntax
+    #[expected_failure(abort_code = 6)] // Use numeric code instead of function call
     fun test_oracle_convert_points_overflow() {
         let points = 18446744073709551615; // Max u64
         let rate = 2000000000000000000; // 2.0 in fixed point

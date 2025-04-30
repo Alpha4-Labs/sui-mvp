@@ -20,8 +20,8 @@ module alpha_points::admin {
     // === Errors ===
     const ECONFIG_PAUSED: u64 = 2;
 
-    // === Init === (Changed to internal function so it can be called properly)
-    fun init(ctx: &mut TxContext) {
+    // === Init === (Changed to public(package) function so it can be called properly)
+    public(package) fun init(ctx: &mut TxContext) {
         let sender_address = tx_context::sender(ctx);
         let gov_cap = GovernCap { id: object::new(ctx) };
         let oracle_cap = OracleCap { id: object::new(ctx) };
@@ -167,10 +167,6 @@ module alpha_points::admin_tests {
         return_to_sender(&mut scenario, oracle_cap);
         end_scenario(scenario);
     }
-}sender(&mut scenario, gov_cap);
-        return_to_sender(&mut scenario, oracle_cap);
-        end_scenario(scenario);
-    }
 
     #[test]
     #[expected_failure] // Rely on framework check for missing capability
@@ -253,5 +249,8 @@ module alpha_points::admin_tests {
         assert_not_paused(&config);
         
         return_shared(config);
-        return_to_
+        return_to_sender(&mut scenario, gov_cap);
+        return_to_sender(&mut scenario, oracle_cap);
+        end_scenario(scenario);
     }
+}

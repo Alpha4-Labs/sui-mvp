@@ -12,7 +12,7 @@ module alpha_points::lz_bridge {
 
     // === Structs ===
     public struct LZConfig has key {
-        id: UID,
+        id: object::UID,
         enabled: bool,
         lz_app_address: address,
         trusted_remotes: vector<TrustedRemote>,
@@ -31,7 +31,7 @@ module alpha_points::lz_bridge {
 
     // === Events ===
     public struct LZConfigUpdated has copy, drop {
-        config_id: ID, 
+        config_id: object::ID, 
         enabled: bool, 
         updated_by: address,
     }
@@ -76,7 +76,7 @@ module alpha_points::lz_bridge {
         _gov_cap: &GovernCap,
         lz_app_address: address,
         enabled: bool,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         let config = LZConfig {
             id: object::new(ctx),
@@ -96,7 +96,7 @@ module alpha_points::lz_bridge {
         destination_lz_chain_id: u16,
         recipient_address: address,
         points_amount: u64,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol not paused
         assert_not_paused(admin_config);
@@ -146,7 +146,7 @@ module alpha_points::lz_bridge {
         source_lz_chain_id: u16, 
         _source_address_bytes: vector<u8>, 
         payload: vector<u8>,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Security checks
         assert!(tx_context::sender(ctx) == lz_config.lz_app_address, EUNAUTHORIZED);
@@ -181,7 +181,7 @@ module alpha_points::lz_bridge {
         lz_config: &mut LZConfig, 
         _gov_cap: &GovernCap, 
         enabled: bool, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         lz_config.enabled = enabled;
         
@@ -199,7 +199,7 @@ module alpha_points::lz_bridge {
         _gov_cap: &GovernCap, 
         chain_id: u16, 
         remote_address: vector<u8>,
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         // Remove existing entry if present
         let (found, i) = find_trusted_remote_index(lz_config, chain_id);
@@ -225,7 +225,7 @@ module alpha_points::lz_bridge {
         lz_config: &mut LZConfig, 
         _gov_cap: &GovernCap, 
         chain_id: u16,
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         let (found, i) = find_trusted_remote_index(lz_config, chain_id);
         assert!(found, EREMOTE_NOT_TRUSTED);
@@ -273,8 +273,4 @@ module alpha_points::lz_bridge {
             points_amount: 100, // dummy amount
         }
     }
-    
-    // Add missing imports at the top to fix compilation
-    use sui::object::{UID, ID};
-    use sui::tx_context::TxContext;
 }

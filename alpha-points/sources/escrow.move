@@ -119,12 +119,13 @@ module alpha_points::escrow {
 #[test_only]
 module alpha_points::escrow_tests {
     use sui::test_scenario::{
-        Self, Scenario, next_tx, ctx, take_shared, return_shared, 
+        Scenario, next_tx, ctx, take_shared, return_shared, 
         take_from_sender, return_to_sender, end as end_scenario, begin
     };
     use sui::coin::{Coin, mint_for_testing, burn_for_testing, value as coin_value};
 
-    use alpha_points::admin::{GovernCap, OracleCap, init}; // Need admin module for setup
+    // Use admin's test_only init instead of calling the internal function directly
+    use alpha_points::admin::{GovernCap, OracleCap, init_for_testing}; 
     use alpha_points::escrow::{
         Self, EscrowVault, total_value, deposit, withdraw, 
         destroy_empty_escrow_vault, create_escrow_vault, 
@@ -142,8 +143,8 @@ module alpha_points::escrow_tests {
     fun setup_admin_get_cap(scenario: &mut Scenario): GovernCap {
         next_tx(scenario, ADMIN_ADDR);
         
-        // Initialize admin module directly for testing
-        init(ctx(scenario));
+        // Initialize admin module using the test function
+        init_for_testing(ctx(scenario));
         
         // Fixed: properly handle OracleCap by transferring it back to sender
         let oracle_cap = take_from_sender<OracleCap>(scenario);

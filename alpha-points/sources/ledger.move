@@ -98,9 +98,9 @@ module alpha_points::ledger {
         user_balance_ref.available = user_balance_ref.available - amount;
         
         // Decrease total supply - Fixed: Create a Balance<T> and pass that
-        let points_balance = balance::create_for_testing<AlphaPointTag>(amount);
-        let balance_to_burn = balance::decrease_supply(&mut ledger.point_supply, points_balance);
-        balance::destroy_for_testing(balance_to_burn);
+        let points_balance = balance::decrease_supply(&mut ledger.point_supply, balance::create_for_testing<AlphaPointTag>(amount));
+        // Properly destroy the balance that was returned from decrease_supply
+        let _ = balance::destroy_for_testing(points_balance);
         
         event::emit(Spent { 
             caller: caller_address, 
@@ -247,4 +247,3 @@ module alpha_points::ledger {
     public fun init_for_testing(ctx: &mut TxContext) {
         init(ctx)
     }
-}
