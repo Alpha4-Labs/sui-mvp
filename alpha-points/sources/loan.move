@@ -1,7 +1,7 @@
 // loan.move - Loan against staked positions (Phase 2)
 module alpha_points::loan {
-    use sui::object::{UID, ID};
-    use sui::tx_context::TxContext;
+    use sui::object;
+    use sui::tx_context;
     use sui::transfer::share_object;
     use sui::clock::Clock;
     use sui::event;
@@ -20,16 +20,16 @@ module alpha_points::loan {
 
     // === Structs ===
     public struct Loan<phantom T> has key, store { 
-        id: UID, 
+        id: object::UID, 
         borrower: address, 
-        stake_id: ID, 
+        stake_id: object::ID, 
         principal_points: u64, 
         interest_rate_bps: u64, 
         opened_epoch: u64 
     }
     
     public struct LoanConfig has key { 
-        id: UID, 
+        id: object::UID, 
         max_ltv_bps: u64, 
         min_interest_rate_bps: u64, 
         max_interest_rate_bps: u64 
@@ -37,16 +37,16 @@ module alpha_points::loan {
 
     // === Events ===
     public struct LoanOpened<phantom T> has copy, drop { 
-        loan_id: ID, 
+        loan_id: object::ID, 
         borrower: address, 
-        stake_id: ID, 
+        stake_id: object::ID, 
         principal_points: u64, 
         interest_rate_bps: u64, 
         opened_epoch: u64 
     }
     
     public struct LoanRepaid has copy, drop { 
-        loan_id: ID, 
+        loan_id: object::ID, 
         borrower: address, 
         principal_points: u64, 
         interest_points: u64, 
@@ -55,14 +55,14 @@ module alpha_points::loan {
     }
     
     public struct LoanConfigCreated has copy, drop { 
-        config_id: ID, 
+        config_id: object::ID, 
         max_ltv_bps: u64, 
         min_interest_rate_bps: u64, 
         max_interest_rate_bps: u64 
     }
     
     public struct LoanConfigUpdated has copy, drop { 
-        config_id: ID, 
+        config_id: object::ID, 
         max_ltv_bps: u64, 
         min_interest_rate_bps: u64, 
         max_interest_rate_bps: u64 
@@ -86,7 +86,7 @@ module alpha_points::loan {
         max_ltv_bps: u64, 
         min_interest_rate_bps: u64, 
         max_interest_rate_bps: u64, 
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Validate parameters
         assert!(
@@ -127,7 +127,7 @@ module alpha_points::loan {
         loan_amount: u64,
         interest_rate_bps: u64,
         _clock: &Clock,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol not paused
         assert_not_paused(admin_config);
@@ -194,7 +194,7 @@ module alpha_points::loan {
         loan: Loan<T>, 
         stake: &mut StakePosition<T>, 
         _clock: &Clock, 
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol not paused
         assert_not_paused(admin_config);
@@ -244,7 +244,7 @@ module alpha_points::loan {
         max_ltv_bps: u64, 
         min_interest_rate_bps: u64, 
         max_interest_rate_bps: u64, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         // Validate parameters
         assert!(
@@ -272,7 +272,7 @@ module alpha_points::loan {
 
     // === Helper / Package Visible Function ===
     // Public getter function for loan details - added to fix test errors
-    public fun get_loan_details<T>(loan: &Loan<T>): (address, ID, u64, u64, u64) {
+    public fun get_loan_details<T>(loan: &Loan<T>): (address, object::ID, u64, u64, u64) {
         (loan.borrower, loan.stake_id, loan.principal_points, loan.interest_rate_bps, loan.opened_epoch)
     }
 

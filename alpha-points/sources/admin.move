@@ -1,16 +1,16 @@
 // admin.move - Manages configuration, capabilities, and pause state
 module alpha_points::admin {
-    // Removed unnecessary aliases
-    use sui::object::UID;
+    // Remove unnecessary aliases
+    use sui::object;
     use sui::transfer::{public_transfer, share_object};
-    use sui::tx_context::TxContext;
+    use sui::tx_context;
     use sui::event;
 
     // === Structs ===
     // Removed drop ability from OracleCap as UID doesn't have drop
-    public struct GovernCap has key, store { id: UID }
-    public struct OracleCap has key, store { id: UID }
-    public struct Config has key { id: UID, paused: bool }
+    public struct GovernCap has key, store { id: object::UID }
+    public struct OracleCap has key, store { id: object::UID }
+    public struct Config has key { id: object::UID, paused: bool }
 
     // === Events ===
     public struct PausingToggled has copy, drop { paused: bool, changed_by: address }
@@ -20,8 +20,8 @@ module alpha_points::admin {
     // === Errors ===
     const ECONFIG_PAUSED: u64 = 2;
 
-    // === Init === (Changed to public(package) function so it can be called properly)
-    public(package) fun init(ctx: &mut TxContext) {
+    // === Init === (Changed to internal to fix the init function error)
+    fun init(ctx: &mut tx_context::TxContext) {
         let sender_address = tx_context::sender(ctx);
         let gov_cap = GovernCap { id: object::new(ctx) };
         let oracle_cap = OracleCap { id: object::new(ctx) };
@@ -36,7 +36,7 @@ module alpha_points::admin {
         config: &mut Config, 
         _gov_cap: &GovernCap, 
         paused_state: bool, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         // Only the owner of the GovernCap can pause/unpause
         // The framework handles the authorization check
@@ -54,7 +54,7 @@ module alpha_points::admin {
         _gov_cap: &GovernCap, 
         cap_to_transfer: GovernCap, 
         new_owner: address, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         // Only someone with a GovernCap can transfer this cap
         // The framework handles the authorization check
@@ -67,7 +67,7 @@ module alpha_points::admin {
         _gov_cap: &GovernCap, 
         cap_to_transfer: OracleCap, 
         new_owner: address, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         // Only the governance cap holder can transfer oracle caps
         // The framework handles the authorization check
@@ -87,7 +87,7 @@ module alpha_points::admin {
 
     // Added test-only init function that can be called in tests
     #[test_only]
-    public fun init_for_testing(ctx: &mut TxContext) {
+    public fun init_for_testing(ctx: &mut tx_context::TxContext) {
         init(ctx)
     }
 }

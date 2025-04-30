@@ -1,7 +1,7 @@
 // integration.move - Public entry points for the Alpha Points protocol
 module alpha_points::integration {
-    use sui::object::ID;
-    use sui::tx_context::TxContext;
+    use sui::object;
+    use sui::tx_context;
     use sui::coin::Coin;
     use sui::clock::Clock;
     use sui::event;
@@ -22,8 +22,8 @@ module alpha_points::integration {
     };
 
     // === Events ===
-    public struct StakeRouted<phantom T> has copy, drop { user: address, amount: u64, duration_epochs: u64, stake_id: ID }
-    public struct StakeRedeemed<phantom T> has copy, drop { user: address, amount: u64, stake_id: ID }
+    public struct StakeRouted<phantom T> has copy, drop { user: address, amount: u64, duration_epochs: u64, stake_id: object::ID }
+    public struct StakeRedeemed<phantom T> has copy, drop { user: address, amount: u64, stake_id: object::ID }
     public struct PointsRedeemed<phantom T> has copy, drop { user: address, points_amount: u64, asset_amount: u64, asset_type: TypeName }
 
     // === Errors ===
@@ -40,7 +40,7 @@ module alpha_points::integration {
         asset_coin: Coin<T>, 
         duration_epochs: u64, 
         clock: &Clock, 
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Fixed: use ledger parameter since it's required
         // This prevents "unused parameter" warning
@@ -88,7 +88,7 @@ module alpha_points::integration {
         escrow_vault: &mut EscrowVault<T>, 
         stake: StakePosition<T>, 
         clock: &Clock, 
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol not paused
         assert_not_paused(config);
@@ -125,7 +125,7 @@ module alpha_points::integration {
         _auth_cap: &PartnerCap, 
         user: address, 
         points_to_earn: u64, 
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol not paused
         assert_not_paused(config);
@@ -144,7 +144,7 @@ module alpha_points::integration {
         config: &Config, 
         ledger: &mut Ledger, 
         points_to_spend: u64, 
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol not paused
         assert_not_paused(config);
@@ -164,7 +164,7 @@ module alpha_points::integration {
         oracle: &RateOracle,
         points_to_redeem: u64,
         clock: &Clock,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         assert_not_paused(config);
         assert!(points_to_redeem > 0, EINVALID_AMOUNT);
@@ -191,7 +191,7 @@ module alpha_points::integration {
         config: &Config,
         ledger: &mut Ledger,
         points_to_lock: u64,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol not paused
         assert_not_paused(config);
@@ -208,7 +208,7 @@ module alpha_points::integration {
         config: &Config,
         ledger: &mut Ledger,
         points_to_unlock: u64,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol not paused
         assert_not_paused(config);

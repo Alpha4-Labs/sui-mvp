@@ -25,7 +25,7 @@ module alpha_points::alpha_points_ptb_tests { // Keep unique module name
     use alpha_points::loan;
 
     // Import specific types needed
-    use alpha_points::admin::{Config, GovernCap, OracleCap, config_paused_error_code};
+    use alpha_points::admin::{Config, GovernCap, OracleCap};
     use alpha_points::partner::PartnerCap;
     use alpha_points::ledger::Ledger;
     use alpha_points::escrow::EscrowVault;
@@ -37,6 +37,8 @@ module alpha_points::alpha_points_ptb_tests { // Keep unique module name
     const ADMIN_ADDR: address = @0xA1;
     const USER1_ADDR: address = @0xB1;
     const PARTNER1_ADDR: address = @0xC1;
+    // Added constant for the pause error code
+    const CONFIG_PAUSED_ERROR: u64 = 2;
 
     // Test Asset Type - Needs public for test module scope
     public struct USDC has store, drop {}
@@ -292,7 +294,7 @@ module alpha_points::alpha_points_ptb_tests { // Keep unique module name
     }
 
     #[test]
-    #[expected_failure(abort_code = config_paused_error_code())] // Using error code getter
+    #[expected_failure(abort_code = CONFIG_PAUSED_ERROR)] // Fixed: Use direct constant instead of function call
     fun test_pause_mechanism() {
         let scenario = begin(ADMIN_ADDR);
         let (mut admin_config, mut ledger_obj, loan_config_obj, escrow_vault_obj, rate_oracle_obj,

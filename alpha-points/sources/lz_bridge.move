@@ -1,7 +1,7 @@
 // lz_bridge.move - Placeholder for LayerZero cross-chain integration
 // #[cfg(feature = lz_bridge)] // Commented out until feature defined
 module alpha_points::lz_bridge {
-    // Removed unnecessary aliases and use proper qualified imports
+    // Use direct imports instead of aliases for standard modules
     use sui::object;
     use sui::tx_context;
     use sui::transfer::share_object;

@@ -3,8 +3,7 @@
 module alpha_points::alpha_points_unit_tests { // Renamed module
 
     // === Imports ===
-    use sui::clock::Clock;
-    // Removed unnecessary aliases
+    // Remove unused imports
     
     // Import specific functions via module accessors instead of direct imports
     // Use public getters for constants
@@ -12,19 +11,18 @@ module alpha_points::alpha_points_unit_tests { // Renamed module
     // Ledger module
     use alpha_points::ledger;
     
-    // Stake position module
-    use alpha_points::stake_position;
-    
     // Oracle module
     use alpha_points::oracle;
     
-    // Loan module
-    use alpha_points::loan;
-
     // === Test Constants ===
     // Only define test addresses
-    #[allow(unused_const)]
     const DUMMY_ADDR_1: address = @0xAAA;
+
+    // Define error codes as constants for better expected_failure attributes
+    const INVALID_MATH_PARAMS_ERROR: u64 = 5;
+    const EMISSION_OVERFLOW_ERROR: u64 = 6;
+    const ORACLE_INVALID_RATE_ERROR: u64 = 1;
+    const ORACLE_CONVERSION_OVERFLOW_ERROR: u64 = 6;
 
     // Define dummy asset type within the test module
     public struct USDC has store, drop {} // Needs public for use in other module struct tests
@@ -69,13 +67,13 @@ module alpha_points::alpha_points_unit_tests { // Renamed module
     }
 
     #[test]
-    #[expected_failure(abort_code = 5)] // Use numeric code instead of function call
+    #[expected_failure(abort_code = INVALID_MATH_PARAMS_ERROR, location=ledger)]
     fun test_ledger_calculate_points_fail_zero_input() {
         ledger::calculate_points(100, 0, 1, 1);
     }
 
     #[test]
-    #[expected_failure(abort_code = 6)] // Use numeric code instead of function call
+    #[expected_failure(abort_code = EMISSION_OVERFLOW_ERROR, location=ledger)]
     fun test_ledger_calculate_points_fail_overflow() {
         // Create values that would cause overflow
         let principal = 18446744073709551615; // Max u64
@@ -108,7 +106,7 @@ module alpha_points::alpha_points_unit_tests { // Renamed module
     }
 
     #[test]
-    #[expected_failure(abort_code = 6)] // Use numeric code instead of function call
+    #[expected_failure(abort_code = ORACLE_CONVERSION_OVERFLOW_ERROR, location=oracle)]
     fun test_oracle_convert_points_overflow() {
         let points = 18446744073709551615; // Max u64
         let rate = 2000000000000000000; // 2.0 in fixed point

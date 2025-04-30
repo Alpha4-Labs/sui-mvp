@@ -1,7 +1,7 @@
 // oracle.move - Manages conversion rates or other external data
 module alpha_points::oracle {
-    use sui::object::{UID, ID};
-    use sui::tx_context::{TxContext, epoch};
+    use sui::object;
+    use sui::tx_context::{Self, TxContext, epoch};
     use sui::transfer::share_object;
     use sui::event;
     use sui::clock::Clock;
@@ -15,7 +15,7 @@ module alpha_points::oracle {
 
     // === Structs ===
     public struct RateOracle has key {
-        id: UID,
+        id: object::UID,
         base_rate: u128,
         decimals: u8,
         last_update_epoch: u64,
@@ -24,16 +24,16 @@ module alpha_points::oracle {
 
     // === Events ===
     public struct OracleCreated has copy, drop {
-        oracle_id: ID,
+        oracle_id: object::ID,
         initial_rate: u128,
     }
     public struct RateUpdated has copy, drop {
-        oracle_id: ID,
+        oracle_id: object::ID,
         new_rate: u128,
         by: address,
     }
     public struct StalenessThresholdUpdated has copy, drop {
-        oracle_id: ID,
+        oracle_id: object::ID,
         old_threshold: u64,
         new_threshold: u64,
         updater: address,

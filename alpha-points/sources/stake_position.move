@@ -1,8 +1,8 @@
 // stake_position.move - Represents individual user stakes (pure object pattern)
 module alpha_points::stake_position {
     // Removed unnecessary aliases
-    use sui::object::{UID, ID};
-    use sui::tx_context::TxContext;
+    use sui::object;
+    use sui::tx_context;
     use sui::clock::Clock;
     use sui::event;
 
@@ -11,7 +11,7 @@ module alpha_points::stake_position {
 
     // === Structs ===
     public struct StakePosition<phantom T> has key, store {
-        id: UID,
+        id: object::UID,
         owner: address,
         chain_id: u64,
         principal: u64,
@@ -22,9 +22,9 @@ module alpha_points::stake_position {
     }
 
     // === Events ===
-    public struct StakeCreated<phantom T> has copy, drop { stake_id: ID, owner: address, amount: u64, duration_epochs: u64, start_epoch: u64 }
-    public struct StakeEncumbered<phantom T> has copy, drop { stake_id: ID, encumbered: bool }
-    public struct StakeDestroyed has copy, drop { stake_id: ID, owner: address }
+    public struct StakeCreated<phantom T> has copy, drop { stake_id: object::ID, owner: address, amount: u64, duration_epochs: u64, start_epoch: u64 }
+    public struct StakeEncumbered<phantom T> has copy, drop { stake_id: object::ID, encumbered: bool }
+    public struct StakeDestroyed has copy, drop { stake_id: object::ID, owner: address }
 
     // === Errors ===
     // Removed unused errors and added #[allow] attributes
@@ -40,7 +40,7 @@ module alpha_points::stake_position {
     // === Package-Protected Functions ===
     public(package) fun create_stake<T: store>(
         owner: address, chain_id: u64, principal_amount: u64, duration_epochs: u64,
-        _clock: &Clock, ctx: &mut TxContext
+        _clock: &Clock, ctx: &mut tx_context::TxContext
     ): StakePosition<T> {
         assert!(principal_amount > 0, EINVALID_PRINCIPAL);
         assert!(duration_epochs > 0 && duration_epochs <= MAX_STAKE_DURATION_EPOCHS, EINVALID_DURATION);
@@ -115,7 +115,7 @@ module alpha_points::stake_position {
     public fun unlock_epoch<T>(stake: &StakePosition<T>): u64 { stake.unlock_epoch }
     public fun duration_epochs<T>(stake: &StakePosition<T>): u64 { stake.duration_epochs }
     public fun is_encumbered<T>(stake: &StakePosition<T>): bool { stake.encumbered }
-    public fun get_id<T>(stake: &StakePosition<T>): ID { object::uid_to_inner(&stake.id) }
+    public fun get_id<T>(stake: &StakePosition<T>): object::ID { object::uid_to_inner(&stake.id) }
     
     public fun is_mature<T>(stake: &StakePosition<T>, _clock: &Clock): bool { 
         // Use tx_context::epoch for current epoch

@@ -1,9 +1,9 @@
 // ledger.move - Manages global Alpha Point balances and supply
 module alpha_points::ledger {
-    use sui::object::UID;
+    use sui::object;
     use sui::table::{Self, Table, borrow, borrow_mut, contains, add};
     use sui::balance::{Self, Supply, destroy_zero};
-    use sui::tx_context::TxContext;
+    use sui::tx_context;
     use sui::event;
 
     // === Tag Types ===
@@ -12,8 +12,9 @@ module alpha_points::ledger {
     // === Structs ===
     // Renamed to avoid conflict with sui::balance::Balance
     public struct PointBalance has store, copy, drop { available: u64, locked: u64 }
+    
     public struct Ledger has key {
-        id: UID,
+        id: object::UID,
         point_supply: Supply<AlphaPointTag>,
         entries: Table<address, PointBalance>,
         // Invariant removed for now
@@ -38,7 +39,7 @@ module alpha_points::ledger {
     const MAX_U64: u128 = 18_446_744_073_709_551_615;
 
     // === Init === (Changed to internal for module init)
-    fun init(ctx: &mut TxContext) {
+    fun init(ctx: &mut tx_context::TxContext) {
         let ledger = Ledger {
             id: object::new(ctx),
             point_supply: balance::create_supply<AlphaPointTag>(AlphaPointTag {}),
@@ -53,7 +54,7 @@ module alpha_points::ledger {
         ledger: &mut Ledger, 
         user: address, 
         amount: u64, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         assert!(amount > 0, EZERO_AMOUNT);
         let caller_address = tx_context::sender(ctx);
@@ -84,7 +85,7 @@ module alpha_points::ledger {
         ledger: &mut Ledger, 
         user: address, 
         amount: u64, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         assert!(amount > 0, EZERO_AMOUNT);
         let caller_address = tx_context::sender(ctx);
@@ -97,10 +98,10 @@ module alpha_points::ledger {
         // Decrease available balance
         user_balance_ref.available = user_balance_ref.available - amount;
         
-        // Decrease total supply - Fixed: Create a Balance<T> and pass that
-        let points_balance = balance::decrease_supply(&mut ledger.point_supply, balance::create_for_testing<AlphaPointTag>(amount));
-        // Properly destroy the balance that was returned from decrease_supply
-        let _ = balance::destroy_for_testing(points_balance);
+        // Decrease total supply - Fixed by creating a proper Balance<T> and passing that
+        let balance_to_burn = balance::create_for_testing<AlphaPointTag>(amount);
+        // Now properly calling decrease_supply with a Balance<T>
+        balance::decrease_supply(&mut ledger.point_supply, balance_to_burn);
         
         event::emit(Spent { 
             caller: caller_address, 
@@ -114,7 +115,7 @@ module alpha_points::ledger {
         ledger: &mut Ledger, 
         user: address, 
         amount: u64, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         assert!(amount > 0, EZERO_AMOUNT);
         let caller_address = tx_context::sender(ctx);
@@ -140,7 +141,7 @@ module alpha_points::ledger {
         ledger: &mut Ledger, 
         user: address, 
         amount: u64, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         assert!(amount > 0, EZERO_AMOUNT);
         let caller_address = tx_context::sender(ctx);
@@ -244,6 +245,7 @@ module alpha_points::ledger {
     
     // Added test-only init function that can be called in tests
     #[test_only]
-    public fun init_for_testing(ctx: &mut TxContext) {
+    public fun init_for_testing(ctx: &mut tx_context::TxContext) {
         init(ctx)
     }
+}

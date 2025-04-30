@@ -1,22 +1,22 @@
 // escrow.move - Holds underlying assets backing points/stakes
 module alpha_points::escrow {
-    use sui::object::{Self, UID, ID};
-    use sui::coin::Coin;
+    use sui::object;
+    use sui::coin::{Coin};
     use sui::balance::{Balance, value as balance_value};
-    use sui::tx_context::{Self, TxContext};
+    use sui::tx_context;
     use sui::transfer::share_object;
     use sui::event;
 
     use alpha_points::admin::GovernCap; // Only need GovernCap
 
     // === Structs ===
-    public struct EscrowVault<phantom T> has key { id: UID, balance: Balance<T> }
+    public struct EscrowVault<phantom T> has key { id: object::UID, balance: Balance<T> }
 
     // === Events ===
-    public struct VaultCreated<phantom T> has copy, drop { vault_id: ID, creator: address }
-    public struct EscrowDeposited<phantom T> has copy, drop { vault_id: ID, amount: u64, by: address }
-    public struct EscrowWithdrawn<phantom T> has copy, drop { vault_id: ID, amount: u64, by: address, recipient: address }
-    public struct VaultDestroyed has copy, drop { vault_id: ID, destroyed_by: address }
+    public struct VaultCreated<phantom T> has copy, drop { vault_id: object::ID, creator: address }
+    public struct EscrowDeposited<phantom T> has copy, drop { vault_id: object::ID, amount: u64, by: address }
+    public struct EscrowWithdrawn<phantom T> has copy, drop { vault_id: object::ID, amount: u64, by: address, recipient: address }
+    public struct VaultDestroyed has copy, drop { vault_id: object::ID, destroyed_by: address }
 
     // === Errors ===
     const EZERO_DEPOSIT: u64 = 1;
@@ -27,7 +27,7 @@ module alpha_points::escrow {
     // === Public Functions ===
     public entry fun create_escrow_vault<T: store>( 
         _gov_cap: &GovernCap, 
-        ctx: &mut TxContext 
+        ctx: &mut tx_context::TxContext 
     ) {
         let vault_id = object::new(ctx);
         let vault = EscrowVault<T> {
@@ -48,7 +48,7 @@ module alpha_points::escrow {
     public entry fun destroy_empty_escrow_vault<T: store>( 
         _gov_cap: &GovernCap, 
         vault: EscrowVault<T>, 
-        ctx: &TxContext 
+        ctx: &tx_context::TxContext 
     ) {
         let EscrowVault { id, balance } = vault;
         let balance_amount = balance_value(&balance);
@@ -69,7 +69,7 @@ module alpha_points::escrow {
     public(package) fun deposit<T: store>( 
         vault: &mut EscrowVault<T>, 
         coin_to_deposit: Coin<T>, 
-        ctx: &TxContext 
+        ctx: &tx_context::TxContext 
     ) {
         let deposit_amount = sui::coin::value(&coin_to_deposit);
         assert!(deposit_amount > 0, EZERO_DEPOSIT);
@@ -90,7 +90,7 @@ module alpha_points::escrow {
         vault: &mut EscrowVault<T>, 
         amount: u64, 
         recipient: address, 
-        ctx: &mut TxContext 
+        ctx: &mut tx_context::TxContext 
     ) {
         assert!(balance_value(&vault.balance) >= amount, EINSUFFICIENT_FUNDS);
         
@@ -122,12 +122,12 @@ module alpha_points::escrow_tests {
         Scenario, next_tx, ctx, take_shared, return_shared, 
         take_from_sender, return_to_sender, end as end_scenario, begin
     };
-    use sui::coin::{Coin, mint_for_testing, burn_for_testing, value as coin_value};
+    use sui::coin::{mint_for_testing, burn_for_testing, value as coin_value};
 
     // Use admin's test_only init instead of calling the internal function directly
     use alpha_points::admin::{GovernCap, OracleCap, init_for_testing}; 
     use alpha_points::escrow::{
-        Self, EscrowVault, total_value, deposit, withdraw, 
+        EscrowVault, total_value, deposit, withdraw, 
         destroy_empty_escrow_vault, create_escrow_vault, 
         EVAULT_NOT_EMPTY, EINSUFFICIENT_FUNDS
     }; // Import needed items
