@@ -1,228 +1,278 @@
-// integration.move - Public entry points for the Alpha Points protocol
+/// Module that provides the main public entry points for user interactions.
+/// Orchestrates calls to other modules.
 module alpha_points::integration {
-    use sui::object;
-    use sui::tx_context;
-    use sui::coin::Coin;
-    use sui::clock::Clock;
+    use sui::tx_context::{Self, TxContext};
+    use sui::coin::{Self, Coin};
     use sui::event;
-    use std::type_name::{get, TypeName}; // Correct import for TypeName
-
-    // Import sibling modules and specific functions/structs
-    use alpha_points::admin::{Config, assert_not_paused};
-    use alpha_points::partner::PartnerCap;
-    use alpha_points::ledger::{Ledger, internal_earn, internal_spend, internal_lock, internal_unlock};
-    use alpha_points::escrow::{EscrowVault, deposit as escrow_deposit, withdraw as escrow_withdraw};
-    use alpha_points::stake_position::{
-        StakePosition, create_stake, destroy_stake, get_id as stake_get_id,
-        is_redeemable as stake_is_redeemable, owner as stake_owner
-    };
-    use alpha_points::oracle::{
-        RateOracle, is_stale as oracle_is_stale, 
-        get_rate as oracle_get_rate, convert_points_to_asset
-    };
-
-    // === Events ===
-    public struct StakeRouted<phantom T> has copy, drop { user: address, amount: u64, duration_epochs: u64, stake_id: object::ID }
-    public struct StakeRedeemed<phantom T> has copy, drop { user: address, amount: u64, stake_id: object::ID }
-    public struct PointsRedeemed<phantom T> has copy, drop { user: address, points_amount: u64, asset_amount: u64, asset_type: TypeName }
-
-    // === Errors ===
-    const EINVALID_AMOUNT: u64 = 101;
-    const ESTAKE_NOT_OWNED: u64 = 102;
-    const ESTAKE_NOT_REDEEMABLE: u64 = 103;
-    const EORACLE_STALE: u64 = 104;
+    use sui::clock::Clock;
+    use sui::object::ID;
+    use sui::transfer;
     
-    // === Entry Functions ===
-    public entry fun route_stake<T: store>(
-        config: &Config, 
-        ledger: &mut Ledger, 
-        escrow_vault: &mut EscrowVault<T>, 
-        asset_coin: Coin<T>, 
-        duration_epochs: u64, 
-        clock: &Clock, 
-        ctx: &mut tx_context::TxContext
+    use alpha_points::admin::{Self, Config};
+    use alpha_points::ledger::{Self, Ledger};
+    use alpha_points::escrow::{Self, EscrowVault};
+    use alpha_points::stake_position::{Self, StakePosition};
+    use alpha_points::oracle::{Self, RateOracle};
+    use alpha_points::partner::PartnerCap;
+    
+    // Error constants
+    const EStakeNotMature: u64 = 1;
+    const EStakeEncumbered: u64 = 2;
+    const EOracleStale: u64 = 3;
+    
+    // Events
+    public struct StakeRouted<phantom T> has copy, drop {
+        stake_id: ID,
+        staker: address,
+        principal: u64,
+        duration_epochs: u64
+    }
+    
+    public struct StakeRedeemed<phantom T> has copy, drop {
+        stake_id: ID,
+        redeemer: address,
+        principal: u64
+    }
+    
+    public struct PointsEarned has copy, drop {
+        user: address,
+        amount: u64,
+        partner: address
+    }
+    
+    public struct PointsSpent has copy, drop {
+        user: address,
+        amount: u64
+    }
+    
+    public struct PointsLocked has copy, drop {
+        user: address,
+        amount: u64
+    }
+    
+    public struct PointsUnlocked has copy, drop {
+        user: address,
+        amount: u64
+    }
+    
+    public struct PointsRedeemed<phantom T> has copy, drop {
+        user: address,
+        points_amount: u64,
+        asset_amount: u64
+    }
+    
+    // === Core module functions ===
+    
+    /// Calls admin::assert_not_paused, escrow::deposit, stake_position::create_stake,
+    /// transfers StakePosition<T> to sender
+    public entry fun route_stake<T>(
+        config: &Config,
+        escrow: &mut EscrowVault<T>,
+        clock: &Clock,
+        coin: Coin<T>,
+        duration: u64,
+        ctx: &mut TxContext
     ) {
-        // Fixed: use ledger parameter since it's required
-        // This prevents "unused parameter" warning
-        let _ = ledger;
+        // Check protocol is not paused
+        admin::assert_not_paused(config);
         
-        // Check protocol not paused
-        assert_not_paused(config);
+        let staker = tx_context::sender(ctx);
+        let principal = coin::value(&coin);
         
-        // Validate inputs
-        let stake_amount = sui::coin::value(&asset_coin);
-        assert!(stake_amount > 0, EINVALID_AMOUNT);
-        assert!(duration_epochs > 0, EINVALID_AMOUNT);
-        
-        // Deposit asset to escrow
-        escrow_deposit(escrow_vault, asset_coin, ctx);
+        // Deposit asset into escrow
+        escrow::deposit(escrow, coin, ctx);
         
         // Create stake position
-        let user = tx_context::sender(ctx);
-        let stake = create_stake<T>(
-            user, 
-            0, // Chain ID 0 for local chain
-            stake_amount,
-            duration_epochs,
-            clock, 
+        let stake = stake_position::create_stake<T>(
+            staker,
+            principal,
+            duration,
+            clock,
             ctx
         );
         
-        // Fixed: using stake_get_id accessor function
-        let stake_id = stake_get_id(&stake);
+        let stake_id = stake_position::get_id(&stake);
         
         // Emit event
         event::emit(StakeRouted<T> {
-            user,
-            amount: stake_amount,
-            duration_epochs,
-            stake_id
+            stake_id,
+            staker,
+            principal,
+            duration_epochs: duration
         });
         
-        // Transfer stake to user
-        sui::transfer::public_transfer(stake, user);
+        // Transfer stake position to user using public_transfer
+        transfer::public_transfer(stake, staker);
     }
     
-    public entry fun redeem_stake<T: store>(
-        config: &Config, 
-        escrow_vault: &mut EscrowVault<T>, 
-        stake: StakePosition<T>, 
-        clock: &Clock, 
-        ctx: &mut tx_context::TxContext
+    /// Calls admin::assert_not_paused, checks stake_position::is_redeemable,
+    /// calls escrow::withdraw, calls stake_position::destroy_stake
+    public entry fun redeem_stake<T>(
+        config: &Config,
+        _ledger: &Ledger,  // Unused but kept for API consistency
+        escrow: &mut EscrowVault<T>,
+        stake: StakePosition<T>,
+        clock: &Clock,
+        ctx: &mut TxContext
     ) {
-        // Check protocol not paused
-        assert_not_paused(config);
+        // Check protocol is not paused
+        admin::assert_not_paused(config);
         
-        // Validate ownership
-        let user = tx_context::sender(ctx);
-        assert!(stake_owner(&stake) == user, ESTAKE_NOT_OWNED);
+        let redeemer = tx_context::sender(ctx);
+        let stake_id = stake_position::get_id(&stake);
         
-        // Check if stake is redeemable (mature and not encumbered)
-        assert!(stake_is_redeemable(&stake, clock), ESTAKE_NOT_REDEEMABLE);
+        // Check stake owner
+        assert!(stake_position::owner(&stake) == redeemer, 0);
         
-        // Get amount to redeem
-        let amount = alpha_points::stake_position::principal(&stake);
-        // Fixed: using stake_get_id instead of direct access
-        let stake_id = stake_get_id(&stake);
+        // Check stake is redeemable (mature and not encumbered)
+        assert!(stake_position::is_mature(&stake, clock), EStakeNotMature);
+        assert!(!stake_position::is_encumbered(&stake), EStakeEncumbered);
         
-        // Withdraw from escrow
-        escrow_withdraw(escrow_vault, amount, user, ctx);
+        // Get principal amount
+        let principal = stake_position::principal(&stake);
+        
+        // Withdraw assets from escrow and send to redeemer
+        escrow::withdraw(escrow, principal, redeemer, ctx);
         
         // Emit event
         event::emit(StakeRedeemed<T> {
-            user,
-            amount,
-            stake_id
+            stake_id,
+            redeemer,
+            principal
         });
         
-        // Destroy the stake
-        destroy_stake(stake);
+        // Destroy stake position
+        stake_position::destroy_stake(stake);
     }
     
+    /// Calls admin::assert_not_paused, ledger::internal_earn
     public entry fun earn_points(
-        config: &Config, 
-        ledger: &mut Ledger, 
-        _auth_cap: &PartnerCap, 
-        user: address, 
-        points_to_earn: u64, 
-        ctx: &mut tx_context::TxContext
-    ) {
-        // Check protocol not paused
-        assert_not_paused(config);
-        
-        // Validate inputs
-        assert!(points_to_earn > 0, EINVALID_AMOUNT);
-        
-        // The PartnerCap is required to call this function
-        // Framework automatically checks that _auth_cap is owned by caller
-        
-        // Award points to the user
-        internal_earn(ledger, user, points_to_earn, ctx);
-    }
-    
-    public entry fun spend_points(
-        config: &Config, 
-        ledger: &mut Ledger, 
-        points_to_spend: u64, 
-        ctx: &mut tx_context::TxContext
-    ) {
-        // Check protocol not paused
-        assert_not_paused(config);
-        
-        // Validate inputs
-        assert!(points_to_spend > 0, EINVALID_AMOUNT);
-        
-        // Spend points from the caller
-        let user = tx_context::sender(ctx);
-        internal_spend(ledger, user, points_to_spend, ctx);
-    }
-    
-    public entry fun redeem_points<T: store + drop>(
         config: &Config,
         ledger: &mut Ledger,
-        escrow_vault: &mut EscrowVault<T>,
-        oracle: &RateOracle,
-        points_to_redeem: u64,
-        clock: &Clock,
-        ctx: &mut tx_context::TxContext
+        _cap: &PartnerCap,  // Unused but kept for authorization check
+        user: address,
+        amount: u64,
+        ctx: &TxContext
     ) {
-        assert_not_paused(config);
-        assert!(points_to_redeem > 0, EINVALID_AMOUNT);
+        // Check protocol is not paused
+        admin::assert_not_paused(config);
         
-        let user = tx_context::sender(ctx);
-        assert!(!oracle_is_stale(oracle, clock), EORACLE_STALE);
+        let partner = tx_context::sender(ctx);
         
-        let (rate, decimals) = oracle_get_rate(oracle);
-        let asset_amount = convert_points_to_asset(points_to_redeem, rate, decimals);
-        assert!(asset_amount > 0, EINVALID_AMOUNT);
+        // Update ledger
+        ledger::internal_earn(ledger, user, amount, ctx);
         
-        internal_spend(ledger, user, points_to_redeem, ctx);
-        escrow_withdraw<T>(escrow_vault, asset_amount, user, ctx);
-        
-        event::emit(PointsRedeemed<T> { 
-            user, 
-            points_amount: points_to_redeem, 
-            asset_amount, 
-            asset_type: get<T>() 
+        // Emit event
+        event::emit(PointsEarned {
+            user,
+            amount,
+            partner
         });
     }
     
+    /// Calls admin::assert_not_paused, ledger::internal_spend
+    public entry fun spend_points(
+        config: &Config,
+        ledger: &mut Ledger,
+        amount: u64,
+        ctx: &mut TxContext
+    ) {
+        // Check protocol is not paused
+        admin::assert_not_paused(config);
+        
+        let user = tx_context::sender(ctx);
+        
+        // Update ledger
+        ledger::internal_spend(ledger, user, amount, ctx);
+        
+        // Emit event
+        event::emit(PointsSpent {
+            user,
+            amount
+        });
+    }
+    
+    /// Calls admin::assert_not_paused, checks oracle::is_stale, 
+    /// calls oracle::convert_points_to_asset, calls ledger::internal_spend, 
+    /// calls escrow::withdraw
+    public entry fun redeem_points<T>(
+        config: &Config,
+        ledger: &mut Ledger,
+        escrow: &mut EscrowVault<T>,
+        oracle: &RateOracle,
+        points_amount: u64,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        // Check protocol is not paused
+        admin::assert_not_paused(config);
+        
+        // Check oracle is not stale
+        assert!(!oracle::is_stale(oracle, clock), EOracleStale);
+        
+        let user = tx_context::sender(ctx);
+        
+        // Get rate from oracle
+        let (rate, decimals) = oracle::get_rate(oracle);
+        
+        // Convert points to asset amount
+        let asset_amount = oracle::convert_points_to_asset(points_amount, rate, decimals);
+        
+        // Spend points
+        ledger::internal_spend(ledger, user, points_amount, ctx);
+        
+        // Withdraw assets from escrow and send to user
+        escrow::withdraw(escrow, asset_amount, user, ctx);
+        
+        // Emit event
+        event::emit(PointsRedeemed<T> {
+            user,
+            points_amount,
+            asset_amount
+        });
+    }
+    
+    /// Calls admin::assert_not_paused, ledger::internal_lock
     public entry fun lock_points(
         config: &Config,
         ledger: &mut Ledger,
-        points_to_lock: u64,
-        ctx: &mut tx_context::TxContext
+        amount: u64,
+        ctx: &TxContext
     ) {
-        // Check protocol not paused
-        assert_not_paused(config);
+        // Check protocol is not paused
+        admin::assert_not_paused(config);
         
-        // Validate inputs
-        assert!(points_to_lock > 0, EINVALID_AMOUNT);
-        
-        // Lock points for the caller
         let user = tx_context::sender(ctx);
-        internal_lock(ledger, user, points_to_lock, ctx);
+        
+        // Lock points
+        ledger::internal_lock(ledger, user, amount, ctx);
+        
+        // Emit event
+        event::emit(PointsLocked {
+            user,
+            amount
+        });
     }
     
+    /// Calls admin::assert_not_paused, ledger::internal_unlock
     public entry fun unlock_points(
         config: &Config,
         ledger: &mut Ledger,
-        points_to_unlock: u64,
-        ctx: &mut tx_context::TxContext
+        amount: u64,
+        ctx: &TxContext
     ) {
-        // Check protocol not paused
-        assert_not_paused(config);
+        // Check protocol is not paused
+        admin::assert_not_paused(config);
         
-        // Validate inputs
-        assert!(points_to_unlock > 0, EINVALID_AMOUNT);
-        
-        // Unlock points for the caller
         let user = tx_context::sender(ctx);
-        internal_unlock(ledger, user, points_to_unlock, ctx);
+        
+        // Unlock points
+        ledger::internal_unlock(ledger, user, amount, ctx);
+        
+        // Emit event
+        event::emit(PointsUnlocked {
+            user,
+            amount
+        });
     }
-
-    // === Feature Flagged Function Stub ===
-    // Correct cfg syntax - commented out until feature defined
-    // #[cfg(feature = lz_bridge)]
-    // public entry fun send_bridge_message( ... ) { ... }
 }

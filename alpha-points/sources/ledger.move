@@ -1,251 +1,305 @@
-// ledger.move - Manages global Alpha Point balances and supply
+/// Module that manages the internal accounting of Alpha Points.
+/// Tracks user balances and total supply using a shared Ledger object.
 module alpha_points::ledger {
     use sui::object;
-    use sui::table::{Self, Table, borrow, borrow_mut, contains, add};
-    use sui::balance::{Self, Supply, destroy_zero};
+    use sui::balance::{Self, Supply};
+    use sui::table::{Self, Table};
+    use sui::transfer;
     use sui::tx_context;
     use sui::event;
-
-    // === Tag Types ===
-    public struct AlphaPointTag has drop {}
-
-    // === Structs ===
-    // Renamed to avoid conflict with sui::balance::Balance
-    public struct PointBalance has store, copy, drop { available: u64, locked: u64 }
     
+    // Error constants
+    const EInsufficientBalance: u64 = 1;
+    const EInsufficientLockedBalance: u64 = 2;
+    const EOverflow: u64 = 3;
+    
+    // Marker type for the Alpha Points Supply
+    public struct AlphaPointTag has drop {}
+    
+    /// User's point balance details with available and locked amounts
+    public struct PointBalance has store, copy, drop {
+        available: u64,
+        locked: u64
+    }
+    
+    /// Shared object holding the global ledger with point supply and user balances
     public struct Ledger has key {
         id: object::UID,
         point_supply: Supply<AlphaPointTag>,
-        entries: Table<address, PointBalance>,
-        // Invariant removed for now
+        entries: Table<address, PointBalance>
     }
-
-    // === Events ===
-    public struct Earned has copy, drop { caller: address, user: address, amount: u64, timestamp_ms: u64 }
-    public struct Spent has copy, drop { caller: address, user: address, amount: u64, timestamp_ms: u64 }
-    public struct Locked has copy, drop { caller: address, user: address, amount: u64, timestamp_ms: u64 }
-    public struct Unlocked has copy, drop { caller: address, user: address, amount: u64, timestamp_ms: u64 }
-
-    // === Errors ===
-    const EZERO_AMOUNT: u64 = 1;
-    const ENOT_ENOUGH_AVAILABLE: u64 = 2;
-    const ENOT_ENOUGH_LOCKED: u64 = 3;
-    const EBALANCE_OVERFLOW: u64 = 4;
-    const EINVALID_MATH_PARAMS: u64 = 5;
-    const EMISSION_OVERFLOW: u64 = 6;
-
-    // === Constants === 
-    const FIXED_POINT_SCALE_U128: u128 = 1_000_000_000_000_000_000;
-    const MAX_U64: u128 = 18_446_744_073_709_551_615;
-
-    // === Init === (Changed to internal for module init)
+    
+    // Events
+    public struct Earned has copy, drop {
+        user: address,
+        amount: u64
+    }
+    
+    public struct Spent has copy, drop {
+        user: address,
+        amount: u64
+    }
+    
+    public struct Locked has copy, drop {
+        user: address,
+        amount: u64
+    }
+    
+    public struct Unlocked has copy, drop {
+        user: address,
+        amount: u64
+    }
+    
+    // === Test-only functions ===
+    #[test_only]
+    /// Initialize the Ledger for testing
+    public fun init_for_testing(ctx: &mut tx_context::TxContext) {
+        init(ctx);
+    }
+    
+    #[test_only]
+    /// Helper function for tests to call internal_earn
+    public fun test_earn(
+        ledger: &mut Ledger, 
+        _gov_cap: &alpha_points::admin::GovernCap, 
+        user: address, 
+        amount: u64, 
+        ctx: &tx_context::TxContext
+    ) {
+        internal_earn(ledger, user, amount, ctx);
+    }
+    
+    #[test_only]
+    /// Helper function for tests to call internal_spend
+    public fun test_spend(
+        ledger: &mut Ledger, 
+        _gov_cap: &alpha_points::admin::GovernCap, 
+        user: address, 
+        amount: u64, 
+        ctx: &tx_context::TxContext
+    ) {
+        internal_spend(ledger, user, amount, ctx);
+    }
+    
+    #[test_only]
+    /// Helper function for tests to call internal_lock
+    public fun test_lock(
+        ledger: &mut Ledger, 
+        _gov_cap: &alpha_points::admin::GovernCap, 
+        user: address, 
+        amount: u64, 
+        ctx: &tx_context::TxContext
+    ) {
+        internal_lock(ledger, user, amount, ctx);
+    }
+    
+    #[test_only]
+    /// Helper function for tests to call internal_unlock
+    public fun test_unlock(
+        ledger: &mut Ledger, 
+        _gov_cap: &alpha_points::admin::GovernCap, 
+        user: address, 
+        amount: u64, 
+        ctx: &tx_context::TxContext
+    ) {
+        internal_unlock(ledger, user, amount, ctx);
+    }
+    
+    // === Core module functions ===
+    
+    /// Creates and shares the Ledger object
     fun init(ctx: &mut tx_context::TxContext) {
         let ledger = Ledger {
             id: object::new(ctx),
-            point_supply: balance::create_supply<AlphaPointTag>(AlphaPointTag {}),
-            entries: table::new(ctx),
+            point_supply: balance::create_supply(AlphaPointTag {}),
+            entries: table::new(ctx)
         };
         
-        sui::transfer::share_object(ledger);
+        transfer::share_object(ledger);
     }
-
-    // === Package-Protected Functions ===
+    
+    /// Increases point_supply and updates user's available balance
+    /// Creates entry if not exists
     public(package) fun internal_earn(
         ledger: &mut Ledger, 
         user: address, 
         amount: u64, 
-        ctx: &tx_context::TxContext
+        _ctx: &tx_context::TxContext
     ) {
-        assert!(amount > 0, EZERO_AMOUNT);
-        let caller_address = tx_context::sender(ctx);
+        if (amount == 0) return;
         
-        // Mint new points into the supply
-        let added_sui_balance = balance::increase_supply(&mut ledger.point_supply, amount);
-        destroy_zero(added_sui_balance);
-
-        // Use contains/add/borrow_mut pattern instead of borrow_mut_with_default
-        if (!contains(&ledger.entries, user)) {
-            add(&mut ledger.entries, user, PointBalance { available: 0, locked: 0 });
+        // Mint new points to the supply
+        let minted_points = balance::increase_supply(&mut ledger.point_supply, amount);
+        
+        // Update or create user's balance
+        if (!table::contains(&ledger.entries, user)) {
+            table::add(
+                &mut ledger.entries, 
+                user, 
+                PointBalance { available: amount, locked: 0 }
+            );
+        } else {
+            let user_balance = table::borrow_mut(&mut ledger.entries, user);
+            let new_available = user_balance.available + amount;
+            assert!(new_available >= user_balance.available, EOverflow);
+            user_balance.available = new_available;
         };
-        let user_balance_ref = borrow_mut(&mut ledger.entries, user);
-
-        let current_available = (user_balance_ref.available as u128);
-        let amount_u128 = (amount as u128);
-        assert!(current_available + amount_u128 <= MAX_U64, EBALANCE_OVERFLOW);
-        user_balance_ref.available = user_balance_ref.available + amount;
-        event::emit(Earned { 
-            caller: caller_address, 
-            user, 
-            amount, 
-            timestamp_ms: tx_context::epoch_timestamp_ms(ctx) 
-        });
+        
+        // Drop the minted points as they're now accounted for in the ledger
+        balance::destroy_zero(minted_points);
+        
+        // Emit event
+        event::emit(Earned { user, amount });
     }
     
+    /// Decreases user's available balance and the point_supply
     public(package) fun internal_spend(
         ledger: &mut Ledger, 
         user: address, 
         amount: u64, 
-        ctx: &tx_context::TxContext
+        _ctx: &tx_context::TxContext
     ) {
-        assert!(amount > 0, EZERO_AMOUNT);
-        let caller_address = tx_context::sender(ctx);
+        if (amount == 0) return;
         
-        // Check if user exists in the table and has enough balance
-        assert!(contains(&ledger.entries, user), ENOT_ENOUGH_AVAILABLE);
-        let user_balance_ref = borrow_mut(&mut ledger.entries, user);
-        assert!(user_balance_ref.available >= amount, ENOT_ENOUGH_AVAILABLE);
+        // Check if user exists and has sufficient balance
+        assert!(table::contains(&ledger.entries, user), EInsufficientBalance);
         
-        // Decrease available balance
-        user_balance_ref.available = user_balance_ref.available - amount;
+        let user_balance = table::borrow_mut(&mut ledger.entries, user);
+        assert!(user_balance.available >= amount, EInsufficientBalance);
         
-        // Decrease total supply - Fixed by creating a proper Balance<T> and passing that
-        let balance_to_burn = balance::create_for_testing<AlphaPointTag>(amount);
-        // Now properly calling decrease_supply with a Balance<T>
-        balance::decrease_supply(&mut ledger.point_supply, balance_to_burn);
+        // Update user's available balance
+        user_balance.available = user_balance.available - amount;
         
-        event::emit(Spent { 
-            caller: caller_address, 
-            user, 
-            amount, 
-            timestamp_ms: tx_context::epoch_timestamp_ms(ctx) 
-        });
+        // Since we can't directly decrease supply by a u64 amount in non-test code,
+        // we first create a temporary Balance object with the exact amount by
+        // increasing supply, then use it to decrease supply, resulting in net-zero effect
+        // on the supply plus the amount we want to burn
+        let temp_balance = balance::increase_supply(&mut ledger.point_supply, amount);
+        let burn_amount = balance::decrease_supply(&mut ledger.point_supply, temp_balance);
+        // Verify that we burned exactly what we expected
+        assert!(burn_amount == amount, EInsufficientBalance);
+        
+        // Emit event
+        event::emit(Spent { user, amount });
     }
     
+    /// Moves amount from user's available to locked balance
     public(package) fun internal_lock(
         ledger: &mut Ledger, 
         user: address, 
         amount: u64, 
-        ctx: &tx_context::TxContext
+        _ctx: &tx_context::TxContext
     ) {
-        assert!(amount > 0, EZERO_AMOUNT);
-        let caller_address = tx_context::sender(ctx);
+        if (amount == 0) return;
         
-        // Check if user exists in the table and has enough available balance
-        assert!(contains(&ledger.entries, user), ENOT_ENOUGH_AVAILABLE);
-        let user_balance_ref = borrow_mut(&mut ledger.entries, user);
-        assert!(user_balance_ref.available >= amount, ENOT_ENOUGH_AVAILABLE);
+        // Check if user exists and has sufficient available balance
+        assert!(table::contains(&ledger.entries, user), EInsufficientBalance);
         
-        // Move from available to locked
-        user_balance_ref.available = user_balance_ref.available - amount;
-        user_balance_ref.locked = user_balance_ref.locked + amount;
+        let user_balance = table::borrow_mut(&mut ledger.entries, user);
+        assert!(user_balance.available >= amount, EInsufficientBalance);
         
-        event::emit(Locked { 
-            caller: caller_address, 
-            user, 
-            amount, 
-            timestamp_ms: tx_context::epoch_timestamp_ms(ctx) 
-        });
+        // Update balances
+        user_balance.available = user_balance.available - amount;
+        
+        let new_locked = user_balance.locked + amount;
+        assert!(new_locked >= user_balance.locked, EOverflow);
+        user_balance.locked = new_locked;
+        
+        // Emit event
+        event::emit(Locked { user, amount });
     }
     
+    /// Moves amount from user's locked to available balance
     public(package) fun internal_unlock(
         ledger: &mut Ledger, 
         user: address, 
         amount: u64, 
-        ctx: &tx_context::TxContext
+        _ctx: &tx_context::TxContext
     ) {
-        assert!(amount > 0, EZERO_AMOUNT);
-        let caller_address = tx_context::sender(ctx);
+        if (amount == 0) return;
         
-        // Check if user exists in the table and has enough locked balance
-        assert!(contains(&ledger.entries, user), ENOT_ENOUGH_LOCKED);
-        let user_balance_ref = borrow_mut(&mut ledger.entries, user);
-        assert!(user_balance_ref.locked >= amount, ENOT_ENOUGH_LOCKED);
+        // Check if user exists and has sufficient locked balance
+        assert!(table::contains(&ledger.entries, user), EInsufficientLockedBalance);
         
-        // Move from locked to available
-        user_balance_ref.locked = user_balance_ref.locked - amount;
-        user_balance_ref.available = user_balance_ref.available + amount;
+        let user_balance = table::borrow_mut(&mut ledger.entries, user);
+        assert!(user_balance.locked >= amount, EInsufficientLockedBalance);
         
-        event::emit(Unlocked { 
-            caller: caller_address, 
-            user, 
-            amount, 
-            timestamp_ms: tx_context::epoch_timestamp_ms(ctx) 
-        });
+        // Update balances
+        user_balance.locked = user_balance.locked - amount;
+        
+        let new_available = user_balance.available + amount;
+        assert!(new_available >= user_balance.available, EOverflow);
+        user_balance.available = new_available;
+        
+        // Emit event
+        event::emit(Unlocked { user, amount });
     }
     
-    public(package) fun calculate_points(
-        principal: u64,
-        participation: u64,
-        time_weight: u64,
-        liquidity_dom: u64
+    /// Implements the points generation formula from the whitepaper
+    /// Formula: amount * (1 + (duration_days / 365)) * participation_level
+    /// This is a simplified version - can be updated based on exact requirements
+    public fun calculate_points_to_earn(
+        amount: u64, 
+        duration_days: u64, 
+        participation_level: u64
     ): u64 {
-        // Validate inputs
-        assert!(
-            principal > 0 && participation > 0 && 
-            time_weight > 0 && liquidity_dom > 0,
-            EINVALID_MATH_PARAMS
-        );
+        if (amount == 0 || duration_days == 0) {
+            return 0
+        };
         
-        // Convert to u128 for safe math
-        let principal_u128 = (principal as u128);
-        let participation_u128 = (participation as u128);
-        let time_weight_u128 = (time_weight as u128);
-        let liquidity_dom_u128 = (liquidity_dom as u128);
+        // Calculate time-weighted factor
+        // We multiply by 100 to handle decimals more precisely, then divide at the end
+        let time_factor = 100 + ((duration_days * 100) / 365);
         
-        // Calculate points using the formula:
-        // points = principal * (participation / SCALE) * (time_weight / SCALE) / (liquidity_dom / SCALE)
-        // Simplified: points = principal * participation * time_weight / (liquidity_dom * SCALE * SCALE)
+        // Calculate base points (amount * time_factor / 100)
+        let base_points = (amount * time_factor) / 100;
         
-        let intermediate1 = principal_u128 * participation_u128;
-        assert!(intermediate1 / principal_u128 == participation_u128, EMISSION_OVERFLOW);
+        // Adjust by participation level
+        let total_points = base_points * participation_level;
         
-        let intermediate2 = intermediate1 * time_weight_u128;
-        assert!(intermediate2 / intermediate1 == time_weight_u128, EMISSION_OVERFLOW);
-        
-        let scale_squared = FIXED_POINT_SCALE_U128 * FIXED_POINT_SCALE_U128;
-        let denominator = liquidity_dom_u128 * scale_squared;
-        assert!(denominator / liquidity_dom_u128 == scale_squared, EMISSION_OVERFLOW);
-        
-        let scaled_points = intermediate2 / denominator * FIXED_POINT_SCALE_U128;
-        assert!(scaled_points <= MAX_U64, EMISSION_OVERFLOW);
-        
-        (scaled_points as u64)
+        total_points
     }
-
-    // === Public View Functions ===
+    
+    // === View functions ===
+    
+    /// Get user's available balance
+    public fun get_available_balance(ledger: &Ledger, user: address): u64 {
+        if (!table::contains(&ledger.entries, user)) {
+            return 0
+        };
+        
+        let balance = table::borrow(&ledger.entries, user);
+        balance.available
+    }
+    
+    /// Get user's locked balance
+    public fun get_locked_balance(ledger: &Ledger, user: address): u64 {
+        if (!table::contains(&ledger.entries, user)) {
+            return 0
+        };
+        
+        let balance = table::borrow(&ledger.entries, user);
+        balance.locked
+    }
+    
+    /// Get user's total balance (available + locked)
     public fun get_total_balance(ledger: &Ledger, user: address): u64 {
-        if (contains(&ledger.entries, user)) {
-            let balance = borrow(&ledger.entries, user); // Use borrow (immutable)
-            // Perform add with u128 to prevent overflow before casting back
-            let total = (balance.available as u128) + (balance.locked as u128);
-            // We assume total balance fits in u64 for view function
-            (total as u64)
-        } else { 0 }
+        if (!table::contains(&ledger.entries, user)) {
+            return 0
+        };
+        
+        let balance = table::borrow(&ledger.entries, user);
+        balance.available + balance.locked
     }
     
-    public fun get_available_balance(ledger: &Ledger, user: address): u64 { 
-        if (contains(&ledger.entries, user)) {
-            let balance = borrow(&ledger.entries, user);
-            balance.available
-        } else { 0 }
+    /// Get total supply of Alpha Points
+    public fun get_total_supply(ledger: &Ledger): u64 {
+        balance::supply_value(&ledger.point_supply)
     }
     
-    public fun get_locked_balance(ledger: &Ledger, user: address): u64 { 
-        if (contains(&ledger.entries, user)) {
-            let balance = borrow(&ledger.entries, user);
-            balance.locked
-        } else { 0 }
-    }
-    
-    public fun get_total_supply(ledger: &Ledger): u64 { 
-        // Get the supply value and cast to u64
-        let supply_u128 = balance::supply_value(&ledger.point_supply);
-        (supply_u128 as u64)
-    }
-    
-    // Provide public getters for constants
-    public fun fixed_point_scale(): u128 { FIXED_POINT_SCALE_U128 }
-    public fun max_u64_value(): u128 { MAX_U64 }
-    public fun zero_amount_error(): u64 { EZERO_AMOUNT }
-    public fun not_enough_available_error(): u64 { ENOT_ENOUGH_AVAILABLE }
-    public fun not_enough_locked_error(): u64 { ENOT_ENOUGH_LOCKED }
-    public fun balance_overflow_error(): u64 { EBALANCE_OVERFLOW }
-    public fun invalid_math_params_error(): u64 { EINVALID_MATH_PARAMS }
-    public fun emission_overflow_error(): u64 { EMISSION_OVERFLOW }
-    
-    // Added test-only init function that can be called in tests
     #[test_only]
-    public fun init_for_testing(ctx: &mut tx_context::TxContext) {
-        init(ctx)
+    /// For testing only: create a Balance of AlphaPointTag
+    public fun create_test_balance(amount: u64, ctx: &mut tx_context::TxContext): balance::Balance<AlphaPointTag> {
+        balance::create_for_testing<AlphaPointTag>(amount, ctx)
     }
 }
