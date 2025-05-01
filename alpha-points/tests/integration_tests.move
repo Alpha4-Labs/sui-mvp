@@ -26,71 +26,106 @@ module alpha_points::integration_tests {
 
     fun setup_test(): (Scenario, Clock) {
         let mut scenario = ts::begin(ADMIN_ADDR);
+        
+        // Initialize admin module
         {
             let ctx = ts::ctx(&mut scenario);
             admin::init_for_testing(ctx);
         };
+        
+        // Initialize ledger module
+        ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ctx = ts::ctx(&mut scenario);
             ledger::init_for_testing(ctx);
         };
+        
+        // Create clock
         let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+        
+        // Setup vault, oracle, partner cap
+        ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let oracle_cap = ts::take_from_sender<OracleCap>(&scenario);
+            
+            // Create escrow vault
             {
                 let ctx = ts::ctx(&mut scenario);
                 escrow::create_escrow_vault<SUI>(&govern_cap, ctx);
             };
+            
+            // Create oracle
             {
                 let ctx = ts::ctx(&mut scenario);
                 oracle::create_oracle(&oracle_cap, 1000000000, 9, 10, ctx);
             };
+            
+            // Create partner cap
             {
                 let ctx = ts::ctx(&mut scenario);
                 let partner_name = string::utf8(b"Test Partner");
                 partner::grant_partner_cap(&govern_cap, PARTNER_ADDR, partner_name, ctx);
             };
+            
             ts::return_to_sender(&scenario, govern_cap);
             ts::return_to_sender(&scenario, oracle_cap);
         };
+        
+        // Give SUI to user for staking
+        ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ctx = ts::ctx(&mut scenario);
             let coin = coin::mint_for_testing<SUI>(STAKE_AMOUNT * 2, ctx);
             transfer::public_transfer(coin, USER_ADDR);
         };
+        
         (scenario, clock)
     }
 
     #[test]
     fun test_route_stake() {
         let (mut scenario, clock) = setup_test();
+        
+        // User stakes
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let mut coin = ts::take_from_sender<Coin<SUI>>(&scenario);
-            let stake_coin;
             let ctx = ts::ctx(&mut scenario);
-            stake_coin = coin::split(&mut coin, STAKE_AMOUNT, ctx);
+            
+            // Split for staking
+            let stake_coin = coin::split(&mut coin, STAKE_AMOUNT, ctx);
+            
+            // Route stake
             integration::route_stake<SUI>(
                 &config, &mut escrow_vault, &clock, stake_coin, DURATION_EPOCHS, ctx
             );
+            
             ts::return_to_sender(&scenario, coin);
             ts::return_shared(config);
             ts::return_shared(escrow_vault);
         };
+        
+        // Verify stake position and escrow
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
+            
+            // Verify escrow balance
             assert_eq(escrow::total_value<SUI>(&escrow_vault), STAKE_AMOUNT);
+            
+            // Verify stake details
             assert_eq(stake_position::owner(&stake), USER_ADDR);
             assert_eq(stake_position::principal(&stake), STAKE_AMOUNT);
             assert_eq(stake_position::duration_epochs(&stake), DURATION_EPOCHS);
+            
             ts::return_shared(escrow_vault);
             ts::return_to_sender(&scenario, stake);
         };
+        
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
@@ -98,22 +133,32 @@ module alpha_points::integration_tests {
     #[test]
     fun test_redeem_stake() {
         let (mut scenario, mut clock) = setup_test();
+        
+        // User stakes
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let mut coin = ts::take_from_sender<Coin<SUI>>(&scenario);
-            let stake_coin;
             let ctx = ts::ctx(&mut scenario);
-            stake_coin = coin::split(&mut coin, STAKE_AMOUNT, ctx);
+            
+            // Split for staking
+            let stake_coin = coin::split(&mut coin, STAKE_AMOUNT, ctx);
+            
+            // Route stake
             integration::route_stake<SUI>(
                 &config, &mut escrow_vault, &clock, stake_coin, DURATION_EPOCHS, ctx
             );
+            
             ts::return_to_sender(&scenario, coin);
             ts::return_shared(config);
             ts::return_shared(escrow_vault);
         };
+        
+        // Advance time to maturity
         clock::increment_for_testing(&mut clock, DURATION_EPOCHS * 86400000 * 2);
+        
+        // User redeems stake
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
@@ -121,22 +166,33 @@ module alpha_points::integration_tests {
             let mut escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
+            // Redeem stake
             integration::redeem_stake<SUI>(
                 &config, &ledger, &mut escrow_vault, stake, &clock, ctx
             );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_shared(escrow_vault);
         };
+        
+        // Verify redemption
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let coin = ts::take_from_sender<Coin<SUI>>(&scenario);
+            
+            // Escrow should be empty
             assert_eq(escrow::total_value<SUI>(&escrow_vault), 0);
+            
+            // User should have their coin back
             assert_eq(coin::value(&coin), STAKE_AMOUNT * 2);
+            
             ts::return_shared(escrow_vault);
             ts::return_to_sender(&scenario, coin);
         };
+        
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
@@ -145,21 +201,29 @@ module alpha_points::integration_tests {
     #[expected_failure(abort_code = EStakeNotMature)]
     fun test_redeem_stake_immature() {
         let (mut scenario, clock) = setup_test();
+        
+        // User stakes
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let mut coin = ts::take_from_sender<Coin<SUI>>(&scenario);
-            let stake_coin;
             let ctx = ts::ctx(&mut scenario);
-            stake_coin = coin::split(&mut coin, STAKE_AMOUNT, ctx);
+            
+            // Split for staking
+            let stake_coin = coin::split(&mut coin, STAKE_AMOUNT, ctx);
+            
+            // Route stake
             integration::route_stake<SUI>(
                 &config, &mut escrow_vault, &clock, stake_coin, DURATION_EPOCHS, ctx
             );
+            
             ts::return_to_sender(&scenario, coin);
             ts::return_shared(config);
             ts::return_shared(escrow_vault);
         };
+        
+        // Try to redeem before maturity (should fail)
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
@@ -167,16 +231,18 @@ module alpha_points::integration_tests {
             let mut escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
+            // This should fail with EStakeNotMature
             integration::redeem_stake<SUI>(
-                &config, &ledger, &mut escrow_vault, stake, &clock, ctx // Should fail here, stake consumed
+                &config, &ledger, &mut escrow_vault, stake, &clock, ctx
             );
-            // These won't execute
+            
+            // These won't execute if test properly aborts
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_shared(escrow_vault);
-            // E06002 Fix: Removed this line as 'stake' is consumed above
-            // ts::return_to_sender(&scenario, stake);
         };
+        
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
@@ -184,26 +250,36 @@ module alpha_points::integration_tests {
     #[test]
     fun test_earn_points() {
         let (mut scenario, clock) = setup_test();
+        
+        // Partner earns points for user
         ts::next_tx(&mut scenario, PARTNER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut ledger = ts::take_shared<Ledger>(&scenario);
             let partner_cap = ts::take_from_sender<PartnerCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
+            // Earn points
             integration::earn_points(
                 &config, &mut ledger, &partner_cap, USER_ADDR, POINTS_AMOUNT, ctx
             );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_to_sender(&scenario, partner_cap);
         };
+        
+        // Verify points earned
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ledger = ts::take_shared<Ledger>(&scenario);
+            
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT);
             assert_eq(ledger::get_total_supply(&ledger), POINTS_AMOUNT);
+            
             ts::return_shared(ledger);
         };
+        
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
@@ -211,41 +287,51 @@ module alpha_points::integration_tests {
     #[test]
     fun test_spend_points() {
         let (mut scenario, clock) = setup_test();
-        // Earn points first
+        
+        // Partner earns points for user first
         ts::next_tx(&mut scenario, PARTNER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut ledger = ts::take_shared<Ledger>(&scenario);
             let partner_cap = ts::take_from_sender<PartnerCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             integration::earn_points(
                 &config, &mut ledger, &partner_cap, USER_ADDR, POINTS_AMOUNT, ctx
             );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_to_sender(&scenario, partner_cap);
         };
+        
         // User spends points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut ledger = ts::take_shared<Ledger>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             let spend_amount = POINTS_AMOUNT / 2;
             integration::spend_points(
                 &config, &mut ledger, spend_amount, ctx
             );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
         };
-        // Verify balance
+        
+        // Verify points spent
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ledger = ts::take_shared<Ledger>(&scenario);
+            
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT / 2);
             assert_eq(ledger::get_total_supply(&ledger), POINTS_AMOUNT / 2);
+            
             ts::return_shared(ledger);
         };
+        
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
@@ -253,58 +339,78 @@ module alpha_points::integration_tests {
     #[test]
     fun test_lock_and_unlock_points() {
         let (mut scenario, clock) = setup_test();
-         // Earn points first
+        
+        // Partner earns points for user first
         ts::next_tx(&mut scenario, PARTNER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut ledger = ts::take_shared<Ledger>(&scenario);
             let partner_cap = ts::take_from_sender<PartnerCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             integration::earn_points(
                 &config, &mut ledger, &partner_cap, USER_ADDR, POINTS_AMOUNT, ctx
             );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_to_sender(&scenario, partner_cap);
         };
+        
         // Lock points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut ledger = ts::take_shared<Ledger>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             let lock_amount = POINTS_AMOUNT / 2;
-            integration::lock_points(&config, &mut ledger, lock_amount, ctx);
+            integration::lock_points(
+                &config, &mut ledger, lock_amount, ctx
+            );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
         };
-         // Verify lock
+        
+        // Verify lock
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ledger = ts::take_shared<Ledger>(&scenario);
+            
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT / 2);
             assert_eq(ledger::get_locked_balance(&ledger, USER_ADDR), POINTS_AMOUNT / 2);
+            
             ts::return_shared(ledger);
         };
-         // Unlock points
+        
+        // Unlock points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut ledger = ts::take_shared<Ledger>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             let unlock_amount = POINTS_AMOUNT / 4;
-            integration::unlock_points(&config, &mut ledger, unlock_amount, ctx);
+            integration::unlock_points(
+                &config, &mut ledger, unlock_amount, ctx
+            );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
         };
-         // Verify unlock
+        
+        // Verify unlock
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ledger = ts::take_shared<Ledger>(&scenario);
+            
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT * 3 / 4);
             assert_eq(ledger::get_locked_balance(&ledger, USER_ADDR), POINTS_AMOUNT / 4);
+            
             ts::return_shared(ledger);
         };
+        
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }
@@ -312,31 +418,38 @@ module alpha_points::integration_tests {
     #[test]
     fun test_redeem_points() {
         let (mut scenario, clock) = setup_test();
-         // Earn points first
+        
+        // Partner earns points for user first
         ts::next_tx(&mut scenario, PARTNER_ADDR);
         {
             let config = ts::take_shared<Config>(&scenario);
             let mut ledger = ts::take_shared<Ledger>(&scenario);
             let partner_cap = ts::take_from_sender<PartnerCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             integration::earn_points(
                 &config, &mut ledger, &partner_cap, USER_ADDR, POINTS_AMOUNT, ctx
             );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_to_sender(&scenario, partner_cap);
         };
-        // Put coins in escrow
+        
+        // Put coins in escrow for redemption
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let mut escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             let coin = coin::mint_for_testing<SUI>(STAKE_AMOUNT * 2, ctx);
             escrow::test_deposit<SUI>(&mut escrow_vault, &govern_cap, coin, ctx);
+            
             ts::return_to_sender(&scenario, govern_cap);
             ts::return_shared(escrow_vault);
         };
+        
         // Redeem points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
@@ -345,35 +458,42 @@ module alpha_points::integration_tests {
             let mut escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let oracle = ts::take_shared<RateOracle>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             let redeem_amount = POINTS_AMOUNT / 2;
             integration::redeem_points<SUI>(
                 &config, &mut ledger, &mut escrow_vault, &oracle, redeem_amount, &clock, ctx
             );
+            
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_shared(escrow_vault);
             ts::return_shared(oracle);
         };
-        // Verify
+        
+        // Verify redemption
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ledger = ts::take_shared<Ledger>(&scenario);
             let escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
-            // Use take_from_address to check USER_ADDR's balance
-            let coin = ts::take_from_address<Coin<SUI>>(&scenario, USER_ADDR);
-
+            
+            // Check user has new SUI coin
+            let user_coin = ts::take_from_address<Coin<SUI>>(&scenario, USER_ADDR);
+            
+            // Verify point balance reduced
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT / 2);
-
+            
+            // Verify escrow vault balance reduced
             let expected_asset_amount = POINTS_AMOUNT / 2; // Rate is 1.0
             assert_eq(escrow::total_value<SUI>(&escrow_vault), (STAKE_AMOUNT * 2) - expected_asset_amount);
-            // Check coin value
-            assert_eq(coin::value(&coin), (STAKE_AMOUNT * 2) - STAKE_AMOUNT + expected_asset_amount);
-
+            
+            // Verify user received correct amount
+            assert_eq(coin::value(&user_coin), expected_asset_amount);
+            
             ts::return_shared(ledger);
             ts::return_shared(escrow_vault);
-            // Return coin object
-            ts::return_to_address(USER_ADDR, coin);
+            ts::return_to_address(USER_ADDR, user_coin);
         };
+        
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }

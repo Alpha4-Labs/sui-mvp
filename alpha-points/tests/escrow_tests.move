@@ -62,10 +62,13 @@ module alpha_points::escrow_tests {
         {
             let mut vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let coin = ts::take_from_sender<Coin<SUI>>(&scenario);
+            // Take govern_cap from ADMIN_ADDR for test
             let govern_cap = ts::take_from_address<GovernCap>(&scenario, ADMIN_ADDR);
             let ctx = ts::ctx(&mut scenario);
+            
             escrow::test_deposit<SUI>(&mut vault, &govern_cap, coin, ctx);
             assert_eq(escrow::total_value<SUI>(&vault), AMOUNT);
+            
             ts::return_shared(vault);
             ts::return_to_address(ADMIN_ADDR, govern_cap);
         };
@@ -82,27 +85,34 @@ module alpha_points::escrow_tests {
             escrow::create_escrow_vault<SUI>(&govern_cap, ctx);
             ts::return_to_sender(&scenario, govern_cap);
         };
+        // Deposit into vault
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let mut vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             let coin = coin::mint_for_testing<SUI>(AMOUNT, ctx);
             escrow::test_deposit<SUI>(&mut vault, &govern_cap, coin, ctx);
+            
             ts::return_shared(vault);
             ts::return_to_sender(&scenario, govern_cap);
         };
+        // Withdraw from vault
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let mut vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let withdraw_amount = AMOUNT / 2;
             let ctx = ts::ctx(&mut scenario);
+            
             escrow::test_withdraw<SUI>(&mut vault, &govern_cap, withdraw_amount, USER_ADDR, ctx);
             assert_eq(escrow::total_value<SUI>(&vault), AMOUNT - withdraw_amount);
+            
             ts::return_shared(vault);
             ts::return_to_sender(&scenario, govern_cap);
         };
+        // Check user received coins
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let coin = ts::take_from_sender<Coin<SUI>>(&scenario);
@@ -123,24 +133,31 @@ module alpha_points::escrow_tests {
             escrow::create_escrow_vault<SUI>(&govern_cap, ctx);
             ts::return_to_sender(&scenario, govern_cap);
         };
+        // Deposit into vault
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let mut vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
+            
             let coin = coin::mint_for_testing<SUI>(AMOUNT, ctx);
             escrow::test_deposit<SUI>(&mut vault, &govern_cap, coin, ctx);
+            
             ts::return_shared(vault);
             ts::return_to_sender(&scenario, govern_cap);
         };
+        // Try to withdraw more than available (should fail)
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let mut vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
-            let withdraw_amount = AMOUNT * 2;
+            let withdraw_amount = AMOUNT * 2; // Try to withdraw twice the deposit
             let ctx = ts::ctx(&mut scenario);
-            escrow::test_withdraw<SUI>(&mut vault, &govern_cap, withdraw_amount, USER_ADDR, ctx); // Should abort here
-            // These won't execute
+            
+            // This should abort with EInsufficientFunds
+            escrow::test_withdraw<SUI>(&mut vault, &govern_cap, withdraw_amount, USER_ADDR, ctx);
+            
+            // These won't execute if test properly aborts
             ts::return_shared(vault);
             ts::return_to_sender(&scenario, govern_cap);
         };

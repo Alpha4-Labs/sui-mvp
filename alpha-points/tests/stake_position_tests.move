@@ -14,6 +14,7 @@ module alpha_points::stake_position_tests {
     const PRINCIPAL: u64 = 1000;
     const DURATION_EPOCHS: u64 = 30;
 
+    // Helper function to set up the test environment
     fun setup_test(): (Scenario, Clock) {
         let mut scenario = ts::begin(ADMIN_ADDR);
         let clock = clock::create_for_testing(ts::ctx(&mut scenario));
@@ -107,7 +108,10 @@ module alpha_points::stake_position_tests {
             assert_eq(stake_position::is_mature(&stake, &clock), false);
             ts::return_to_sender(&scenario, stake);
         };
+        
+        // Advance the clock past the maturity period
         clock::increment_for_testing(&mut clock, DURATION_EPOCHS * 86400000 * 2);
+        
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
@@ -132,15 +136,27 @@ module alpha_points::stake_position_tests {
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
+            
+            // Not mature yet, should not be redeemable
             assert_eq(stake_position::is_redeemable(&stake, &clock), false);
+            
+            // Set as encumbered
             test_set_encumbered<SUI>(&mut stake, true);
+            
+            // Advance clock to make stake mature
             clock::increment_for_testing(&mut clock, DURATION_EPOCHS * 86400000 * 2);
+            
+            // Even though mature, still not redeemable since encumbered
             assert_eq(stake_position::is_mature(&stake, &clock), true);
             assert_eq(stake_position::is_redeemable(&stake, &clock), false);
+            
+            // Remove encumbrance, should now be redeemable
             test_set_encumbered<SUI>(&mut stake, false);
             assert_eq(stake_position::is_redeemable(&stake, &clock), true);
+            
             ts::return_to_sender(&scenario, stake);
         };
+        
         clock::destroy_for_testing(clock);
         ts::end(scenario);
     }

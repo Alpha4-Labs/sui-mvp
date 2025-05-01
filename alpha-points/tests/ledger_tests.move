@@ -12,16 +12,23 @@ module alpha_points::ledger_tests {
     const ADMIN_ADDR: address = @0xB;
     const POINTS_AMOUNT: u64 = 1000;
 
+    // Fixed setup to properly initialize the ledger
     fun setup_test(): Scenario {
         let mut scenario = ts::begin(ADMIN_ADDR);
+        
+        // Initialize admin module first
         {
             let ctx = ts::ctx(&mut scenario);
             admin::init_for_testing(ctx);
         };
+        
+        // Now initialize ledger module
+        ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ctx = ts::ctx(&mut scenario);
             ledger::init_for_testing(ctx);
         };
+        
         scenario
     }
 
@@ -37,59 +44,80 @@ module alpha_points::ledger_tests {
         ts::end(scenario);
     }
 
+    // Fixed to handle balance::destroy_zero issue
     #[test]
     fun test_earn_points() {
         let mut scenario = setup_test();
+        
+        // Transfer govern_cap to USER_ADDR
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
-            transfer::public_transfer(gov_cap, USER_ADDR);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            transfer::public_transfer(govern_cap, USER_ADDR);
         };
+        
+        // User earns points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            
+            // Fix for destroy_zero issue - modified test_earn function in ledger.move
+            // to properly handle zero balances
             let ctx = ts::ctx(&mut scenario);
-            ledger::test_earn(&mut ledger, &gov_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            ledger::test_earn(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT);
             assert_eq(ledger::get_locked_balance(&ledger, USER_ADDR), 0);
             assert_eq(ledger::get_total_balance(&ledger, USER_ADDR), POINTS_AMOUNT);
             assert_eq(ledger::get_total_supply(&ledger), POINTS_AMOUNT);
+            
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
         ts::end(scenario);
     }
 
     #[test]
     fun test_spend_points() {
         let mut scenario = setup_test();
+        
+        // Transfer govern_cap to USER_ADDR
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
-            transfer::public_transfer(gov_cap, USER_ADDR);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            transfer::public_transfer(govern_cap, USER_ADDR);
         };
+        
+        // User earns points first
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
-            ledger::test_earn(&mut ledger, &gov_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            ledger::test_earn(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx);
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
+        // User spends points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
             let spend_amount = POINTS_AMOUNT / 2;
-            ledger::test_spend(&mut ledger, &gov_cap, USER_ADDR, spend_amount, ctx);
+            
+            ledger::test_spend(&mut ledger, &govern_cap, USER_ADDR, spend_amount, ctx);
+            
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT - spend_amount);
             assert_eq(ledger::get_total_supply(&ledger), POINTS_AMOUNT - spend_amount);
+            
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
         ts::end(scenario);
     }
 
@@ -97,89 +125,130 @@ module alpha_points::ledger_tests {
     #[expected_failure(abort_code = EInsufficientBalance)]
     fun test_spend_points_insufficient_balance() {
         let mut scenario = setup_test();
+        
+        // Transfer govern_cap to USER_ADDR
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
-            transfer::public_transfer(gov_cap, USER_ADDR);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            transfer::public_transfer(govern_cap, USER_ADDR);
         };
+        
+        // User earns points first
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
-            ledger::test_earn(&mut ledger, &gov_cap, USER_ADDR, POINTS_AMOUNT, ctx);
-            ledger::test_spend(&mut ledger, &gov_cap, USER_ADDR, POINTS_AMOUNT + 1, ctx); // Should abort here
+            ledger::test_earn(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx);
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
+        // Try to spend more than available (should fail)
+        ts::next_tx(&mut scenario, USER_ADDR);
+        {
+            let mut ledger = ts::take_shared<Ledger>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let ctx = ts::ctx(&mut scenario);
+            
+            // This should abort with EInsufficientBalance
+            ledger::test_spend(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT + 1, ctx);
+            
+            // These won't execute if test properly aborts
+            ts::return_shared(ledger);
+            ts::return_to_sender(&scenario, govern_cap);
+        };
+        
         ts::end(scenario);
     }
 
-     #[test]
+    #[test]
     fun test_lock_points() {
         let mut scenario = setup_test();
+        
+        // Transfer govern_cap to USER_ADDR
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
-            transfer::public_transfer(gov_cap, USER_ADDR);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            transfer::public_transfer(govern_cap, USER_ADDR);
         };
+        
+        // User earns points first
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
-            ledger::test_earn(&mut ledger, &gov_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            ledger::test_earn(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx);
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
+        // Lock points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
             let lock_amount = POINTS_AMOUNT / 2;
-            ledger::test_lock(&mut ledger, &gov_cap, USER_ADDR, lock_amount, ctx);
+            
+            ledger::test_lock(&mut ledger, &govern_cap, USER_ADDR, lock_amount, ctx);
+            
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT - lock_amount);
             assert_eq(ledger::get_locked_balance(&ledger, USER_ADDR), lock_amount);
             assert_eq(ledger::get_total_balance(&ledger, USER_ADDR), POINTS_AMOUNT);
             assert_eq(ledger::get_total_supply(&ledger), POINTS_AMOUNT);
+            
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
         ts::end(scenario);
     }
 
-     #[test]
+    #[test]
     fun test_unlock_points() {
         let mut scenario = setup_test();
+        
+        // Transfer govern_cap to USER_ADDR
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
-            transfer::public_transfer(gov_cap, USER_ADDR);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            transfer::public_transfer(govern_cap, USER_ADDR);
         };
+        
+        // User earns and locks points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
-            ledger::test_earn(&mut ledger, &gov_cap, USER_ADDR, POINTS_AMOUNT, ctx);
-            ledger::test_lock(&mut ledger, &gov_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            
+            ledger::test_earn(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            ledger::test_lock(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
+        // Unlock points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
             let unlock_amount = POINTS_AMOUNT / 2;
-            ledger::test_unlock(&mut ledger, &gov_cap, USER_ADDR, unlock_amount, ctx);
+            
+            ledger::test_unlock(&mut ledger, &govern_cap, USER_ADDR, unlock_amount, ctx);
+            
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), unlock_amount);
             assert_eq(ledger::get_locked_balance(&ledger, USER_ADDR), POINTS_AMOUNT - unlock_amount);
             assert_eq(ledger::get_total_balance(&ledger, USER_ADDR), POINTS_AMOUNT);
+            
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
         ts::end(scenario);
     }
 
@@ -187,37 +256,63 @@ module alpha_points::ledger_tests {
     #[expected_failure(abort_code = EInsufficientLockedBalance)]
     fun test_unlock_points_insufficient_locked() {
         let mut scenario = setup_test();
+        
+        // Transfer govern_cap to USER_ADDR
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
-            transfer::public_transfer(gov_cap, USER_ADDR);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            transfer::public_transfer(govern_cap, USER_ADDR);
         };
+        
+        // User earns and locks points
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
-            let gov_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
-            ledger::test_earn(&mut ledger, &gov_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            
+            ledger::test_earn(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx);
             let lock_amount = POINTS_AMOUNT / 2;
-            ledger::test_lock(&mut ledger, &gov_cap, USER_ADDR, lock_amount, ctx);
-            ledger::test_unlock(&mut ledger, &gov_cap, USER_ADDR, lock_amount + 1, ctx); // Should abort
+            ledger::test_lock(&mut ledger, &govern_cap, USER_ADDR, lock_amount, ctx);
+            
             ts::return_shared(ledger);
-            ts::return_to_sender(&scenario, gov_cap);
+            ts::return_to_sender(&scenario, govern_cap);
         };
+        
+        // Try to unlock more than locked (should fail)
+        ts::next_tx(&mut scenario, USER_ADDR);
+        {
+            let mut ledger = ts::take_shared<Ledger>(&scenario);
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let ctx = ts::ctx(&mut scenario);
+            
+            let locked_amount = POINTS_AMOUNT / 2;
+            // This should abort with EInsufficientLockedBalance
+            ledger::test_unlock(&mut ledger, &govern_cap, USER_ADDR, locked_amount + 1, ctx);
+            
+            // These won't execute if test properly aborts
+            ts::return_shared(ledger);
+            ts::return_to_sender(&scenario, govern_cap);
+        };
+        
         ts::end(scenario);
     }
 
     #[test]
     fun test_calculate_points_to_earn() {
         let scenario = setup_test();
+        
         let amount = 1000;
         let duration_days = 90;
         let participation_level = 2;
+        
         let points = ledger::calculate_points_to_earn(amount, duration_days, participation_level);
+        
         assert!(points > 0, 0);
         assert_eq(points, 2480);
         assert_eq(ledger::calculate_points_to_earn(0, duration_days, participation_level), 0);
         assert_eq(ledger::calculate_points_to_earn(amount, 0, participation_level), 0);
+        
         ts::end(scenario);
     }
 }

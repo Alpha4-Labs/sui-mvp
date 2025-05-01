@@ -11,6 +11,7 @@ module alpha_points::partner_tests {
 
     const ADMIN_ADDR: address = @0xAD;
     const PARTNER_ADDR: address = @0xB;
+    const NEW_PARTNER_ADDR: address = @0xC;
 
     fun setup_test(): Scenario {
         let mut scenario = ts::begin(ADMIN_ADDR);
@@ -53,11 +54,15 @@ module alpha_points::partner_tests {
             partner::grant_partner_cap(&govern_cap, PARTNER_ADDR, partner_name, ctx);
             ts::return_to_sender(&scenario, govern_cap);
         };
+        
+        // Partner transfers the cap back to admin for revocation
         ts::next_tx(&mut scenario, PARTNER_ADDR);
         {
             let partner_cap = ts::take_from_sender<PartnerCap>(&scenario);
             transfer::public_transfer(partner_cap, ADMIN_ADDR);
         };
+        
+        // Admin revokes the cap
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
@@ -80,14 +85,17 @@ module alpha_points::partner_tests {
             partner::grant_partner_cap(&govern_cap, PARTNER_ADDR, partner_name, ctx);
             ts::return_to_sender(&scenario, govern_cap);
         };
-        let new_partner = @0xC;
+        
+        // Partner transfers cap to new partner
         ts::next_tx(&mut scenario, PARTNER_ADDR);
         {
             let partner_cap = ts::take_from_sender<PartnerCap>(&scenario);
             let ctx = ts::ctx(&mut scenario);
-            partner::transfer_partner_cap(partner_cap, new_partner, ctx);
+            partner::transfer_partner_cap(partner_cap, NEW_PARTNER_ADDR, ctx);
         };
-        ts::next_tx(&mut scenario, new_partner);
+        
+        // Verify new partner has the cap
+        ts::next_tx(&mut scenario, NEW_PARTNER_ADDR);
         {
             let partner_cap = ts::take_from_sender<PartnerCap>(&scenario);
             let name = partner::get_partner_name(&partner_cap);
