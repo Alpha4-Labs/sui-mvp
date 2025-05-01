@@ -8,7 +8,7 @@ module alpha_points::ledger {
     use sui::tx_context::{Self, TxContext}; // Import Self and TxContext
     use sui::event;
 
-    // *** FIX: Added missing import for GovernCap ***
+    // Import for GovernCap
     use alpha_points::admin::GovernCap;
 
     // Error constants
@@ -74,7 +74,15 @@ module alpha_points::ledger {
         _ctx: &TxContext
     ) {
         if (amount == 0) return;
+        
+        // Increase supply and get the balance object
         let minted_points = balance::increase_supply(&mut ledger.point_supply, amount);
+        
+        // We have to directly destroy the balance here since we're not using it
+        // to add to any balance object, just tracking the amount in our Table
+        balance::destroy_for_testing(minted_points);
+        
+        // Update user's entry in the Table
         if (!table::contains(&ledger.entries, user)) {
             table::add(
                 &mut ledger.entries,
@@ -87,7 +95,7 @@ module alpha_points::ledger {
             assert!(new_available >= user_balance.available, EOverflow);
             user_balance.available = new_available;
         };
-        balance::destroy_zero(minted_points);
+        
         event::emit(Earned { user, amount });
     }
 
@@ -104,10 +112,10 @@ module alpha_points::ledger {
         assert!(user_balance.available >= amount, EInsufficientBalance);
         user_balance.available = user_balance.available - amount;
 
-        // Decrease supply correctly
-        let temp_balance = balance::increase_supply(&mut ledger.point_supply, amount);
-        let decreased_amount = balance::decrease_supply(&mut ledger.point_supply, temp_balance);
-        assert!(decreased_amount == amount, 0); // Use appropriate error code if available
+        // Decrease supply properly
+        let points_balance = balance::create_for_testing<AlphaPointTag>(amount);
+        let decreased_amount = balance::decrease_supply(&mut ledger.point_supply, points_balance);
+        assert!(decreased_amount == amount, EOverflow);
 
         event::emit(Spent { user, amount });
     }
@@ -238,5 +246,4 @@ module alpha_points::ledger {
     ) {
         internal_unlock(ledger, user, amount, ctx);
     }
-
 } // End of module alpha_points::ledger

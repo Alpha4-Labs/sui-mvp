@@ -38,27 +38,29 @@ module alpha_points::lz_bridge_tests {
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let ctx = ts::ctx(&mut scenario);
             
             // Create LayerZero config
-            {
-                let ctx = ts::ctx(&mut scenario);
-                lz_bridge::init_lz_config(&govern_cap, MOCK_LZ_ENDPOINT, ctx);
-            };
+            lz_bridge::init_lz_config(&govern_cap, MOCK_LZ_ENDPOINT, ctx);
             
-            // Configure trusted remotes
+            ts::return_to_sender(&scenario, govern_cap);
+        };
+        
+        // Configure trusted remotes in a separate transaction
+        ts::next_tx(&mut scenario, ADMIN_ADDR);
+        {
+            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
             let mut lz_config = ts::take_shared<LZConfig>(&scenario);
             
-            {
-                let ctx = ts::ctx(&mut scenario);
-                let ethereum_remote = x"deadbeef";
-                lz_bridge::set_trusted_remote(&govern_cap, &mut lz_config, CHAIN_ID_ETHEREUM, ethereum_remote, ctx);
-            };
+            // Add Ethereum remote
+            let ctx = ts::ctx(&mut scenario);
+            let ethereum_remote = x"deadbeef";
+            lz_bridge::set_trusted_remote(&govern_cap, &mut lz_config, CHAIN_ID_ETHEREUM, ethereum_remote, ctx);
             
-            {
-                let ctx = ts::ctx(&mut scenario);
-                let avalanche_remote = x"beefdead";
-                lz_bridge::set_trusted_remote(&govern_cap, &mut lz_config, CHAIN_ID_AVALANCHE, avalanche_remote, ctx);
-            };
+            // Add Avalanche remote
+            let ctx = ts::ctx(&mut scenario);
+            let avalanche_remote = x"beefdead";
+            lz_bridge::set_trusted_remote(&govern_cap, &mut lz_config, CHAIN_ID_AVALANCHE, avalanche_remote, ctx);
             
             ts::return_shared(lz_config);
             ts::return_to_sender(&scenario, govern_cap);

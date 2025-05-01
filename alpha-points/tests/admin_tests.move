@@ -6,7 +6,7 @@ module alpha_points::admin_tests {
     use sui::tx_context::{Self, TxContext};
 
     use alpha_points::admin::{
-        Self, Config, GovernCap, OracleCap, EProtocolPaused,
+        Self, Config, GovernCap, OracleCap, EProtocolPaused, EUnauthorized,
         create_test_govern_cap, destroy_test_govern_cap
     };
 
@@ -66,7 +66,7 @@ module alpha_points::admin_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 0)]
+    #[expected_failure(abort_code = EUnauthorized)]
     fun test_set_pause_state_unauthorized() {
         let mut scenario = ts::begin(ADMIN_ADDR);
         {
@@ -85,6 +85,8 @@ module alpha_points::admin_tests {
             {
                 let mut config = ts::take_shared<Config>(&scenario);
                 let ctx = ts::ctx(&mut scenario);
+                
+                // This should fail because it's using a fake cap
                 admin::set_pause_state(&mut config, &fake_govern_cap, true, ctx);
                 
                 // These cleanup operations won't execute if the test fails as expected

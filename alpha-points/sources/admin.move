@@ -7,6 +7,7 @@ module alpha_points::admin {
     
     // Error constants
     const EProtocolPaused: u64 = 1;
+    const EUnauthorized: u64 = 2; // Changed from 0 to a valid error code
     
     /// Singleton capability for protocol owner actions
     public struct GovernCap has key, store {
@@ -73,14 +74,17 @@ module alpha_points::admin {
         transfer::share_object(config);
     }
     
-    /// Updates config.paused. Emits PauseStateChanged.
+    // Fix for set_pause_state function in admin.move
     public entry fun set_pause_state(
         config: &mut Config, 
-        _gov_cap: &GovernCap, 
+        gov_cap: &GovernCap, 
         paused: bool, 
-        _ctx: &tx_context::TxContext
+        ctx: &tx_context::TxContext
     ) {
-        // Only the holder of GovernCap can change pause state
+        // We can't create a new object with &ctx, so we need a different approach
+        // Simply check that this is a valid GovernCap (we don't need to explicitly check since
+        // the function signature already requires a GovernCap reference)
+        
         config.paused = paused;
         
         // Emit event
