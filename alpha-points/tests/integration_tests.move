@@ -122,7 +122,7 @@ module alpha_points::integration_tests {
             let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
             let ctx = ts::ctx(&mut scenario);
             integration::redeem_stake<SUI>(
-                &config, &ledger, &mut escrow_vault, stake, &clock, ctx // stake consumed
+                &config, &ledger, &mut escrow_vault, stake, &clock, ctx
             );
             ts::return_shared(config);
             ts::return_shared(ledger);
@@ -131,11 +131,11 @@ module alpha_points::integration_tests {
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             let escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
-            let coin = ts::take_from_sender<Coin<SUI>>(&scenario); // Get coin by type
+            let coin = ts::take_from_sender<Coin<SUI>>(&scenario);
             assert_eq(escrow::total_value<SUI>(&escrow_vault), 0);
             assert_eq(coin::value(&coin), STAKE_AMOUNT * 2);
             ts::return_shared(escrow_vault);
-            ts::return_to_sender(&scenario, coin); // Return the coin object
+            ts::return_to_sender(&scenario, coin);
         };
         clock::destroy_for_testing(clock);
         ts::end(scenario);
@@ -168,13 +168,13 @@ module alpha_points::integration_tests {
             let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
             let ctx = ts::ctx(&mut scenario);
             integration::redeem_stake<SUI>(
-                &config, &ledger, &mut escrow_vault, stake, &clock, ctx // Should fail here
+                &config, &ledger, &mut escrow_vault, stake, &clock, ctx // Should fail here, stake consumed
             );
             // These won't execute
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_shared(escrow_vault);
-            // E06002 Fix: Remove attempt to return consumed 'stake' variable
+            // E06002 Fix: Removed this line as 'stake' is consumed above
             // ts::return_to_sender(&scenario, stake);
         };
         clock::destroy_for_testing(clock);
@@ -359,19 +359,19 @@ module alpha_points::integration_tests {
         {
             let ledger = ts::take_shared<Ledger>(&scenario);
             let escrow_vault = ts::take_shared<EscrowVault<SUI>>(&scenario);
-            // E03003 Fix: Use take_from_address and coin::value
+            // Use take_from_address to check USER_ADDR's balance
             let coin = ts::take_from_address<Coin<SUI>>(&scenario, USER_ADDR);
 
             assert_eq(ledger::get_available_balance(&ledger, USER_ADDR), POINTS_AMOUNT / 2);
 
             let expected_asset_amount = POINTS_AMOUNT / 2; // Rate is 1.0
             assert_eq(escrow::total_value<SUI>(&escrow_vault), (STAKE_AMOUNT * 2) - expected_asset_amount);
-            // E04010 Fix: Type inference works with Coin<SUI> from take_from_address
+            // Check coin value
             assert_eq(coin::value(&coin), (STAKE_AMOUNT * 2) - STAKE_AMOUNT + expected_asset_amount);
 
             ts::return_shared(ledger);
             ts::return_shared(escrow_vault);
-            // E03003 Fix: Return the coin object correctly
+            // Return coin object
             ts::return_to_address(USER_ADDR, coin);
         };
         clock::destroy_for_testing(clock);

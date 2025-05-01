@@ -128,4 +128,30 @@ module alpha_points::admin {
     public fun assert_not_paused(config: &Config) {
         assert!(!config.paused, EProtocolPaused);
     }
+
+    #[test_only]
+    /// Helper function for creating GovernCap in tests
+    public(package) fun create_test_govern_cap(ctx: &mut TxContext): GovernCap {
+        GovernCap { id: object::new(ctx) }
+    }
+
+    #[test_only]
+    /// Helper function for destroying GovernCap in tests
+    public(package) fun destroy_test_govern_cap(cap: GovernCap) {
+        let GovernCap { id } = cap;
+        object::delete(id);
+    }
+
+    #[test_only]
+    /// Helper function for creating OracleCap in tests
+    public(package) fun create_test_oracle_cap(ctx: &mut TxContext): OracleCap {
+        OracleCap { id: object::new(ctx) }
+    }
+
+    #[test_only]
+    /// Helper function for destroying OracleCap in tests
+    public(package) fun destroy_test_oracle_cap(cap: OracleCap) {
+        let OracleCap { id } = cap;
+        object::delete(id);
+    }    
 }

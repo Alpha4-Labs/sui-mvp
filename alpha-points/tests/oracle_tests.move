@@ -94,47 +94,35 @@ module alpha_points::oracle_tests {
    #[expected_failure]
    fun test_update_rate_unauthorized() {
        let (mut scenario, clock) = setup_test();
-       // Create oracle with the real cap held by ADMIN
        ts::next_tx(&mut scenario, ADMIN_ADDR);
        {
            let oracle_cap = ts::take_from_sender<OracleCap>(&scenario);
-           { // Scope ctx borrow
-                let ctx = ts::ctx(&mut scenario);
-                oracle::create_oracle(&oracle_cap, INITIAL_RATE, DECIMALS, STALENESS_THRESHOLD, ctx);
-           }; // ctx borrow ends
-           ts::return_to_sender(&scenario, oracle_cap); // Keep the real cap
+           { let ctx = ts::ctx(&mut scenario);
+               oracle::create_oracle(&oracle_cap, INITIAL_RATE, DECIMALS, STALENESS_THRESHOLD, ctx); };
+           ts::return_to_sender(&scenario, oracle_cap);
        };
-
-       // Create a temporary, distinct OracleCap for ADMIN
        let temp_oracle_cap;
        ts::next_tx(&mut scenario, ADMIN_ADDR);
        {
-           { // Scope ctx borrow
-                let ctx = ts::ctx(&mut scenario);
-                temp_oracle_cap = admin::create_test_oracle_cap(ctx);
-           };
+           { let ctx = ts::ctx(&mut scenario);
+               temp_oracle_cap = admin::create_test_oracle_cap(ctx); };
        };
-
-       // Try to update rate using the temporary cap
        ts::next_tx(&mut scenario, ADMIN_ADDR);
        {
            let mut oracle = ts::take_shared<RateOracle>(&scenario);
            let ctx = ts::ctx(&mut scenario);
            let new_rate = INITIAL_RATE + (INITIAL_RATE / 5);
            oracle::update_rate(&mut oracle, &temp_oracle_cap, new_rate, ctx); // Should abort here
-           // Cleanup (won't execute)
            ts::return_shared(oracle);
        };
-
-       // Cleanup the temporary cap *after* the failing transaction
        ts::next_tx(&mut scenario, ADMIN_ADDR);
        {
            admin::destroy_test_oracle_cap(temp_oracle_cap);
        };
-
        clock::destroy_for_testing(clock);
        ts::end(scenario);
    }
+
 
     #[test]
     fun test_update_staleness_threshold() {
@@ -170,69 +158,86 @@ module alpha_points::oracle_tests {
 
     #[test]
     fun test_is_stale() {
-        let (mut scenario, mut clock) = setup_test();
+        let (mut scenario, mut clock) = setup_test(); // Both need mutability
+        // Transfer the real OracleCap to ORACLE_ADDR
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let oracle_cap = ts::take_from_sender<OracleCap>(&scenario);
             transfer::public_transfer(oracle_cap, ORACLE_ADDR);
         };
-        // Create oracle and update rate once
+
+        // Create the oracle (needs ctx)
         ts::next_tx(&mut scenario, ORACLE_ADDR);
         {
             let oracle_cap = ts::take_from_sender<OracleCap>(&scenario);
-            let mut oracle; // Declare outside block
-            { // Scope ctx for create
+            { // Scope ctx borrow for create
                 let ctx = ts::ctx(&mut scenario);
                 oracle::create_oracle(
                     &oracle_cap, INITIAL_RATE, DECIMALS, STALENESS_THRESHOLD, ctx
                 );
-            }; // ctx borrow for create ends
-
-            // E07001 Fix: Separate take_shared and update_rate into block after create ctx ends
-            { // Scope ctx for update
-                let ctx = ts::ctx(&mut scenario);
-                oracle = ts::take_shared<RateOracle>(&scenario); // Take shared object
-                oracle::update_rate(&mut oracle, &oracle_cap, INITIAL_RATE, ctx); // Update within new ctx scope
-            }; // ctx borrow for update ends
-
-            ts::return_shared(oracle); // Return modified shared obj
+            }; // ctx borrow ends
             ts::return_to_sender(&scenario, oracle_cap);
         };
-        // Check freshness right after update
+
+        // Update the rate once to set last_update_epoch (needs ctx)
+        ts::next_tx(&mut scenario, ORACLE_ADDR);
+        {
+             let oracle_cap = ts::take_from_sender<OracleCap>(&scenario);
+             // E07001 Fix: take_shared happens *before* ctx borrow in this block
+             let mut oracle = ts::take_shared<RateOracle>(&scenario);
+             { // Scope ctx borrow for update
+                 let ctx = ts::ctx(&mut scenario);
+                 oracle::update_rate(&mut oracle, &oracle_cap, INITIAL_RATE, ctx);
+             }; // ctx borrow ends
+             ts::return_shared(oracle); // Return modified shared obj
+             ts::return_to_sender(&scenario, oracle_cap);
+        };
+
+        // Check freshness right after update (no ctx needed)
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let oracle = ts::take_shared<RateOracle>(&scenario);
+            let oracle = ts::take_shared<RateOracle>(&scenario); // Immutable borrow ok
             assert_eq(oracle::is_stale(&oracle, &clock), false);
             ts::return_shared(oracle);
         };
+
         // Advance clock less than threshold (ms)
         clock::increment_for_testing(&mut clock, (STALENESS_THRESHOLD / 2) * 86400000);
+
+        // Check freshness again (no ctx needed)
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let oracle = ts::take_shared<RateOracle>(&scenario);
             assert_eq(oracle::is_stale(&oracle, &clock), false);
             ts::return_shared(oracle);
         };
+
         // Advance clock beyond threshold (ms)
         clock::increment_for_testing(&mut clock, STALENESS_THRESHOLD * 86400000);
+
+        // Check staleness (no ctx needed)
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let oracle = ts::take_shared<RateOracle>(&scenario);
             assert_eq(oracle::is_stale(&oracle, &clock), true);
             ts::return_shared(oracle);
         };
-        // Update rate to reset staleness
+
+        // Update rate to reset staleness (needs ctx)
         ts::next_tx(&mut scenario, ORACLE_ADDR);
         {
             let oracle_cap = ts::take_from_sender<OracleCap>(&scenario);
-            let mut oracle = ts::take_shared<RateOracle>(&scenario);
-            let ctx = ts::ctx(&mut scenario);
-            oracle::update_rate(&mut oracle, &oracle_cap, INITIAL_RATE, ctx);
+            let mut oracle = ts::take_shared<RateOracle>(&scenario); // take shared before ctx
+            { // scope ctx borrow
+                let ctx = ts::ctx(&mut scenario);
+                oracle::update_rate(&mut oracle, &oracle_cap, INITIAL_RATE, ctx);
+            }; // ctx borrow ends
             assert_eq(oracle::is_stale(&oracle, &clock), false);
             ts::return_to_sender(&scenario, oracle_cap);
             ts::return_shared(oracle);
         };
-        clock::destroy_for_testing(clock);
+
+        clock::destroy_for_testing(clock); // Destroy clock
         ts::end(scenario);
     }
 

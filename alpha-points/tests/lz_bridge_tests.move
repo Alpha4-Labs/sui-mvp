@@ -30,29 +30,21 @@ module alpha_points::lz_bridge_tests {
         };
         {
             let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
-            // Init LZ config needs ctx
             {
                 let ctx = ts::ctx(&mut scenario);
                 lz_bridge::init_lz_config(&govern_cap, MOCK_LZ_ENDPOINT, ctx);
-            }; // ctx borrow ends
-
-            // E07001 Fix: take_shared must happen *after* ctx borrow ends.
+            };
             let mut lz_config = ts::take_shared<LZConfig>(&scenario);
-
-            // Set first remote needs ctx
             {
                 let ctx = ts::ctx(&mut scenario);
                 let ethereum_remote = x"deadbeef";
                 lz_bridge::set_trusted_remote(&govern_cap, &mut lz_config, CHAIN_ID_ETHEREUM, ethereum_remote, ctx);
-            }; // ctx borrow ends
-
-            // Set second remote needs ctx
+            };
             {
                 let ctx = ts::ctx(&mut scenario);
                 let avalanche_remote = x"beefdead";
                 lz_bridge::set_trusted_remote(&govern_cap, &mut lz_config, CHAIN_ID_AVALANCHE, avalanche_remote, ctx);
-            }; // ctx borrow ends
-
+            };
             ts::return_shared(lz_config);
             ts::return_to_sender(&scenario, govern_cap);
         };
@@ -225,9 +217,9 @@ module alpha_points::lz_bridge_tests {
         // E04024 Fix: Make payload mutable
         let mut payload = vector::empty<u8>();
         let addr_bytes = bcs::to_bytes(&dest_address);
-        vector::append(&mut payload, addr_bytes); // Needs mutable payload
+        vector::append(&mut payload, addr_bytes); // Now valid
         let amount_bytes = bcs::to_bytes(&amount);
-        vector::append(&mut payload, amount_bytes); // Needs mutable payload
+        vector::append(&mut payload, amount_bytes); // Now valid
         payload
     }
 }
