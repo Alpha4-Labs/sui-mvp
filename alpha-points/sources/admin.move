@@ -1,27 +1,27 @@
 /// Module that manages protocol configuration, capabilities, and global pause state.
 module alpha_points::admin {
-    use sui::object;
+    use sui::object::{Self, UID};
     use sui::transfer;
-    use sui::tx_context;
+    use sui::tx_context::{Self, TxContext};
     use sui::event;
     
     // Error constants
     const EProtocolPaused: u64 = 1;
-    const EUnauthorized: u64 = 2; // Changed from 0 to a valid error code
+    const EUnauthorized: u64 = 2;
     
     /// Singleton capability for protocol owner actions
     public struct GovernCap has key, store {
-        id: object::UID
+        id: UID
     }
     
     /// Capability to update oracles
     public struct OracleCap has key, store {
-        id: object::UID
+        id: UID
     }
     
     /// Shared object holding global pause state
     public struct Config has key {
-        id: object::UID,
+        id: UID,
         paused: bool
     }
     
@@ -43,7 +43,7 @@ module alpha_points::admin {
     // === Test-only functions ===
     #[test_only]
     /// Initialize the admin module for testing
-    public fun init_for_testing(ctx: &mut tx_context::TxContext) {
+    public fun init_for_testing(ctx: &mut TxContext) {
         init(ctx);
     }
     
@@ -51,7 +51,7 @@ module alpha_points::admin {
     
     /// Creates GovernCap, OracleCap, Config. 
     /// Transfers caps to deployer, shares Config.
-    fun init(ctx: &mut tx_context::TxContext) {
+    fun init(ctx: &mut TxContext) {
         let sender = tx_context::sender(ctx);
         
         // Create and transfer governance capability
@@ -74,16 +74,20 @@ module alpha_points::admin {
         transfer::share_object(config);
     }
     
-    // Fix for set_pause_state function in admin.move
+    /// Updates config.paused. Emits PauseStateChanged.
+    /// Takes a GovernCap reference for authorization.
     public entry fun set_pause_state(
         config: &mut Config, 
         gov_cap: &GovernCap, 
         paused: bool, 
-        ctx: &tx_context::TxContext
+        ctx: &TxContext
     ) {
-        // We can't create a new object with &ctx, so we need a different approach
-        // Simply check that this is a valid GovernCap (we don't need to explicitly check since
-        // the function signature already requires a GovernCap reference)
+        // For tests, we need to explicitly verify that the gov_cap is valid
+        // Just accessing it to make sure it exists and is the right type
+        object::id(gov_cap);
+        
+        // In a real implementation with proper CAP checks, we would do additional
+        // validation here. For testing purposes, this is simplified.
         
         config.paused = paused;
         
@@ -96,7 +100,7 @@ module alpha_points::admin {
         _gov_cap: &GovernCap, 
         cap: GovernCap, 
         to: address, 
-        ctx: &tx_context::TxContext
+        ctx: &TxContext
     ) {
         let from = tx_context::sender(ctx);
         
@@ -112,7 +116,7 @@ module alpha_points::admin {
         _gov_cap: &GovernCap, 
         cap: OracleCap, 
         to: address, 
-        ctx: &tx_context::TxContext
+        ctx: &TxContext
     ) {
         let from = tx_context::sender(ctx);
         

@@ -40,7 +40,9 @@ module alpha_points::loan_tests {
         };
         
         // Create clock
-        let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+        let mut clock = clock::create_for_testing(ts::ctx(&mut scenario));
+        // Set clock to non-zero value
+        clock::set_for_testing(&mut clock, 86400000); // 1 day in ms
         
         // Setup vault, oracle, loan_config
         ts::next_tx(&mut scenario, ADMIN_ADDR);
@@ -58,6 +60,13 @@ module alpha_points::loan_tests {
             {
                 let ctx = ts::ctx(&mut scenario);
                 oracle::create_oracle(&oracle_cap, 1000000000, 9, 10, ctx);
+                
+                // Update the oracle right away to make it fresh
+                ts::next_tx(&mut scenario, ADMIN_ADDR);
+                let mut oracle = ts::take_shared<RateOracle>(&scenario);
+                let ctx = ts::ctx(&mut scenario);
+                oracle::update_rate(&mut oracle, &oracle_cap, 1000000000, ctx);
+                ts::return_shared(oracle);
             };
             
             // Create loan config
@@ -270,9 +279,6 @@ module alpha_points::loan_tests {
             let mut stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
             let ctx = ts::ctx(&mut scenario);
 
-            // Get repayment amount before repaying
-            let (repayment_amount, _accrued_interest) = loan::get_current_repayment_amount(&loan, &clock);
-
             // Repay the loan
             loan::repay_loan<SUI>(
                 &config, &mut ledger, loan, &mut stake, &clock, ctx
@@ -321,7 +327,7 @@ module alpha_points::loan_tests {
             ts::return_shared(oracle);
         };
         
-        // Advance time to accumulate some interest
+        // Advance time to accumulate interest
         clock::increment_for_testing(&mut clock, 10 * 86400000); // 10 days
         
         // Spend all the points the user has
@@ -350,6 +356,8 @@ module alpha_points::loan_tests {
             let ctx = ts::ctx(&mut scenario);
 
             // This should fail with EInsufficientPoints
+            // Note: The loan object will be consumed by this operation,
+            // so we don't need to return it to the sender
             loan::repay_loan<SUI>(
                 &config, &mut ledger, loan, &mut stake, &clock, ctx
             );
