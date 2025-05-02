@@ -1,0 +1,74 @@
+/* src/index.css */
+
+/* Inject Tailwind's base styles, component classes and utility classes */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Add any global custom base styles here */
+body {
+  @apply bg-gray-900 text-gray-100 font-sans antialiased;
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+}
+
+/* Example: Custom scrollbar styles (optional) */
+/* For Webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #1f2937; /* gray-800 */
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #4b5563; /* gray-600 */
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280; /* gray-500 */
+}
+
+/* Firefox scrollbar */
+/* Note: Firefox scrollbar styling is limited */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #4b5563 #1f2937; /* thumb track */
+}
+
+
+/* Add View Transition Styles (if using react-transition-group as per MainContent.jsx) */
+.view-enter {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.view-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms ease-out, transform 300ms ease-out;
+}
+.view-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+.view-exit-active {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 300ms ease-in, transform 300ms ease-in;
+}
+
+/* Optional: Add custom animation for background gradient if needed */
+@keyframes gradient-animation {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-gradient-bg {
+   /* Ensure the gradient exists in tailwind.config.js or define it here */
+   /* Example gradient - Adjust as needed */
+   background: linear-gradient(-45deg, #111827, #1f2937, #374151, #4b5563);
+   background-size: 400% 400%;
+   animation: gradient-animation 15s ease infinite;
+}
