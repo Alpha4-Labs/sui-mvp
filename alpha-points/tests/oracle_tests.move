@@ -125,11 +125,11 @@ module alpha_points::oracle_tests {
     }
 
     #[test]
-    #[expected_failure]
+    #[expected_failure(abort_code = 4)]
     fun test_update_rate_unauthorized() {
         let (mut scenario, clock) = setup_test();
         
-        // First create the oracle with a regular OracleCap
+        // First create the oracle with a regular OracleCap - this will be authorized
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let oracle_cap = ts::take_from_sender<OracleCap>(&scenario);
@@ -142,33 +142,22 @@ module alpha_points::oracle_tests {
             ts::return_to_sender(&scenario, oracle_cap);
         };
         
-        // Then attempt to update with a fake cap
+        // Then attempt to update with an unauthorized user
         ts::next_tx(&mut scenario, USER_ADDR);
         {
-            // Create a fake cap first
+            // Take the shared oracle
+            let mut oracle = ts::take_shared<RateOracle>(&scenario);
+            // Create a fake cap
             let ctx = ts::ctx(&mut scenario);
             let fake_oracle_cap = create_test_oracle_cap(ctx);
             
-            // Start a new transaction to avoid borrow conflicts
-            ts::next_tx(&mut scenario, USER_ADDR);
-            {
-                // Take the shared oracle
-                let mut oracle = ts::take_shared<RateOracle>(&scenario);
-                // Get the context
-                let ctx = ts::ctx(&mut scenario);
-                
-                // Try to update the oracle with the fake cap (should fail)
-                oracle::update_rate(&mut oracle, &fake_oracle_cap, INITIAL_RATE * 2, ctx);
-                
-                // These won't execute if the test fails as expected
-                ts::return_shared(oracle);
-            };
+            // Try to update the oracle with this unauthorized user/cap
+            // This should fail with EUnauthorized
+            oracle::update_rate(&mut oracle, &fake_oracle_cap, INITIAL_RATE * 2, ctx);
             
-            // Cleanup in a separate transaction
-            ts::next_tx(&mut scenario, USER_ADDR);
-            {
-                destroy_test_oracle_cap(fake_oracle_cap);
-            };
+            // These won't execute if the test fails as expected
+            ts::return_shared(oracle);
+            destroy_test_oracle_cap(fake_oracle_cap);
         };
         
         clock::destroy_for_testing(clock);

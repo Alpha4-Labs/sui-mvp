@@ -180,7 +180,7 @@ module alpha_points::integration_tests {
             
             // Check escrow balance before redemption
             let escrow_balance_before = escrow::total_value<SUI>(&escrow_vault);
-            assert_eq(escrow_balance_before, STAKE_AMOUNT);
+            assert!(escrow_balance_before == STAKE_AMOUNT, 0);
             
             // Redeem stake
             integration::redeem_stake<SUI>(
@@ -189,26 +189,28 @@ module alpha_points::integration_tests {
             
             // Verify escrow balance after redemption
             let escrow_balance_after = escrow::total_value<SUI>(&escrow_vault);
-            assert_eq(escrow_balance_after, 0);
+            assert!(escrow_balance_after == 0, 0);
             
             ts::return_shared(config);
             ts::return_shared(ledger);
             ts::return_shared(escrow_vault);
         };
         
-        // Verify redemption
+        // IMPORTANT: Verify redemption - we avoid using assert_eq here
         ts::next_tx(&mut scenario, USER_ADDR);
         {
             // Get the user's coin
             let coin = ts::take_from_sender<Coin<SUI>>(&scenario);
             
-            // The test setup gives the user STAKE_AMOUNT * 2 initially, 
-            // but the user only stakes STAKE_AMOUNT.
-            // After redemption, the user should have STAKE_AMOUNT again, 
-            // bringing the total to STAKE_AMOUNT + STAKE_AMOUNT = STAKE_AMOUNT * 2
-            let expected_total = STAKE_AMOUNT + STAKE_AMOUNT;
-            let total_sui = coin::value(&coin);
-            assert_eq(total_sui, expected_total);
+            // Get the actual value of the coin
+            let actual_sui = coin::value(&coin);
+            
+            // The test setup gives user STAKE_AMOUNT * 2 initially, then they stake STAKE_AMOUNT,
+            // then redeem STAKE_AMOUNT, so they should have STAKE_AMOUNT * 2 afterward
+            let expected_sui = STAKE_AMOUNT * 2; 
+            
+            // Use assert! instead of assert_eq
+            assert!(actual_sui == expected_sui, 0);
             
             ts::return_to_sender(&scenario, coin);
         };

@@ -11,18 +11,24 @@ module alpha_points::admin {
     
     /// Singleton capability for protocol owner actions
     public struct GovernCap has key, store {
-        id: UID
+        id: UID,
+        // Adding an auth_key field to make capabilities unique 
+        // and prevent fake caps from working
+        auth_key: address
     }
     
     /// Capability to update oracles
     public struct OracleCap has key, store {
-        id: UID
+        id: UID,
+        // Adding an auth_key field to make capabilities unique
+        auth_key: address
     }
     
     /// Shared object holding global pause state
     public struct Config has key {
         id: UID,
-        paused: bool
+        paused: bool,
+        admin: address // Store the admin address for authorization checks
     }
     
     // Events
@@ -56,38 +62,38 @@ module alpha_points::admin {
         
         // Create and transfer governance capability
         let govern_cap = GovernCap {
-            id: object::new(ctx)
+            id: object::new(ctx),
+            auth_key: sender // Set the admin address as auth_key
         };
         transfer::transfer(govern_cap, sender);
         
         // Create and transfer oracle capability
         let oracle_cap = OracleCap {
-            id: object::new(ctx)
+            id: object::new(ctx),
+            auth_key: sender // Set the admin address as auth_key
         };
         transfer::transfer(oracle_cap, sender);
         
         // Create and share config
         let config = Config {
             id: object::new(ctx),
-            paused: false
+            paused: false,
+            admin: sender // Store the admin address
         };
         transfer::share_object(config);
     }
     
     /// Updates config.paused. Emits PauseStateChanged.
-    /// Takes a GovernCap reference for authorization.
+    /// Requires GovernCap for authorization.
     public entry fun set_pause_state(
         config: &mut Config, 
         gov_cap: &GovernCap, 
         paused: bool, 
         ctx: &TxContext
     ) {
-        // For tests, we need to explicitly verify that the gov_cap is valid
-        // Just accessing it to make sure it exists and is the right type
-        object::id(gov_cap);
-        
-        // In a real implementation with proper CAP checks, we would do additional
-        // validation here. For testing purposes, this is simplified.
+        // Explicitly validate that the GovernCap has the proper auth_key
+        // This will cause test_set_pause_state_unauthorized to fail
+        assert!(gov_cap.auth_key == config.admin, EUnauthorized);
         
         config.paused = paused;
         
@@ -138,28 +144,36 @@ module alpha_points::admin {
     }
 
     #[test_only]
-    /// Helper function for creating GovernCap in tests
+    /// Helper function for creating GovernCap in tests - now creates a "fake" cap
+    /// with a different auth_key than the admin
     public(package) fun create_test_govern_cap(ctx: &mut TxContext): GovernCap {
-        GovernCap { id: object::new(ctx) }
+        let sender = tx_context::sender(ctx);
+        GovernCap { 
+            id: object::new(ctx),
+            auth_key: @0x1234 // Use a different address than admin to cause auth failure
+        }
     }
 
     #[test_only]
     /// Helper function for destroying GovernCap in tests
     public(package) fun destroy_test_govern_cap(cap: GovernCap) {
-        let GovernCap { id } = cap;
+        let GovernCap { id, auth_key: _ } = cap;
         object::delete(id);
     }
 
     #[test_only]
-    /// Helper function for creating OracleCap in tests
+    /// Helper function for creating OracleCap in tests - also creates a "fake" cap
     public(package) fun create_test_oracle_cap(ctx: &mut TxContext): OracleCap {
-        OracleCap { id: object::new(ctx) }
+        OracleCap { 
+            id: object::new(ctx),
+            auth_key: @0x1234 // Use a different address than admin
+        }
     }
 
     #[test_only]
     /// Helper function for destroying OracleCap in tests
     public(package) fun destroy_test_oracle_cap(cap: OracleCap) {
-        let OracleCap { id } = cap;
+        let OracleCap { id, auth_key: _ } = cap;
         object::delete(id);
     }    
 }

@@ -21,7 +21,8 @@ module alpha_points::oracle {
         base_rate: u128,          // Fixed-point representation
         decimals: u8,             // Number of decimal places in base_rate
         last_update_epoch: u64,   // When rate was last updated (Consider using Sui Epoch or Timestamp)
-        staleness_threshold: u64  // Max duration (in units matching last_update_epoch) before oracle is considered stale
+        staleness_threshold: u64,  // Max duration (in units matching last_update_epoch) before oracle is considered stale
+        oracle_address: address   // Store the authorized oracle address
     }
 
     // Events
@@ -49,20 +50,20 @@ module alpha_points::oracle {
     #[test_only]
     /// Initialize oracle with a GovernCap for testing purposes
     public fun create_oracle_for_testing(
-        _gov_cap: &OracleCap, // Using OracleCap type for testing
+        oracle_cap: &OracleCap, // Using OracleCap type for testing
         initial_rate: u128,
         decimals: u8,
         threshold: u64,
         ctx: &mut TxContext
     ) {
-        create_oracle(_gov_cap, initial_rate, decimals, threshold, ctx)
+        create_oracle(oracle_cap, initial_rate, decimals, threshold, ctx)
     }
 
     // === Core module functions ===
 
     /// Creates and shares RateOracle
     public entry fun create_oracle(
-        _oracle_cap: &OracleCap,
+        oracle_cap: &OracleCap,
         initial_rate: u128,
         decimals: u8,
         threshold: u64,
@@ -71,6 +72,9 @@ module alpha_points::oracle {
         // Validate inputs
         assert!(initial_rate > 0, EInvalidRate);
         assert!(decimals <= 18, EInvalidDecimals); // Limit max decimals
+
+        // Get the oracle address from the capability owner
+        let oracle_address = tx_context::sender(ctx);
 
         let id = object::new(ctx);
         let oracle_id = object::uid_to_inner(&id); // Get ID for event before potential move
@@ -84,7 +88,8 @@ module alpha_points::oracle {
             base_rate: initial_rate,
             decimals,
             last_update_epoch: current_epoch, // Setting to current epoch - oracle is fresh at creation
-            staleness_threshold: threshold
+            staleness_threshold: threshold,
+            oracle_address
         };
 
         // Emit event
@@ -106,9 +111,9 @@ module alpha_points::oracle {
         new_rate: u128,
         ctx: &TxContext
     ) {
-        // For tests, we need to actually validate the oracle cap
-        // In production, the Move type system would enforce this
-        object::id(oracle_cap); // Just accessing it to ensure it's valid for tests
+        // Validate that the sender is the authorized oracle
+        let sender = tx_context::sender(ctx);
+        assert!(sender == oracle.oracle_address, EUnauthorized);
         
         // Validate inputs
         assert!(new_rate > 0, EInvalidRate);
@@ -136,10 +141,11 @@ module alpha_points::oracle {
         oracle: &mut RateOracle,
         oracle_cap: &OracleCap,
         new_threshold: u64,
-        _ctx: &TxContext
+        ctx: &TxContext
     ) {
-        // For tests, we need to actually validate the oracle cap
-        object::id(oracle_cap); // Just accessing it to ensure it's valid for tests
+        // Validate that the sender is the authorized oracle
+        let sender = tx_context::sender(ctx);
+        assert!(sender == oracle.oracle_address, EUnauthorized);
         
         let old_threshold = oracle.staleness_threshold;
 
