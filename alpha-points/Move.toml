@@ -5,4 +5,5 @@ authors = ["Alpha4 Team"]
 edition = "2024.alpha"
 
 [addresses]
-alpha_points = "0x5"
+alpha_points = "0x0"
+sui = "0x2"
