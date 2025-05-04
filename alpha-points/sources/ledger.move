@@ -78,8 +78,7 @@ module alpha_points::ledger {
         // Increase supply for tracking but don't use the returned balance
         // Just track the values in our table
         let b = balance::increase_supply(&mut ledger.point_supply, amount);
-        balance::destroy_zero(b);
-        
+                
         // Update user's entry in the Table
         if (!table::contains(&ledger.entries, user)) {
             table::add(
