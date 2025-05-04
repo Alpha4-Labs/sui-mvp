@@ -1,19 +1,22 @@
-// === useStakePositions.ts (Corrected) ===
 import { useCallback, useEffect, useState } from 'react';
 import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
-// No specific object type import needed if checking dataType
 
-import { StakePosition } from '../types'; // Your local StakePosition type definition
+import { StakePosition } from '../types';
 import { PACKAGE_ID, SUI_TYPE } from '../config/contract';
 
+/**
+ * Hook for fetching and managing user's stake positions
+ */
 export const useStakePositions = () => {
   const currentAccount = useCurrentAccount();
   const client = useSuiClient();
 
+  // State management
   const [loading, setLoading] = useState(true);
   const [positions, setPositions] = useState<StakePosition[]>([]);
-  const [error, setError] = useState<string | null>(null); // Add error state
+  const [error, setError] = useState<string | null>(null);
 
+  // Main fetch function
   const fetchPositions = useCallback(async () => {
     if (!currentAccount?.address) {
       setPositions([]); // Clear positions if no user
@@ -43,48 +46,48 @@ export const useStakePositions = () => {
         .map(obj => {
           const content = obj.data?.content;
 
-          // *** Type Guard ***
-          // Check if the content exists and is specifically a Move object
+          // Type Guard: Ensure it's a Move object before proceeding
           if (content?.dataType === 'moveObject') {
-            // Access the inner 'fields' which holds the actual struct data
+            // Access the inner 'fields' property which holds the actual struct data
+            // Cast to Record<string, any> for dynamic property access
             const moveStructFields = content.fields as Record<string, any>;
 
             // Check if fields exist after cast
             if (!moveStructFields) {
-                 console.warn(`Stake position object ${obj.data?.objectId} content missing 'fields'.`, content);
-                 return null; // Skip this object
+              console.warn(`Stake position object ${obj.data?.objectId} content missing 'fields'.`, content);
+              return null; // Skip this object
             }
 
-            // Safely access properties *from* moveStructFields, providing defaults
+            // Safely access properties from moveStructFields, with defaults
             const startEpochStr = moveStructFields.start_epoch || '0';
             const unlockEpochStr = moveStructFields.unlock_epoch || '0';
 
-            // Calculate maturity percentage (ensure robust parsing and edge cases)
+            // Calculate maturity percentage
             const now = Math.floor(Date.now() / (1000 * 86400)); // Current day number
             const startEpoch = parseInt(startEpochStr, 10);
             const unlockEpoch = parseInt(unlockEpochStr, 10);
 
             // Check for valid epochs before calculation
             if (isNaN(startEpoch) || isNaN(unlockEpoch)) {
-                console.warn(`Invalid epoch data for StakePosition ${obj.data?.objectId}`);
-                return null; // Skip if epoch data is invalid
+              console.warn(`Invalid epoch data for StakePosition ${obj.data?.objectId}`);
+              return null; // Skip if epoch data is invalid
             }
 
-            const duration = unlockEpoch > startEpoch ? unlockEpoch - startEpoch : 0; // Duration in epochs
-            const elapsed = now >= startEpoch ? now - startEpoch : 0; // Elapsed time in epochs
+            const duration = unlockEpoch > startEpoch ? unlockEpoch - startEpoch : 0;
+            const elapsed = now >= startEpoch ? now - startEpoch : 0;
             let maturityPercentage = 0;
 
             if (duration > 0) {
-                 // Calculate percentage, clamping between 0 and 100
-                 maturityPercentage = Math.min(100, Math.max(0, Math.floor((elapsed / duration) * 100)));
+              // Calculate percentage, clamping between 0 and 100
+              maturityPercentage = Math.min(100, Math.max(0, Math.floor((elapsed / duration) * 100)));
             } else if (elapsed >= 0 && duration === 0 && startEpoch > 0) {
-                 // If duration is 0 (or unlock <= start) but it's past start, consider it mature? Adjust logic as needed.
-                 maturityPercentage = 100; // Assuming instantly mature if duration is zero/negative
+              // If duration is 0 but it's past start, consider it mature
+              maturityPercentage = 100;
             } else if (now < startEpoch) {
-                maturityPercentage = 0; // Not started yet
+              maturityPercentage = 0; // Not started yet
             }
 
-            // Construct the StakePosition object, ensuring fields match your type
+            // Construct the StakePosition object
             const positionData: StakePosition = {
               id: obj.data?.objectId || '',
               owner: moveStructFields.owner || '',
@@ -92,9 +95,8 @@ export const useStakePositions = () => {
               startEpoch: startEpochStr,
               unlockEpoch: unlockEpochStr,
               durationEpochs: moveStructFields.duration_epochs || '0',
-              encumbered: moveStructFields.encumbered || false, // Assuming boolean
+              encumbered: moveStructFields.encumbered || false,
               maturityPercentage,
-              // Add any other fields defined in your local 'StakePosition' type
             };
             return positionData;
           }
@@ -113,10 +115,13 @@ export const useStakePositions = () => {
     }
   }, [client, currentAccount?.address]);
 
+  // Initialize data and set up polling
   useEffect(() => {
     fetchPositions();
+    // Set up polling interval
     const interval = setInterval(fetchPositions, 10000); // Poll every 10 seconds
-    return () => clearInterval(interval); // Cleanup interval
+    // Cleanup interval on unmount
+    return () => clearInterval(interval);
   }, [fetchPositions]);
 
   // Return positions, loading state, error state, and refetch function

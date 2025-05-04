@@ -58,6 +58,33 @@ export const formatSui = (amount: string | number, decimals = 2): string => {
   export const formatPercentage = (value: number, decimals = 2): string => {
     return `${value.toFixed(decimals)}%`;
   };
+
+  export const formatTimestamp = (date: Date | number | string | null | undefined, options?: Intl.DateTimeFormatOptions): string => {
+    if (!date) return 'N/A';
+    try {
+      const dateObj = typeof date === 'object' ? date : new Date(date);
+      // Check if date conversion resulted in a valid date
+      if (isNaN(dateObj.getTime())) {
+         console.warn("Invalid date provided to formatTimestamp:", date);
+         return 'Invalid Date';
+      }
+  
+      const defaultOptions: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        // Optional: Add time if needed
+        // hour: '2-digit',
+        // minute: '2-digit',
+        // timeZoneName: 'short' // Consider adding timezone
+      };
+      // Use 'en-CA' for Canadian date format preference, or keep 'en-US' / undefined for default
+      return new Intl.DateTimeFormat('en-CA', { ...defaultOptions, ...options }).format(dateObj);
+    } catch (error) {
+      console.error("Error formatting timestamp:", error);
+      return 'Error'; // Or handle error appropriately
+    }
+  };
   
   // Duration for display (e.g., "30 days")
   export const formatDuration = (days: number): string => {

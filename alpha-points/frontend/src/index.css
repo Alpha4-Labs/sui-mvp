@@ -1,25 +1,87 @@
+/* src/index.css */
+
+/* Import Tailwind's base styles */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --color-primary: 139, 92, 246;
-  --color-secondary: 16, 185, 129;
-  --color-background: 31, 41, 55;
+/* Define base styles and CSS variables */
+@layer base {
+  :root {
+    /* Map Tailwind config colors to CSS variables */
+    --color-brand-primary: #9333EA;
+    --color-brand-primary-dark: #7e22ce; /* Example darker shade */
+    --color-brand-blue: #007BFF;
+    --color-brand-teal: #4B6663;
+    --color-brand-gray-lightest: #E0E0E0;
+    --color-brand-gray-light: #D4D4D4;
+    --color-brand-gray-medium: #C1C1C1;
+    --color-brand-gray-dark: #B3B3B3;
+
+    /* Define backgrounds */
+    --color-background: #111827; /* Default dark */
+    --color-background-card: #1F2937;
+    --color-background-input: #374151;
+
+    /* Define secondary color */
+    --color-secondary: #FBBF24; /* Example: Keeping Amber */
+
+    /* Define text/border defaults */
+     --color-text-base: theme('colors.brand-gray.light'); /* Default text */
+     --color-text-muted: theme('colors.brand-gray.dark');
+     --color-border-color: theme('colors.brand-gray.medium');
+  }
+
+  /* Apply base body styles */
+  body {
+    @apply bg-background text-base antialiased; /* Use CSS vars via theme() */
+    color: var(--color-text-base);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
-body {
-  margin: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background-color: rgb(var(--color-background));
-  color: white;
+
+/* Customizations and Animations Layer */
+@layer utilities {
+  /* Animated Gradient Background */
+  .animate-gradient-bg {
+    background-size: 200% 200%; /* Needed for animation */
+    animation: gradient 15s ease infinite; /* Reference keyframe defined in config */
+  }
+
+  /* --- View Transition Classes --- */
+  /* Ensure these names match your CSSTransition classNames prop */
+  .view-enter {
+    opacity: 0;
+    transform: translateX(20px); /* Slide value */
+  }
+  .view-enter-active {
+    opacity: 1;
+    transform: translateX(0);
+    transition: opacity 300ms ease-out, transform 300ms ease-out;
+  }
+  .view-exit {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .view-exit-active {
+    opacity: 0;
+    transform: translateX(-20px); /* Slide value */
+    transition: opacity 300ms ease-in, transform 300ms ease-in;
+  }
+  /* --- END View Transition Classes --- */
+
+  /* Fade-in Animation */
+  .animate-fade-in-on-load {
+      animation: fadeIn 0.5s ease-out forwards; /* Reference keyframe defined in config */
+  }
+} /* End @layer utilities */
+
+
+/* Tooltip z-index (Keep if needed) */
+.relative[data-headlessui-state="open"] > .absolute {
+  z-index: 999;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-}
+/* Remove any duplicated CSS rules that are now handled by Tailwind config or @layer */
