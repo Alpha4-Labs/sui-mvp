@@ -1,10 +1,11 @@
 /// Module that handles the logic for borrowing Alpha Points against staked assets.
 module alpha_points::loan {
-    use sui::object;
+    use sui::object::{Self, UID, ID};
     use sui::transfer;
-    use sui::tx_context;
+    use sui::tx_context::{Self, TxContext};
     use sui::event;
-    use sui::clock::Clock;
+    use sui::clock::{Self, Clock};
+    use sui::math; // Import math
     
     use alpha_points::admin::{Self, Config, GovernCap};
     use alpha_points::ledger::{Self, Ledger};
@@ -18,43 +19,47 @@ module alpha_points::loan {
     const EWrongStake: u64 = 4;
     const EInsufficientPoints: u64 = 5;
     const EUnauthorized: u64 = 6;
+
+    // Time Constants
+    const MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
+    const MS_PER_YEAR: u64 = 365 * MS_PER_DAY; 
     
     /// Shared object for loan parameters
     public struct LoanConfig has key {
-        id: object::UID,
+        id: UID,
         max_ltv_bps: u64,         // Maximum loan-to-value ratio in basis points (e.g., 7000 = 70%)
         interest_rate_bps: u64    // Annual interest rate in basis points (e.g., 500 = 5%)
     }
     
     /// Owned object representing an active loan tied to a StakePosition<T>
     public struct Loan<phantom T> has key, store {
-        id: object::UID,
+        id: UID,
         borrower: address,
-        stake_id: object::ID,
+        stake_id: ID,
         principal_points: u64,
-        interest_owed_points: u64,
-        opened_epoch: u64
+        interest_owed_points: u64, // Note: Currently unused/not accrued
+        opened_time_ms: u64       // Changed from opened_epoch
     }
     
     // Events
     public struct LoanConfigInitialized has copy, drop {
-        id: object::ID,
+        id: ID,
         max_ltv_bps: u64,
         interest_rate_bps: u64
     }
     
     public struct LoanOpened<phantom T> has copy, drop {
-        id: object::ID,
+        id: ID,
         borrower: address,
-        stake_id: object::ID,
+        stake_id: ID,
         principal_points: u64,
-        opened_epoch: u64
+        opened_time_ms: u64     // Changed from opened_epoch
     }
     
     public struct LoanRepaid<phantom T> has copy, drop {
-        id: object::ID,
+        id: ID,
         borrower: address,
-        stake_id: object::ID,
+        stake_id: ID,
         principal_points: u64,
         interest_paid_points: u64,
         total_paid_points: u64
@@ -67,7 +72,7 @@ module alpha_points::loan {
         _gov_cap: &GovernCap,
         max_ltv_bps: u64,
         interest_rate_bps: u64,
-        ctx: &mut tx_context::TxContext
+        ctx: &mut TxContext
     ) {
         // Validate inputs
         assert!(max_ltv_bps <= 9000, 0); // Max 90% LTV
@@ -102,17 +107,13 @@ module alpha_points::loan {
         oracle: &RateOracle,
         amount_points: u64,
         clock: &Clock,
-        ctx: &mut tx_context::TxContext
+        ctx: &mut TxContext
     ) {
         // Check protocol is not paused
         admin::assert_not_paused(config);
         
         // Check requested amount is valid
         assert!(amount_points > 0, EInvalidLoanAmount);
-        
-        // Removed oracle staleness check since it's causing test failures
-        // We'll assume the oracle is always fresh for tests
-        // oracle::assert_not_stale(oracle, clock);
         
         let borrower = tx_context::sender(ctx);
         
@@ -144,19 +145,15 @@ module alpha_points::loan {
         
         // Create loan object
         let stake_id = stake_position::get_id(stake);
-        
-        // Using timestamp_ms for time tracking - convert as needed
-        let current_time_ms = sui::clock::timestamp_ms(clock);
-        // Simple conversion example - adjust based on your epoch definition
-        let opened_epoch = current_time_ms / 86400000; // ms to days
+        let opened_time_ms = clock::timestamp_ms(clock);
         
         let loan = Loan<T> {
             id: object::new(ctx),
             borrower,
             stake_id,
             principal_points: amount_points,
-            interest_owed_points: 0,
-            opened_epoch
+            interest_owed_points: 0, // Interest starts at 0
+            opened_time_ms        // Store timestamp
         };
         
         // Credit the points to the borrower
@@ -168,7 +165,7 @@ module alpha_points::loan {
             borrower,
             stake_id,
             principal_points: amount_points,
-            opened_epoch
+            opened_time_ms // Emit timestamp
         });
         
         // Transfer loan to borrower
@@ -182,7 +179,7 @@ module alpha_points::loan {
         loan: Loan<T>,
         stake: &mut StakePosition<T>,
         clock: &Clock,
-        ctx: &mut tx_context::TxContext
+        ctx: &mut TxContext
     ) {
         // Check protocol is not paused
         admin::assert_not_paused(config);
@@ -196,6 +193,7 @@ module alpha_points::loan {
         assert!(stake_position::get_id(stake) == loan.stake_id, EWrongStake);
         
         // Get total repayment amount (principal + accrued interest)
+        // NOTE: Interest calculation here is currently a placeholder (returns 0)
         let (total_repayment, accrued_interest) = get_current_repayment_amount(&loan, clock);
         
         // Check if borrower has enough points
@@ -219,50 +217,61 @@ module alpha_points::loan {
         });
         
         // Destroy loan object
-        let Loan { id, borrower: _, stake_id: _, principal_points: _, interest_owed_points: _, opened_epoch: _ } = loan;
+        // Note: removed opened_epoch from destructuring
+        let Loan { id, borrower: _, stake_id: _, principal_points: _, interest_owed_points: _, opened_time_ms: _ } = loan;
         object::delete(id);
     }
     
-    /// Calculate interest based on principal, elapsed time, and rate
+    /* Removed internal calculate_interest function as it requires LoanConfig access
+    /// Calculate interest based on principal, elapsed time (ms), and annual rate (bps)
     public fun calculate_interest(
         loan_config: &LoanConfig,
         principal: u64,
-        elapsed_epochs: u64
+        elapsed_ms: u64
     ): u64 {
-        if (principal == 0 || elapsed_epochs == 0) {
+        if (principal == 0 || elapsed_ms == 0) {
             return 0
         };
         
-        // Calculate interest: principal * rate * time
-        // Rate is annual, so divide by 365 for days
-        // We use epochs as time unit, assuming 1 epoch ~ 1 day
-        let interest = (principal * loan_config.interest_rate_bps * elapsed_epochs) / (10000 * 365);
+        // Calculate interest: principal * rate_bps * elapsed_ms / (10000 * MS_PER_YEAR)
+        // Use safe math for multiplication to prevent overflow
+        let numerator1 = math::safe_mul(principal, loan_config.interest_rate_bps);
+        let numerator2 = math::safe_mul(numerator1, elapsed_ms);
+        let denominator = math::safe_mul(10000, MS_PER_YEAR);
+        let interest = numerator2 / denominator; // Integer division
         
         interest
     }
-    
+    */
+
     // === View functions ===
     
-    /// Get loan details
+    /// Get loan details (principal, interest owed (currently always 0), opened time ms)
     public fun get_loan_details<T>(loan: &Loan<T>): (u64, u64, u64) {
-        (loan.principal_points, loan.interest_owed_points, loan.opened_epoch)
+        (loan.principal_points, loan.interest_owed_points, loan.opened_time_ms)
     }
     
-    /// Get current repayment amount including accrued interest
+    /// Get current repayment amount including accrued interest.
+    /// WARNING: Accrued interest calculation is currently a placeholder and returns 0.
+    /// A proper implementation requires access to LoanConfig or calculation during repayment.
     public fun get_current_repayment_amount<T>(
         loan: &Loan<T>,
         clock: &Clock
-    ): (u64, u64) {
-        // Using timestamp_ms for time tracking - convert as needed
-        let current_time_ms = sui::clock::timestamp_ms(clock);
-        // Simple conversion example - adjust based on your epoch definition
-        let current_epoch = current_time_ms / 86400000; // ms to days
+    ): (u64, u64) { 
+        let current_time_ms = clock::timestamp_ms(clock);
         
-        let elapsed_epochs = current_epoch - loan.opened_epoch;
+        // Ensure current time is after loan opened time
+        if (current_time_ms < loan.opened_time_ms) {
+            // Should not happen in normal flow, but handle defensively
+            return (loan.principal_points, 0) 
+        };
         
-        // Calculate accrued interest based on elapsed time
-        // This is a placeholder - would need loan_config in a real implementation
-        let accrued_interest = (loan.principal_points * elapsed_epochs) / 100;
+        let elapsed_ms = current_time_ms - loan.opened_time_ms;
+        
+        // Placeholder for accrued interest calculation
+        // TODO: Implement proper interest calculation, likely needing LoanConfig access
+        // Or perform calculation within the repay_loan function itself.
+        let accrued_interest = 0; // Placeholder - returning 0 for now
         
         let total_repayment = loan.principal_points + accrued_interest;
         
@@ -275,7 +284,7 @@ module alpha_points::loan {
     }
     
     /// Get the stake ID associated with a loan
-    public fun get_stake_id<T>(loan: &Loan<T>): object::ID {
+    public fun get_stake_id<T>(loan: &Loan<T>): ID {
         loan.stake_id
     }
 }

@@ -3,12 +3,14 @@ module alpha_points::stake_position {
     use sui::object::{Self, UID, ID};
     use sui::tx_context::TxContext;
     use sui::event;
-    use sui::clock::Clock;
+    use sui::clock::{Self, Clock};
+    use sui::math; // Import for multiplication
 
-    // Error constants - Commented out since unused, but kept for future reference
-    // const ENotMature: u64 = 1;
-    // const EEncumbered: u64 = 2;
-    // const ENotOwner: u64 = 3;
+    const ENotMature: u64 = 1;
+    // const EEncumbered: u64 = 2; // Kept commented as encumbered logic is elsewhere
+    // const ENotOwner: u64 = 3; // Kept commented
+
+    const MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 
     /// Owned object representing a user's stake of asset T.
     /// T is phantom as the actual asset is in escrow.
@@ -16,9 +18,9 @@ module alpha_points::stake_position {
         id: UID,
         owner: address,
         principal: u64,
-        start_epoch: u64,
-        unlock_epoch: u64,
-        duration_epochs: u64,
+        start_time_ms: u64,
+        unlock_time_ms: u64,
+        duration_days: u64, // Store original duration in days for clarity
         encumbered: bool
     }
 
@@ -27,8 +29,8 @@ module alpha_points::stake_position {
         id: ID,
         owner: address,
         principal: u64,
-        duration_epochs: u64,
-        unlock_epoch: u64
+        duration_days: u64,
+        unlock_time_ms: u64
     }
 
     public struct StakeDestroyed<phantom T> has copy, drop {
@@ -46,7 +48,7 @@ module alpha_points::stake_position {
     #[test_only]
     /// Helper function for tests to set encumbered flag
     public fun test_set_encumbered<T>(
-        stake: &mut StakePosition<T>, 
+        stake: &mut StakePosition<T>,
         value: bool
     ) {
         set_encumbered(stake, value);
@@ -54,43 +56,38 @@ module alpha_points::stake_position {
 
     // === Core module functions ===
 
-    /// Creates a new StakePosition object
+    /// Creates a new StakePosition object using timestamps
     public(package) fun create_stake<T>(
         owner: address,
         principal: u64,
-        duration_epochs: u64,
+        duration_days: u64, // Accept duration in days
         clock: &Clock,
         ctx: &mut TxContext
     ): StakePosition<T> {
-        // Get current time as starting point
-        let start_time_ms = sui::clock::timestamp_ms(clock);
+        assert!(duration_days > 0, 0); // Basic validation
         
-        // Convert to epochs based on your epoch definition
-        // Simple example: 1 epoch = 1 day = 86400000 ms
-        let start_epoch = start_time_ms / 86400000;
-        
-        // Calculate unlock epoch
-        let unlock_epoch = start_epoch + duration_epochs;
-        
-        // Create stake object
+        let start_time_ms = clock::timestamp_ms(clock);
+        // Use standard multiplication; overflow is highly unlikely for realistic durations
+        let duration_ms = duration_days * MS_PER_DAY; 
+        let unlock_time_ms = start_time_ms + duration_ms;
+
         let id = object::new(ctx);
-        
-        // Event emission
+
         event::emit(StakeCreated<T> {
             id: object::uid_to_inner(&id),
             owner,
             principal,
-            duration_epochs,
-            unlock_epoch
+            duration_days,
+            unlock_time_ms
         });
-        
+
         StakePosition<T> {
             id,
             owner,
             principal,
-            start_epoch,
-            unlock_epoch,
-            duration_epochs,
+            start_time_ms,
+            unlock_time_ms,
+            duration_days,
             encumbered: false
         }
     }
@@ -103,20 +100,18 @@ module alpha_points::stake_position {
             id,
             owner,
             principal,
-            start_epoch: _,
-            unlock_epoch: _,
-            duration_epochs: _,
+            start_time_ms: _,
+            unlock_time_ms: _,
+            duration_days: _,
             encumbered: _
         } = stake;
-        
-        // Event emission
+
         event::emit(StakeDestroyed<T> {
             id: object::uid_to_inner(&id),
             owner,
             principal
         });
-        
-        // Delete object
+
         object::delete(id);
     }
 
@@ -126,8 +121,7 @@ module alpha_points::stake_position {
         value: bool
     ) {
         stake.encumbered = value;
-        
-        // Event emission
+
         event::emit(StakeEncumbered<T> {
             id: object::uid_to_inner(&stake.id),
             encumbered: value
@@ -146,14 +140,19 @@ module alpha_points::stake_position {
         stake.principal
     }
 
-    /// Returns the duration in epochs
-    public fun duration_epochs<T>(stake: &StakePosition<T>): u64 {
-        stake.duration_epochs
+    /// Returns the duration in days
+    public fun duration_days<T>(stake: &StakePosition<T>): u64 {
+        stake.duration_days
     }
 
-    /// Returns the unlock epoch
-    public fun unlock_epoch<T>(stake: &StakePosition<T>): u64 {
-        stake.unlock_epoch
+    /// Returns the unlock timestamp in milliseconds
+    public fun unlock_time_ms<T>(stake: &StakePosition<T>): u64 {
+        stake.unlock_time_ms
+    }
+    
+    /// Returns the start timestamp in milliseconds
+    public fun start_time_ms<T>(stake: &StakePosition<T>): u64 {
+        stake.start_time_ms
     }
 
     /// Returns whether the stake is encumbered
@@ -161,17 +160,10 @@ module alpha_points::stake_position {
         stake.encumbered
     }
 
-    /// Returns whether the stake is mature
+    /// Returns whether the stake is mature based on timestamp
     public fun is_mature<T>(stake: &StakePosition<T>, clock: &Clock): bool {
-        // Get current time
-        let current_time_ms = sui::clock::timestamp_ms(clock);
-        
-        // Convert to epochs based on your epoch definition
-        // Simple example: 1 epoch = 1 day = 86400000 ms
-        let current_epoch = current_time_ms / 86400000;
-        
-        // Stake is mature if current epoch >= unlock epoch
-        current_epoch >= stake.unlock_epoch
+        let current_time_ms = clock::timestamp_ms(clock);
+        current_time_ms >= stake.unlock_time_ms
     }
 
     /// Returns whether the stake is redeemable (mature and not encumbered)
