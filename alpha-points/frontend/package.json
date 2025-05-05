@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "echo \"Cloudflare Build - VITE_PACKAGE_ID is: $VITE_PACKAGE_ID\" && tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
