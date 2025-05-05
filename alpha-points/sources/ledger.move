@@ -16,6 +16,9 @@ module alpha_points::ledger {
     const EInsufficientLockedBalance: u64 = 2;
     const EOverflow: u64 = 3;
 
+    // Scaling divisor to adjust point calculation based on MIST input
+    const POINTS_SCALING_DIVISOR: u64 = 50_000_000; // Adjust as needed for desired APY
+
     // Marker type for the Alpha Points Supply
     public struct AlphaPointTag has drop {}
 
@@ -164,7 +167,8 @@ module alpha_points::ledger {
         let time_factor = 100 + ((duration_days * 100) / 365);
         let base_points = (amount * time_factor) / 100;
         let total_points = base_points * participation_level;
-        total_points
+        // Apply scaling divisor
+        total_points / POINTS_SCALING_DIVISOR
     }
 
     // === View functions ===
