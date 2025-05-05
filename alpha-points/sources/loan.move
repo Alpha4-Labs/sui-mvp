@@ -8,7 +8,7 @@ module alpha_points::loan {
     use sui::math; // Import math
     
     use alpha_points::admin::{Self, Config, GovernCap};
-    use alpha_points::ledger::{Self, Ledger};
+    use alpha_points::ledger::{Self, Ledger, EHasBadDebt}; // Import EHasBadDebt
     use alpha_points::stake_position::{Self, StakePosition};
     use alpha_points::oracle::{Self, RateOracle};
     
@@ -19,6 +19,8 @@ module alpha_points::loan {
     const EWrongStake: u64 = 4;
     const EInsufficientPoints: u64 = 5;
     const EUnauthorized: u64 = 6;
+    const EFeeCalculationError: u64 = 7; // Added for fee errors
+    const EHasBadDebt: u64 = 8; // Added for bad debt check
 
     // Time Constants
     const MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
@@ -117,6 +119,12 @@ module alpha_points::loan {
         
         let borrower = tx_context::sender(ctx);
         
+        // --- Check for Bad Debt --- 
+        assert!(!ledger::has_bad_debt(ledger, borrower), EHasBadDebt);
+        // --------------------------
+        
+        let deployer = admin::deployer_address(config); // Assume this function exists
+        
         // Check stake owner
         assert!(stake_position::owner(stake) == borrower, EUnauthorized);
         
@@ -147,24 +155,36 @@ module alpha_points::loan {
         let stake_id = stake_position::get_id(stake);
         let opened_time_ms = clock::timestamp_ms(clock);
         
+        // --- Calculate Loan Fee (0.1%) ---
+        let fee_points = amount_points / 1000; // 0.1% fee
+        let borrower_points = amount_points - fee_points;
+        // Ensure fee doesn't exceed principal (edge case)
+        if (fee_points > amount_points) { abort EFeeCalculationError };
+        // --------------------------------
+
         let loan = Loan<T> {
             id: object::new(ctx),
             borrower,
             stake_id,
-            principal_points: amount_points,
+            principal_points: amount_points, // Store original loan amount
             interest_owed_points: 0, // Interest starts at 0
             opened_time_ms        // Store timestamp
         };
         
-        // Credit the points to the borrower
-        ledger::internal_earn(ledger, borrower, amount_points, ctx);
+        // Credit net points to borrower and fee points to deployer
+        if (borrower_points > 0) {
+            ledger::internal_earn(ledger, borrower, borrower_points, ctx);
+        }
+        if (fee_points > 0) {
+            ledger::internal_earn(ledger, deployer, fee_points, ctx);
+        }
         
         // Emit event
         event::emit(LoanOpened<T> {
             id: object::uid_to_inner(&loan.id),
             borrower,
             stake_id,
-            principal_points: amount_points,
+            principal_points: amount_points, // Emit original loan amount
             opened_time_ms // Emit timestamp
         });
         

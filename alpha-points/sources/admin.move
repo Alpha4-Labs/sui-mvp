@@ -4,6 +4,14 @@ module alpha_points::admin {
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::event;
+    use sui::clock::{Self, Clock};
+    
+    // Import other internal modules needed for init
+    use alpha_points::ledger;
+    use alpha_points::escrow;
+    use alpha_points::oracle;
+    use alpha_points::loan; // Assuming LoanConfig needs init
+    use alpha_points::staking_manager; // <-- Import StakingManager
     
     // Error constants
     const EProtocolPaused: u64 = 1;
@@ -24,11 +32,12 @@ module alpha_points::admin {
         auth_key: address
     }
     
-    /// Shared object holding global pause state
+    /// Shared object holding global pause state and configuration
     public struct Config has key {
         id: UID,
         paused: bool,
-        admin: address // Store the admin address for authorization checks
+        admin: address, // Store the admin address for authorization checks
+        points_per_sui_per_epoch: u64 // Points earned per whole SUI (10^9 MIST) per epoch
     }
     
     // Events
@@ -46,6 +55,10 @@ module alpha_points::admin {
         to: address
     }
     
+    public struct PointsRateChanged has copy, drop {
+        new_rate: u64 // Points per SUI per epoch
+    }
+    
     // === Test-only functions ===
     #[test_only]
     /// Initialize the admin module for testing
@@ -55,8 +68,8 @@ module alpha_points::admin {
     
     // === Core module functions ===
     
-    /// Creates GovernCap, OracleCap, Config. 
-    /// Transfers caps to deployer, shares Config.
+    /// Creates GovernCap, OracleCap, Config, and initializes other modules.
+    /// Transfers caps to deployer, shares Config and other shared objects.
     fun init(ctx: &mut TxContext) {
         let sender = tx_context::sender(ctx);
         
@@ -78,9 +91,17 @@ module alpha_points::admin {
         let config = Config {
             id: object::new(ctx),
             paused: false,
-            admin: sender // Store the admin address
+            admin: sender, // Store the admin address
+            points_per_sui_per_epoch: 100_000 // EXAMPLE: 0.0001 points per SUI per epoch (Needs tuning!)
         };
         transfer::share_object(config);
+
+        // Initialize other core modules
+        ledger::init(ctx);
+        escrow::init(ctx);
+        oracle::init(ctx);
+        loan::init(ctx); // Initialize LoanConfig if needed
+        staking_manager::init(ctx); // <-- Initialize StakingManager
     }
     
     /// Updates config.paused. Emits PauseStateChanged.
@@ -99,6 +120,19 @@ module alpha_points::admin {
         
         // Emit event
         event::emit(PauseStateChanged { paused });
+    }
+    
+    /// Updates the points earning rate. Emits PointsRateChanged.
+    /// Requires GovernCap for authorization.
+    public entry fun set_points_rate(
+        config: &mut Config,
+        gov_cap: &GovernCap,
+        new_rate: u64, // New points per SUI per epoch
+        _ctx: &TxContext // Context might be needed later
+    ) {
+        assert!(gov_cap.auth_key == config.admin, EUnauthorized);
+        config.points_per_sui_per_epoch = new_rate;
+        event::emit(PointsRateChanged { new_rate });
     }
     
     /// Transfers ownership of GovernCap. Emits GovernCapTransferred.
@@ -141,6 +175,11 @@ module alpha_points::admin {
     /// Aborts if config.paused is true. Used by other modules.
     public fun assert_not_paused(config: &Config) {
         assert!(!config.paused, EProtocolPaused);
+    }
+
+    /// Returns the configured points earning rate per SUI per epoch.
+    public fun get_points_rate(config: &Config): u64 {
+        config.points_per_sui_per_epoch
     }
 
     #[test_only]

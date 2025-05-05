@@ -1,20 +1,26 @@
 /// Module that manages the internal accounting of Alpha Points.
 /// Tracks user balances and total supply using a shared Ledger object.
 module alpha_points::ledger {
-    use sui::object::{Self, UID};
-    use sui::balance::{Self, Supply, Balance};
+    use sui::object::{Self, UID, ID};
+    use sui::tx_context::{TxContext, sender};
+    use sui::balance::{Self, Balance};
     use sui::table::{Self, Table};
     use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
+    use std::option::Option;
     use sui::event;
 
     // Import for GovernCap
     use alpha_points::admin::GovernCap;
+    use alpha_points::admin::{Self, Config};
+    use sui::clock::{Self, Clock};
 
     // Error constants
     const EInsufficientBalance: u64 = 1;
-    const EInsufficientLockedBalance: u64 = 2;
-    const EOverflow: u64 = 3;
+    const EInsufficientAvailableBalance: u64 = 2;
+    const ELockExceedsBalance: u64 = 3;
+    const EUnlockExceedsLocked: u64 = 4;
+    const EHasBadDebt: u64 = 5; // Added for bad debt check
+    const ERepaymentExceedsDebt: u64 = 6; // Cannot repay more than owed
 
     // Scaling divisor to adjust point calculation based on MIST input
     const POINTS_SCALING_DIVISOR: u64 = 50_000_000; // Adjust as needed for desired APY
@@ -23,7 +29,7 @@ module alpha_points::ledger {
     public struct AlphaPointTag has drop {}
 
     /// User's point balance details with available and locked amounts
-    public struct PointBalance has store, copy, drop {
+    public struct PointBalance has store {
         available: u64,
         locked: u64
     }
@@ -31,8 +37,8 @@ module alpha_points::ledger {
     /// Shared object holding the global ledger with point supply and user balances
     public struct Ledger has key {
         id: UID,
-        point_supply: Supply<AlphaPointTag>,
-        entries: Table<address, PointBalance>
+        balances: Table<address, PointBalance>,
+        bad_debt: Table<address, u64> // Stores outstanding bad debt per user
     }
 
     // Events
@@ -62,8 +68,8 @@ module alpha_points::ledger {
     fun init(ctx: &mut TxContext) {
         let ledger = Ledger {
             id: object::new(ctx),
-            point_supply: balance::create_supply(AlphaPointTag {}),
-            entries: table::new(ctx)
+            balances: table::new(ctx),
+            bad_debt: table::new(ctx) // Initialize bad debt table
         };
         transfer::share_object(ledger);
     }
@@ -157,18 +163,35 @@ module alpha_points::ledger {
         event::emit(Unlocked { user, amount });
     }
 
-    /// Implements the points generation formula
-    public fun calculate_points_to_earn(
-        amount: u64,
-        duration_days: u64,
-        participation_level: u64
+    /// Calculates points accrued since the last claim epoch.
+    public fun calculate_accrued_points(
+        principal: u64, // Principal in MIST
+        points_rate_per_sui_per_epoch: u64, // Rate from Config
+        last_claim_epoch: u64,
+        current_epoch: u64
     ): u64 {
-        if (amount == 0 || duration_days == 0) { return 0 };
-        let time_factor = 100 + ((duration_days * 100) / 365);
-        let base_points = (amount * time_factor) / 100;
-        let total_points = base_points * participation_level;
-        // Apply scaling divisor
-        total_points / POINTS_SCALING_DIVISOR
+        if (current_epoch <= last_claim_epoch) {
+            return 0 // No full epochs passed or invalid state
+        };
+
+        let elapsed_epochs = current_epoch - last_claim_epoch;
+
+        // Calculation: (principal_sui * points_rate) * elapsed_epochs
+        // principal is in MIST, rate is per SUI (10^9 MIST)
+        // points = (principal / 10^9) * points_rate * elapsed_epochs
+        // To avoid floating point, use: (principal * points_rate * elapsed_epochs) / 10^9
+
+        // Using u128 for intermediate multiplication to prevent overflow
+        let principal_u128 = (principal as u128);
+        let rate_u128 = (points_rate_per_sui_per_epoch as u128);
+        let elapsed_u128 = (elapsed_epochs as u128);
+
+        let numerator = principal_u128 * rate_u128 * elapsed_u128;
+        let denominator = 1_000_000_000u128; // 1 SUI in MIST
+
+        let accrued_points = (numerator / denominator) as u64; // Integer division
+
+        accrued_points
     }
 
     // === View functions ===
@@ -191,6 +214,53 @@ module alpha_points::ledger {
 
     public fun get_total_supply(ledger: &Ledger): u64 {
         balance::supply_value(&ledger.point_supply)
+    }
+
+    /// Internal function to add to a user's bad debt amount
+    /// This would be called during liquidation/forfeiture if recovered value is insufficient.
+    public(package) fun internal_add_bad_debt(ledger: &mut Ledger, user: address, amount: u64) {
+        if (amount == 0) { return }; // No-op
+        let current_debt = table::borrow_mut_with_default(&mut ledger.bad_debt, user, 0);
+        *current_debt = *current_debt + amount;
+        // Note: No specific event for bad debt added yet.
+    }
+
+    /// Get the current bad debt amount for a user
+    public fun get_bad_debt(ledger: &Ledger, user: address): u64 {
+        *table::borrow_with_default(&ledger.bad_debt, user, 0)
+    }
+
+    /// Check if a user has any outstanding bad debt
+    public fun has_bad_debt(ledger: &Ledger, user: address): bool {
+        get_bad_debt(ledger, user) > 0
+    }
+
+    /// Internal function to subtract from a user's bad debt amount.
+    /// Removes the user entry if debt becomes 0.
+    public(package) fun internal_remove_bad_debt(ledger: &mut Ledger, user: address, amount: u64) {
+        if (amount == 0) { return }; // No-op
+
+        // Check if user actually has any debt entry
+        assert!(table::contains(&ledger.bad_debt, user), EInsufficientBalance); // Re-use error or use ERepaymentExceedsDebt? Using ERepaymentExceedsDebt seems better.
+        // assert!(table::contains(&ledger.bad_debt, user), ERepaymentExceedsDebt);
+
+        let current_debt_ref = table::borrow_mut(&mut ledger.bad_debt, user);
+        let current_debt = *current_debt_ref;
+
+        // Ensure repayment doesn't exceed the actual debt
+        assert!(amount <= current_debt, ERepaymentExceedsDebt);
+
+        let new_debt = current_debt - amount;
+
+        if (new_debt == 0) {
+            // Remove the entry from the table if debt is fully cleared
+            table::remove(&mut ledger.bad_debt, user);
+        } else {
+            // Otherwise, update the debt amount
+            *current_debt_ref = new_debt;
+        }
+        // Note: Add BadDebtRepaid event emission if needed internally, 
+        // or rely on the entry function in integration.move to emit it.
     }
 
     // === Test-only functions ===

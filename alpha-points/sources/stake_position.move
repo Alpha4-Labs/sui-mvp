@@ -23,8 +23,9 @@ module alpha_points::stake_position {
         duration_days: u64, // Store original duration in days for clarity
         encumbered: bool, // True if used as collateral for a loan
         // --- Field for Native Staking ID ---
-        native_stake_id: Option<ID> // ID of the associated StakedSui object if natively staked
+        native_stake_id: ID, // ID of the associated StakedSui object if natively staked
         // ---------------------------------
+        last_claim_epoch: u64 // Epoch when points were last claimed for this stake
     }
 
     // Events
@@ -65,12 +66,13 @@ module alpha_points::stake_position {
         principal: u64,
         duration_days: u64, // Accept duration in days
         clock: &Clock,
-        native_stake_id: Option<ID>, // Added native ID option
+        native_stake_id: ID, // Changed from Option<ID>
         ctx: &mut TxContext
     ): StakePosition<T> {
         assert!(duration_days > 0, 0); // Basic validation
         
         let start_time_ms = clock::timestamp_ms(clock);
+        let current_epoch = clock::epoch(clock); // Get current epoch
         // Use standard multiplication; overflow is highly unlikely for realistic durations
         let duration_ms = duration_days * MS_PER_DAY; 
         let unlock_time_ms = start_time_ms + duration_ms;
@@ -93,7 +95,8 @@ module alpha_points::stake_position {
             unlock_time_ms,
             duration_days,
             encumbered: false,
-            native_stake_id // Store the native ID
+            native_stake_id, // Store the native ID
+            last_claim_epoch: current_epoch // Initialize last claim to current epoch
         }
     }
 
@@ -109,7 +112,8 @@ module alpha_points::stake_position {
             unlock_time_ms: _,
             duration_days: _,
             encumbered: _,
-            native_stake_id: _ // Destructure native ID
+            native_stake_id: _, // Destructure native ID
+            last_claim_epoch: _ // Destructure last claim epoch
         } = stake;
 
         event::emit(StakeDestroyed<T> {
@@ -132,6 +136,15 @@ module alpha_points::stake_position {
             id: object::uid_to_inner(&stake.id),
             encumbered: value
         });
+    }
+
+    /// Updates the last_claim_epoch field.
+    /// Called internally after points are claimed.
+    public(package) fun set_last_claim_epoch<T>(
+        stake: &mut StakePosition<T>,
+        epoch: u64
+    ) {
+        stake.last_claim_epoch = epoch;
     }
 
     // === View functions ===
@@ -167,8 +180,13 @@ module alpha_points::stake_position {
     }
 
     /// Returns the Option<ID> of the associated native stake, if any
-    public fun get_native_stake_id<T>(stake: &StakePosition<T>): Option<ID> {
+    public fun get_native_stake_id<T>(stake: &StakePosition<T>): ID {
         stake.native_stake_id
+    }
+
+    /// Returns the epoch when points were last claimed for this stake
+    public fun last_claim_epoch<T>(stake: &StakePosition<T>): u64 {
+        stake.last_claim_epoch
     }
 
     /// Returns whether the stake is mature based on timestamp
