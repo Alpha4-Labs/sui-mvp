@@ -21,6 +21,9 @@ module alpha_points::integration {
     const EOracleStale: u64 = 3;
     const ENotOwner: u64 = 4;
     
+    // Default participation level multiplier for standard staking rewards
+    const DEFAULT_PARTICIPATION_LEVEL: u64 = 1;
+    
     // Events
     public struct StakeRouted<phantom T> has copy, drop {
         stake_id: ID,
@@ -106,7 +109,7 @@ module alpha_points::integration {
         let points_to_earn = ledger::calculate_points_to_earn(
             principal, 
             duration_days, 
-            ledger::DEFAULT_PARTICIPATION_LEVEL
+            DEFAULT_PARTICIPATION_LEVEL
         );
         
         if (points_to_earn > 0) {
