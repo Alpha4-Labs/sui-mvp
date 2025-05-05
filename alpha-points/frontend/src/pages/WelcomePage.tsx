@@ -6,7 +6,7 @@ import {
 } from '@mysten/dapp-kit';
 import { useZkLogin } from '../hooks/useZkLogin';
 import { useNavigate } from 'react-router-dom';
-import alphaPointsLogo from '../assets/Alpha4-logo.svg'; // Verify this path
+import alphaPointsLogo from '../assets/alpha4-logo.svg'; // Verify this path
 
 export const WelcomePage: React.FC = () => {
   const currentAccount = useCurrentAccount();
