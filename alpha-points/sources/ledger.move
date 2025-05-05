@@ -16,6 +16,9 @@ module alpha_points::ledger {
     const EInsufficientLockedBalance: u64 = 2;
     const EOverflow: u64 = 3;
 
+    // Default participation level multiplier for standard staking rewards
+    const DEFAULT_PARTICIPATION_LEVEL: u64 = 1;
+
     // Marker type for the Alpha Points Supply
     public struct AlphaPointTag has drop {}
 

@@ -26,7 +26,8 @@ module alpha_points::integration {
         stake_id: ID,
         staker: address,
         principal: u64,
-        duration_epochs: u64
+        duration_days: u64,
+        points_earned: u64
     }
     
     public struct StakeRedeemed<phantom T> has copy, drop {
@@ -65,13 +66,17 @@ module alpha_points::integration {
     // === Core module functions ===
     
     /// Calls admin::assert_not_paused, escrow::deposit, stake_position::create_stake,
-    /// transfers StakePosition<T> to sender
+    /// calculates and earns points, transfers StakePosition<T> to sender
     public entry fun route_stake<T>(
         config: &Config,
+        ledger: &mut Ledger,
         escrow: &mut EscrowVault<T>,
         clock: &Clock,
         coin: Coin<T>,
-        duration: u64,
+        duration_days: u64,
+        // --- Argument for Native Staking ---
+        _validator_address: Option<address>, // Address of validator if doing native staking (Unused for now)
+        // ------------------------------------
         ctx: &mut TxContext
     ) {
         // Check protocol is not paused
@@ -80,37 +85,55 @@ module alpha_points::integration {
         let staker = tx_context::sender(ctx);
         let principal = coin::value(&coin);
         
-        // Deposit asset into escrow
-        escrow::deposit(escrow, coin, ctx);
-        
+        // --- Native Staking Logic (Placeholder - Still commented out) ---
+        // if (option::is_some(&validator_address)) { ... }
+        // else { 
+              escrow::deposit(escrow, coin, ctx); // Default to escrow for now
+        // };
+        // ----------------------------------------------------------
+
         // Create stake position
         let stake = stake_position::create_stake<T>(
             staker,
             principal,
-            duration,
+            duration_days, 
             clock,
+            option::none<ID>(), // Pass None for native_stake_id for now
             ctx
         );
         
+        // === Calculate and Earn Alpha Points ===
+        let points_to_earn = ledger::calculate_points_to_earn(
+            principal, 
+            duration_days, 
+            ledger::DEFAULT_PARTICIPATION_LEVEL
+        );
+        
+        if (points_to_earn > 0) {
+            ledger::internal_earn(ledger, staker, points_to_earn, ctx);
+        };
+        // ======================================
+
         let stake_id = stake_position::get_id(&stake);
         
-        // Emit event
+        // Emit event (updated)
         event::emit(StakeRouted<T> {
             stake_id,
             staker,
             principal,
-            duration_epochs: duration
+            duration_days,
+            points_earned: points_to_earn
         });
         
-        // Transfer stake position to user using public_transfer
+        // Transfer stake position to user
         transfer::public_transfer(stake, staker);
     }
     
     /// Calls admin::assert_not_paused, checks stake_position::is_redeemable,
-    /// calls escrow::withdraw, calls stake_position::destroy_stake
+    /// calls escrow::withdraw OR handles native unstake (placeholder), calls stake_position::destroy_stake
     public entry fun redeem_stake<T>(
         config: &Config,
-        _ledger: &Ledger,  // Unused but kept for API consistency
+        _ledger: &Ledger, 
         escrow: &mut EscrowVault<T>,
         stake: StakePosition<T>,
         clock: &Clock,
@@ -125,15 +148,19 @@ module alpha_points::integration {
         // Check stake owner
         assert!(stake_position::owner(&stake) == redeemer, ENotOwner);
         
-        // Check stake is redeemable (mature and not encumbered)
+        // Check stake is redeemable
         assert!(stake_position::is_mature(&stake, clock), EStakeNotMature);
         assert!(!stake_position::is_encumbered(&stake), EStakeEncumbered);
         
-        // Get principal amount
         let principal = stake_position::principal(&stake);
-        
-        // Withdraw assets from escrow and send to redeemer
-        escrow::withdraw(escrow, principal, redeemer, ctx);
+        let _native_id_option = stake_position::get_native_stake_id(&stake); // Get the option
+
+        // --- Native Unstaking Logic (Placeholder - Still commented out) ---
+        // if (option::is_some(&native_id_option)) { ... }
+        // else { 
+              escrow::withdraw(escrow, principal, redeemer, ctx); // Default to escrow withdrawal for now
+        // };
+        // ----------------------------------------------------------
         
         // Emit event
         event::emit(StakeRedeemed<T> {

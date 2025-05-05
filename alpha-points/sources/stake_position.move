@@ -21,7 +21,10 @@ module alpha_points::stake_position {
         start_time_ms: u64,
         unlock_time_ms: u64,
         duration_days: u64, // Store original duration in days for clarity
-        encumbered: bool
+        encumbered: bool, // True if used as collateral for a loan
+        // --- Field for Native Staking ID ---
+        native_stake_id: Option<ID> // ID of the associated StakedSui object if natively staked
+        // ---------------------------------
     }
 
     // Events
@@ -62,6 +65,7 @@ module alpha_points::stake_position {
         principal: u64,
         duration_days: u64, // Accept duration in days
         clock: &Clock,
+        native_stake_id: Option<ID>, // Added native ID option
         ctx: &mut TxContext
     ): StakePosition<T> {
         assert!(duration_days > 0, 0); // Basic validation
@@ -88,7 +92,8 @@ module alpha_points::stake_position {
             start_time_ms,
             unlock_time_ms,
             duration_days,
-            encumbered: false
+            encumbered: false,
+            native_stake_id // Store the native ID
         }
     }
 
@@ -103,7 +108,8 @@ module alpha_points::stake_position {
             start_time_ms: _,
             unlock_time_ms: _,
             duration_days: _,
-            encumbered: _
+            encumbered: _,
+            native_stake_id: _ // Destructure native ID
         } = stake;
 
         event::emit(StakeDestroyed<T> {
@@ -158,6 +164,11 @@ module alpha_points::stake_position {
     /// Returns whether the stake is encumbered
     public fun is_encumbered<T>(stake: &StakePosition<T>): bool {
         stake.encumbered
+    }
+
+    /// Returns the Option<ID> of the associated native stake, if any
+    public fun get_native_stake_id<T>(stake: &StakePosition<T>): Option<ID> {
+        stake.native_stake_id
     }
 
     /// Returns whether the stake is mature based on timestamp
