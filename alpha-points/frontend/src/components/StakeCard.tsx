@@ -3,12 +3,13 @@ import { useSignAndExecuteTransaction, useCurrentAccount, useSuiClient } from '@
 import { useAlphaContext } from '../context/AlphaContext';
 import { buildStakeTransaction } from '../utils/transaction';
 import {
-  adaptPtbJsonForSignAndExecute,
   getTransactionErrorMessage,
-  // Import the function to specifically check the transaction result's status
   getTransactionResponseError,
 } from '../utils/transaction-adapter';
 import { formatSui } from '../utils/format';
+import { Transaction } from '@mysten/sui/transactions';
+import { bcs } from '@mysten/sui/bcs';
+import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contract';
 
 export const StakeCard: React.FC = () => {
   const {
@@ -24,44 +25,47 @@ export const StakeCard: React.FC = () => {
   const suiClient = useSuiClient();
 
   const [amount, setAmount] = useState('');
-  const [currentlyStaked] = useState('0'); // Note: This seems static, might need fetching
+  const [currentlyStaked] = useState('0'); // This would ideally be fetched from contract
   const [availableBalance, setAvailableBalance] = useState('0');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  const [transactionInFlight, setTransactionInFlight] = useState(false);
 
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
-  // Fetch user's SUI balance
+  // Fetch user's SUI balance with improved error handling
   useEffect(() => {
     const fetchBalance = async () => {
       if (!currentAccount?.address) return;
 
       setIsLoadingBalance(true);
       try {
+        console.log(`Fetching balance for ${currentAccount.address}`);
         const { totalBalance } = await suiClient.getBalance({
           owner: currentAccount.address,
           coinType: '0x2::sui::SUI'
         });
+        console.log(`Retrieved balance: ${totalBalance}`);
         setAvailableBalance(totalBalance);
       } catch (err) {
         console.error('Error fetching SUI balance:', err);
-        setError("Failed to fetch SUI balance.");
+        setError("Failed to fetch SUI balance. Please try again later.");
       } finally {
         setIsLoadingBalance(false);
       }
     };
 
     if (currentAccount?.address) {
-        fetchBalance();
+      fetchBalance();
     } else {
-        // Clear balance if account disconnects
-        setAvailableBalance('0');
+      // Clear balance if account disconnects
+      setAvailableBalance('0');
     }
   }, [currentAccount?.address, suiClient]);
 
   /**
-   * Handles staking SUI tokens
+   * Handles staking SUI tokens with improved transaction handling
    */
   const handleStake = async () => {
     setError(null);
@@ -78,10 +82,15 @@ export const StakeCard: React.FC = () => {
       return;
     }
 
+    // Convert to MIST (SUI * 10^9)
     const amountInMist = BigInt(Math.floor(amountFloat * 1_000_000_000));
     const availableInMist = BigInt(availableBalance);
-    const gasBuffer = BigInt(10_000_000); // 0.01 SUI
-    const minStake = BigInt(1_000_000); // 0.001 SUI
+    
+    // Reserve 0.01 SUI for gas
+    const gasBuffer = BigInt(10_000_000); 
+    
+    // Minimum stake amount (0.001 SUI)
+    const minStake = BigInt(1_000_000); 
 
     if (amountInMist < minStake) {
       setError(`Minimum stake amount is ${formatSui(minStake.toString())} SUI`);
@@ -89,76 +98,78 @@ export const StakeCard: React.FC = () => {
     }
 
     if (amountInMist + gasBuffer > availableInMist) {
-      setError("Insufficient balance for stake amount + gas fee buffer (0.01 SUI).");
+      setError("Insufficient balance for stake amount plus gas fee buffer (0.01 SUI).");
       return;
     }
 
+    // Prevent duplicate transactions
+    if (transactionInFlight) {
+      console.warn("Transaction already in progress");
+      return;
+    }
+
+    setTransactionInFlight(true);
     setTransactionLoading(true);
 
     try {
-      const ptbJson = buildStakeTransaction(amountInMist, selectedDuration.days);
-      const executionInput = adaptPtbJsonForSignAndExecute(ptbJson);
+      console.log(`Building stake transaction for ${amountInMist.toString()} MIST, ${selectedDuration.days} days`);
+      
+      // Build transaction with the updated Transaction implementation
+      const transaction = buildStakeTransaction(amountInMist, selectedDuration.days);
+      
+      console.log("Transaction built");
+      
+      // Execute transaction - convert Transaction to serialized format for compatibility
+      const result = await signAndExecute({ transaction: transaction.serialize() });
+      console.log("Transaction result:", result);
 
-      // Execute the transaction - No type assertion
-      const result = await signAndExecute(executionInput);
-
-      // Runtime checks based on actual hook output structure
-      let txDigest = 'no digest available';
-      let txFailed = false;
-      let failureErrorMsg = 'Transaction failed without specific error message.';
-
-      // 1. Check if result is an object and has a digest (core success indicator)
-      if (result && typeof result === 'object' && 'digest' in result && typeof result.digest === 'string') {
-        txDigest = result.digest;
+      // Check if result has a digest (success indicator)
+      if (result && 'digest' in result) {
+        const txDigest = result.digest;
         console.log('Stake transaction submitted successfully:', txDigest);
 
-        // 2. Check for failure using the utility function which handles the effects structure
+        // Check for failure in the effects
         const responseError = getTransactionResponseError(result);
         if (responseError) {
-            txFailed = true;
-            failureErrorMsg = responseError; // Get the specific error from effects
+          throw new Error(responseError);
         }
-        // If responseError is null, the transaction effects indicated success or were not available/parsable
-
+        
+        // Success path
+        setSuccess(`Successfully staked ${formatSui(amountInMist.toString())} SUI for ${selectedDuration.label}! Transaction: ${txDigest.substring(0, 10)}...`);
+        setAmount('');
+        
+        // Delay refresh to allow indexing
+        setTimeout(() => {
+          refreshData();
+          
+          // Re-fetch balance after staking
+          if (currentAccount?.address) {
+            try {
+              suiClient.getBalance({
+                owner: currentAccount.address,
+                coinType: '0x2::sui::SUI'
+              }).then(balanceResult => {
+                setAvailableBalance(balanceResult.totalBalance);
+              });
+            } catch (balanceError) {
+              console.warn("Failed to re-fetch balance after staking:", balanceError);
+            }
+          }
+        }, 2000);
       } else {
-        // If we don't even get a digest in the expected format, treat as failure
-        txFailed = true;
-        failureErrorMsg = 'Transaction failed to execute or response format was unexpected.';
-        console.error('Stake transaction response missing digest:', result);
+        // Missing digest in the expected format
+        throw new Error('Transaction response format was unexpected. Please check if the transaction completed.');
       }
-
-      // 3. Handle outcome
-      if (txFailed) {
-         throw new Error(failureErrorMsg);
-      } else {
-         // Success path
-         setSuccess(`Successfully staked ${formatSui(amountInMist.toString())} SUI for ${selectedDuration.label}! Digest: ${txDigest.substring(0, 10)}...`);
-         setAmount('');
-         refreshData(); // Call directly
-
-         // Re-fetch balance
-         try {
-            const balanceResult = await suiClient.getBalance({
-              owner: currentAccount.address,
-              coinType: '0x2::sui::SUI'
-            });
-            setAvailableBalance(balanceResult.totalBalance);
-         } catch (balanceError) {
-             console.warn("Failed to re-fetch balance after staking:", balanceError);
-             // Optionally inform user balance might be stale
-         }
-      }
-
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error staking SUI:', error);
-      // Use the generic error message handler, which now includes getTransactionResponseError logic
       setError(getTransactionErrorMessage(error));
     } finally {
       setTransactionLoading(false);
+      setTransactionInFlight(false);
     }
   };
 
-  // --- Full JSX ---
+  // --- JSX Rendering ---
   return (
     <div className="bg-background-card rounded-lg p-6 shadow-lg">
       <h2 className="text-xl font-semibold text-white mb-4">Manage Stake</h2>
@@ -195,17 +206,23 @@ export const StakeCard: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                if (availableBalance) {
+                if (availableBalance && !isLoadingBalance) {
                   const availableInSui = parseFloat(availableBalance) / 1_000_000_000;
                   const gasBufferInSui = 0.01; // 0.01 SUI
-                  const maxPossible = availableInSui - gasBufferInSui;
+                  const maxPossible = Math.max(0, availableInSui - gasBufferInSui);
                   const minStakeSui = 0.001;
-                  const maxAmount = Math.max(minStakeSui, maxPossible).toFixed(9);
-                  setAmount(maxPossible >= minStakeSui ? maxAmount : '0');
+                  
+                  if (maxPossible >= minStakeSui) {
+                    // Format with proper precision avoiding scientific notation
+                    setAmount(maxPossible.toFixed(9).replace(/\.?0+$/, ''));
+                  } else {
+                    setAmount('');
+                    setError(`Insufficient balance. You need at least ${minStakeSui + gasBufferInSui} SUI.`);
+                  }
                 }
               }}
               className="text-xs text-primary hover:text-primary-dark transition-colors"
-              disabled={!currentAccount || isLoadingBalance} // Disable if no account or loading balance
+              disabled={!currentAccount || isLoadingBalance || contextLoading.transaction}
             >
               Max
             </button>
@@ -218,6 +235,7 @@ export const StakeCard: React.FC = () => {
               pattern="^[0-9]*[.,]?[0-9]*$"
               value={amount}
               onChange={(e) => {
+                // Accept only valid numeric input with one decimal point
                 const value = e.target.value.replace(',', '.');
                 if (value === '' || /^\d*\.?\d*$/.test(value)) {
                   setAmount(value);
@@ -226,7 +244,7 @@ export const StakeCard: React.FC = () => {
               placeholder="0.0"
               className="w-full bg-background-input rounded p-3 text-white border border-gray-600 focus:border-primary focus:ring-primary pr-16"
               aria-label="Amount to Stake in SUI"
-              disabled={!currentAccount} // Disable if no account
+              disabled={!currentAccount || contextLoading.transaction}
             />
             <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">
               SUI
@@ -251,7 +269,7 @@ export const StakeCard: React.FC = () => {
                     : 'bg-background-input text-gray-300 hover:bg-gray-700'
                 }`}
                 onClick={() => setSelectedDuration(duration)}
-                disabled={!currentAccount} // Disable if no account
+                disabled={!currentAccount || contextLoading.transaction}
               >
                 {duration.label}
               </button>
@@ -270,7 +288,10 @@ export const StakeCard: React.FC = () => {
                 const apyRate = selectedDuration.apy / 100;
                 const days = selectedDuration.days;
                 const estRewards = amountNum * apyRate * (days / 365);
-                const formattedRewards = isFinite(estRewards) ? formatSui(estRewards.toString(), 9) : '0';
+                const formattedRewards = isFinite(estRewards) 
+                  ? formatSui(estRewards.toString(), 4) 
+                  : '0';
+                
                 return (
                   <div className="flex justify-between">
                     <span className="text-gray-400 text-sm">Est. Rewards:</span>
@@ -289,19 +310,19 @@ export const StakeCard: React.FC = () => {
         <div className="flex space-x-3 pt-2">
           <button
             onClick={handleStake}
-            // More comprehensive disable check
             disabled={
-                !currentAccount || // No wallet connected
-                !amount || // No amount entered
-                !(parseFloat(amount) > 0) || // Amount is not positive
-                contextLoading.transaction || // Transaction already in progress
-                isLoadingBalance // Still loading balance
+                !currentAccount || 
+                !amount || 
+                !(parseFloat(amount) > 0) || 
+                contextLoading.transaction || 
+                isLoadingBalance ||
+                transactionInFlight
             }
             className="flex-1 bg-primary hover:bg-primary-dark text-white py-3 px-4 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
           >
             {contextLoading.transaction ? (
               <>
-                <span className="opacity-0">Stake SUI</span> {/* Keep layout */}
+                <span className="opacity-0">Stake SUI</span>
                 <span className="absolute inset-0 flex items-center justify-center">
                   <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -310,13 +331,13 @@ export const StakeCard: React.FC = () => {
                 </span>
               </>
             ) : !currentAccount ? (
-                 'Connect Wallet' // Prompt connection if disconnected
+                 'Connect Wallet'
             ) :(
               'Stake SUI'
             )}
           </button>
 
-          {/* Unstake button - disabled for now, would be implemented in StakedPositionsList */}
+          {/* Unstake button - disabled here, implemented in StakedPositionsList */}
           <button
             disabled
             className="flex-1 bg-transparent border border-gray-600 text-gray-500 py-3 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
@@ -327,9 +348,47 @@ export const StakeCard: React.FC = () => {
 
         {/* Help Text */}
         <div className="text-xs text-gray-500 mt-2 italic">
-          Note: Staking locks your SUI. Early unstaking might be possible via Alpha Points loans (check loan terms).
+          Note: Staking locks your SUI for the selected duration. Early unstaking is available via Alpha Points loans.
         </div>
       </div>
     </div>
   );
+};
+
+export const buildCreateLoanTransaction = (
+  stakeId: string,
+  pointsAmount: number // Still expect a validated integer here
+) => {
+  // Defensive check remains important
+  if (
+    typeof pointsAmount !== 'number' ||
+    !Number.isInteger(pointsAmount) ||
+    pointsAmount < 0
+  ) {
+    throw new Error(`Invalid pointsAmount for BCS serialization: must be a non-negative integer. Received type: ${typeof pointsAmount}, value: ${pointsAmount}`);
+  }
+
+  const tx = new Transaction();
+
+  // Explicitly serialize the number to BCS bytes for u64
+  const serializedPointsAmountBytes = bcs.U64.serialize(pointsAmount).toBytes();
+
+  // Log the serialized bytes for debugging if needed
+  // console.log('Serialized pointsAmount (bytes):', serializedPointsAmountBytes);
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::loan::open_loan`,
+    typeArguments: [SUI_TYPE],
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(SHARED_OBJECTS.loanConfig),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(stakeId),
+      tx.object(SHARED_OBJECTS.oracle),
+      // Pass the BCS-serialized bytes directly
+      tx.pure(serializedPointsAmountBytes), // NOTE: No second 'u64' argument needed here!
+      tx.object(CLOCK_ID)
+    ]
+  });
+  return tx;
 };

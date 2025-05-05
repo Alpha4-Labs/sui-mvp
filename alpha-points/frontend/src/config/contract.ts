@@ -1,13 +1,14 @@
-export const PACKAGE_ID = import.meta.env.VITE_PACKAGE_ID || '0x8a9f4a2782b503191a6f6687a43c14daccbe435165480a2cd40229b63dc9b59a';
+export const PACKAGE_ID = import.meta.env.VITE_PACKAGE_ID || '0xee8d09ee18824fbf8a97e6e68f1ec908fca16d5e6dbcbd2b81b6852e4f2f45fe';
 
-// Shared object IDs
+// Shared object IDs - Updated with latest deployment fallbacks
+// !! IMPORTANT: Verify loanConfig, oracle, and escrowVault fallbacks match your latest initialization results !!
 export const SHARED_OBJECTS = {
-  config: import.meta.env.VITE_CONFIG_ID || '0x9d84ab24736eed3f3a972c71c4c4bc834739b28c64777503bba125026f206ee2',
-  ledger: import.meta.env.VITE_LEDGER_ID || '0xa5414dd6244e2545b214fb465409738902fb097de4d594056f227b3b31a83ddb',
-  // These would need to be updated with actual values after deployment
-  escrowVault: '0x5c2bf4937ec580ccd3ea83d32018ddde5c1dcf61e8931aa6ee16a36c167e84f7',
-  loanConfig: '0x1e688df3ea9255eeca078a157406dae1eb58941f509e2d2ff86ed2068d3cb965',
-  oracle: '0xfff818a09b1ce81ee223397296d9ee55f40909724d42c9168825fa1df883627a'
+  config: import.meta.env.VITE_CONFIG_ID || '0xf6c5877f49fcda89b23842ee45f1816e2d103b92ceeda308b3f035c953c18b82',
+  ledger: import.meta.env.VITE_LEDGER_ID || '0x1e1b486b0a5295b11839e102aee1d8e209e7840d8389093752b596826e32c861',
+  // !! Verify these fallbacks against your latest init transaction outputs !!
+  escrowVault: import.meta.env.VITE_ESCROW_VAULT_SUI_ID || '0x6841af638ddd36433b2a3507add2ccc25461225be4c7900db7b4a665d2839aa1',
+  loanConfig: import.meta.env.VITE_LOAN_CONFIG_ID || '0x1e688df3ea9255eeca078a157406dae1eb58941f509e2d2ff86ed2068d3cb965',
+  oracle: import.meta.env.VITE_SUI_USD_ORACLE_ID || '0x90e7114e5cb593985fe984e89e7b2fce6095134edc853345dab7516a574a5294'
 };
 
 // Sui coin type

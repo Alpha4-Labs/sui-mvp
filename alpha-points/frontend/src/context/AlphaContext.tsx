@@ -35,8 +35,33 @@ interface AlphaContextType {
   setTransactionLoading: (loading: boolean) => void;
 }
 
-// Create context with undefined initial value
-const AlphaContext = createContext<AlphaContextType | undefined>(undefined);
+// Create context with a proper initial value that matches the type
+const defaultContext: AlphaContextType = {
+  isConnected: false,
+  address: undefined,
+  points: { available: 0, locked: 0, total: 0 },
+  stakePositions: [],
+  loans: [],
+  loading: {
+    points: false,
+    positions: false,
+    loans: false,
+    transaction: false,
+  },
+  error: {
+    points: null,
+    positions: null,
+    loans: null,
+  },
+  durations: [],
+  selectedDuration: { days: 30, label: '30 days', apy: 10.0 }, // Default value
+  setSelectedDuration: () => {},
+  refreshData: () => {},
+  setTransactionLoading: () => {},
+};
+
+// Create context with proper initial value
+const AlphaContext = createContext<AlphaContextType>(defaultContext);
 
 // Default staking durations
 const DEFAULT_DURATIONS: DurationOption[] = [

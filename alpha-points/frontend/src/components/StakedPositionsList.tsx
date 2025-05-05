@@ -3,12 +3,9 @@ import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext';
 import { buildUnstakeTransaction } from '../utils/transaction';
 import {
-  adaptPtbJsonForSignAndExecute,
   getTransactionErrorMessage,
-  // Import the function to specifically check the transaction result's status
   getTransactionResponseError,
 } from '../utils/transaction-adapter';
-// Assuming formatTimestamp will be added and exported from format.ts
 import { formatSui, formatAddress, formatDuration, formatTimestamp } from '../utils/format';
 
 export const StakedPositionsList: React.FC = () => {
@@ -20,7 +17,24 @@ export const StakedPositionsList: React.FC = () => {
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
   /**
+   * Gets a properly formatted unlock date from a stake position
+   * Uses the calculatedUnlockDate field which is now derived directly from unlockTimeMs
+   */
+  const getUnlockDate = (position: any): Date | null => {
+    if (position.calculatedUnlockDate) { // This field should now be reliable
+      try {
+        return new Date(position.calculatedUnlockDate);
+      } catch (e) {
+        console.warn("Invalid calculatedUnlockDate format:", position.calculatedUnlockDate, e);
+      }
+    }
+    // Removed epoch fallback as it's no longer relevant
+    return null;
+  };
+
+  /**
    * Handles unstaking a position
+   * Updated to use the new Transaction API
    * @param stakeId The ID of the stake position to unstake
    * @param principal The principal amount of the stake (for feedback)
    */
@@ -31,89 +45,87 @@ export const StakedPositionsList: React.FC = () => {
     setTransactionLoading(true); // Mark global transaction loading
 
     try {
-      const ptbJson = buildUnstakeTransaction(stakeId);
-      const executionInput = adaptPtbJsonForSignAndExecute(ptbJson);
+      console.log(`Attempting to unstake position ${stakeId}`);
+      
+      // Build transaction with the updated Transaction API
+      const transaction = buildUnstakeTransaction(stakeId);
+      console.log('Unstake transaction built:', transaction);
 
-      // Execute the transaction - No type assertion
-      const result = await signAndExecute(executionInput);
-
-      // Runtime checks based on actual hook output structure
-      let txDigest = 'no digest available';
-      let txFailed = false;
-      let failureErrorMsg = 'Transaction failed without specific error message.';
-
-      // 1. Check if result is an object and has a digest
-      if (result && typeof result === 'object' && 'digest' in result && typeof result.digest === 'string') {
-        txDigest = result.digest;
-        console.log('Unstake transaction submitted successfully:', txDigest);
-
-        // 2. Check for failure using the utility function
-        const responseError = getTransactionResponseError(result);
-        if (responseError) {
-            txFailed = true;
-            failureErrorMsg = responseError;
+      // Execute the transaction with the updated hook API
+      const result = await signAndExecute({
+        transaction,
+        options: {
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true
         }
-        // If responseError is null, effects indicated success or were not available/parsable
+      });
+      
+      console.log('Unstake transaction result:', result);
 
-      } else {
-        txFailed = true;
-        failureErrorMsg = 'Transaction failed to execute or response format was unexpected.';
-        console.error('Unstake transaction response missing digest:', result);
+      // Verify success
+      if (!result || typeof result !== 'object' || !('digest' in result)) {
+        throw new Error('Transaction returned an unexpected response format');
+      }
+      
+      const txDigest = result.digest;
+      
+      // Check for failure using the utility function
+      const responseError = getTransactionResponseError(result);
+      if (responseError) {
+        throw new Error(responseError);
       }
 
-      // 3. Handle outcome
-      if (txFailed) {
-          throw new Error(failureErrorMsg);
-      } else {
-          setSuccessMessage(`Successfully unstaked ${formatSui(principal)} SUI! Digest: ${txDigest.substring(0, 10)}...`);
-          refreshData(); // Call directly to refresh the list
-          // No balance refresh needed here unless unstaking affects main balance directly
-      }
+      // Success path
+      setSuccessMessage(`Successfully unstaked ${formatSui(principal)} SUI! Digest: ${
+        txDigest.substring(0, 10)}...`);
+      
+      // Wait a moment before refreshing to allow the network to process
+      setTimeout(() => {
+        refreshData();
+      }, 2000);
 
     } catch (err: any) {
       console.error('Error unstaking position:', err);
-      setErrorMessage(getTransactionErrorMessage(err)); // Use the generic error handler
+      setErrorMessage(getTransactionErrorMessage(err));
     } finally {
       setTransactionLoading(false); // Clear global loading
       setUnstakeInProgress(null); // Clear loading for this specific button
     }
   };
 
-  // --- Helper Functions (Keep within component or move to utils) ---
-
-  // Helper to calculate Unlock Date safely
-  const getUnlockDate = (unlockEpoch?: string): Date | null => {
-    if (!unlockEpoch) return null;
-    try {
-      // ** CRITICAL: Verify the actual meaning of unlockEpoch from your contract **
-      // Assuming it's a Unix timestamp in MILLISECONDS for this example
-      const epochNumber = parseInt(unlockEpoch, 10);
-      if (isNaN(epochNumber)) return null;
-      return new Date(epochNumber); // Adjust logic if it's seconds, days, etc.
-    } catch {
-      return null;
-    }
-  };
-
   // Helper for Estimated Rewards Calculation
-  const calculateEstRewards = (principal?: string, durationEpochs?: string): string => {
-      // ** CRITICAL: Replace placeholder APY with actual logic/source **
-      if (!principal || !durationEpochs) return '0';
-      try {
-          const principalNum = parseInt(principal, 10); // This is MIST
-          const durationDays = parseInt(durationEpochs, 10); // Assuming means days
-          const placeholderAPY = 0.05; // 5% APY - REPLACE THIS
+  // Uses durationDays directly
+  const calculateEstRewards = (principal?: string, durationDaysStr?: string): string => {
+    if (!principal || !durationDaysStr) return '0';
+    try {
+      const principalNum = parseInt(principal, 10);
+      const durationDays = parseInt(durationDaysStr, 10); // Use durationDays
 
-          if (isNaN(principalNum) || isNaN(durationDays) || durationDays <= 0) return '0';
+      // Improved APY calculation based on duration
+      let apy = 0.05; // 5% base APY
 
-          // Calculate reward based on principal in SUI, APY, and duration
-          const principalSui = principalNum / 1_000_000_000;
-          const rewards = principalSui * placeholderAPY * (durationDays / 365);
-
-          return isFinite(rewards) ? formatSui(rewards.toString(), 9) : '0';
-      } catch {
-          return '0';
+      // Scale APY based on duration (example scaling)
+      if (durationDays >= 365) {
+        apy = 0.25; // 25% for 1 year+
+      } else if (durationDays >= 180) {
+        apy = 0.20; // 20% for 6 months+
+      } else if (durationDays >= 90) {
+        apy = 0.15; // 15% for 3 months+
+      } else if (durationDays >= 30) {
+        apy = 0.10; // 10% for 1 month+
       }
+
+      if (isNaN(principalNum) || isNaN(durationDays) || durationDays <= 0) return '0';
+
+      // Calculate reward based on principal in SUI, APY, and duration
+      const principalSui = principalNum / 1_000_000_000;
+      const rewards = principalSui * apy * (durationDays / 365);
+
+      return isFinite(rewards) ? formatSui(rewards.toString(), 4) : '0';
+    } catch {
+      return '0';
+    }
   };
 
   // --- Loading State ---
@@ -146,7 +158,7 @@ export const StakedPositionsList: React.FC = () => {
       )}
 
       {/* Empty State */}
-      {stakePositions.length === 0 && !loading.positions ? ( // Ensure not shown while loading initially
+      {stakePositions.length === 0 && !loading.positions ? (
         <div className="text-center py-10 bg-background rounded-lg">
           <div className="text-4xl text-gray-700 mb-3">📊</div>
           <p className="text-gray-400 mb-4">You haven't staked any SUI yet.</p>
@@ -157,12 +169,14 @@ export const StakedPositionsList: React.FC = () => {
         <div className="space-y-4">
           {stakePositions.map((position) => {
             // Calculate status variables for clarity
+            // maturityPercentage now comes directly from the hook based on time
             const maturityPercentage = Math.max(0, Math.min(100, position.maturityPercentage || 0));
             const isMature = maturityPercentage >= 100;
             const isEncumbered = position.encumbered;
+            // isMature check uses the timestamp comparison done in the hook
             const canUnstake = isMature && !isEncumbered;
-            const unlockDate = getUnlockDate(position.unlockEpoch);
-            const formattedUnlockDate = unlockDate ? formatTimestamp(unlockDate) : 'N/A'; // Ensure formatTimestamp is available
+            const unlockDate = getUnlockDate(position);
+            const formattedUnlockDate = unlockDate ? formatTimestamp(unlockDate) : 'N/A';
 
             return (
               <div
@@ -199,7 +213,7 @@ export const StakedPositionsList: React.FC = () => {
 
                   <span className="text-gray-400">Duration</span>
                   <span className="text-white text-right">
-                    {formatDuration(parseInt(position.durationEpochs || '0', 10))}
+                    {formatDuration(parseInt(position.durationDays || '0', 10))}
                   </span>
 
                   <span className="text-gray-400">Unlock Date</span>
@@ -209,7 +223,7 @@ export const StakedPositionsList: React.FC = () => {
 
                   <span className="text-gray-400">Est. Rewards</span>
                   <span className="text-green-400 text-right">
-                     ~{calculateEstRewards(position.principal, position.durationEpochs)} SUI
+                     ~{calculateEstRewards(position.principal, position.durationDays)} SUI
                   </span>
                 </div>
 
@@ -266,7 +280,7 @@ export const StakedPositionsList: React.FC = () => {
                          Matures on {formattedUnlockDate}. You might be able to borrow against it.
                        </div>
                    ) : null /* Should not reach here if logic is sound */ }
-                 </div>
+                </div>
 
               </div>
             );
@@ -274,5 +288,4 @@ export const StakedPositionsList: React.FC = () => {
         </div>
       )}
     </div>
-  );
-};
+  )};

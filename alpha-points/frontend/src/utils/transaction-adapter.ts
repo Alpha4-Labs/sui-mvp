@@ -1,32 +1,27 @@
 /**
  * Transaction adapter utilities for Sui transactions
- * Converts between different transaction formats required by the SDK
+ * Updates to align with Sui SDK v1.0+
  */
-
-// Define a type for the PTB JSON structure returned by build functions
-type ProgrammableTransactionBlockJson = any; // We'll use any for flexibility with various PTB formats
 
 /**
  * Input type expected by the useSignAndExecuteTransaction hook
- * The key property holding the transaction data is 'transaction'
+ * Updated to match the latest SDK interface
  */
 export interface SignAndExecuteInput {
-  transaction: ProgrammableTransactionBlockJson;
+  transaction: Record<string, any>;
   options?: {
     showEffects?: boolean;
     showEvents?: boolean;
     showInput?: boolean;
     showObjectChanges?: boolean;
   };
-  // Could include other properties like gasBudget if needed
+  // Optional gas budget
+  gasBudget?: number;
 }
 
 /**
- * Gets the error message from a transaction response
- * Safe implementation that doesn't rely on type imports and uses explicit checks
- * 
- * @param result The transaction result or error object
- * @returns Error message from the transaction result, or null if no error
+ * Gets error message directly from a transaction response
+ * Safely navigates the nested structure without assumptions about types
  */
 export function getTransactionResponseError(result: unknown): string | null {
   if (!result) return null;
@@ -55,7 +50,7 @@ export function getTransactionResponseError(result: unknown): string | null {
   
   const status = effects.status as Record<string, unknown>;
   
-  // Check for status status
+  // Check for status field
   if (!('status' in status) || typeof status.status !== 'string') {
     return null;
   }
@@ -73,30 +68,46 @@ export function getTransactionResponseError(result: unknown): string | null {
 }
 
 /**
- * Adapts transaction objects in PTB JSON format to the format
- * expected by useSignAndExecuteTransaction hook
- * 
- * @param ptbJson The programmable transaction block JSON
- * @returns Properly structured input for useSignAndExecuteTransaction
+ * Adapts transaction objects to the format expected by useSignAndExecuteTransaction hook
+ * Updated to use the new transaction format in Sui SDK v1.0+
  */
 export function adaptPtbJsonForSignAndExecute(
-  ptbJson: ProgrammableTransactionBlockJson
+  transaction: Record<string, any>,
+  options?: {
+    showEffects?: boolean;
+    showEvents?: boolean;
+    showObjectChanges?: boolean;
+    gasBudget?: number;
+  }
 ): SignAndExecuteInput {
-  return {
-    transaction: ptbJson, // Use the correct 'transaction' property name
+  // Default options merged with provided options
+  const defaultOptions = {
+    showEffects: true,
+    showEvents: true,
+    showObjectChanges: true,
+    ...options
+  };
+
+  // Build the final input structure
+  const result: SignAndExecuteInput = {
+    transaction,
     options: {
-      showEffects: true,  // Show transaction effects by default
-      showEvents: true,   // Show emitted events by default
-      showObjectChanges: true, // Show object changes for better debugging
+      showEffects: defaultOptions.showEffects,
+      showEvents: defaultOptions.showEvents,
+      showObjectChanges: defaultOptions.showObjectChanges,
     }
   };
+  
+  // Add optional gas budget if provided
+  if (defaultOptions.gasBudget !== undefined) {
+    result.gasBudget = defaultOptions.gasBudget;
+  }
+  
+  return result;
 }
 
 /**
  * Converts error responses from transaction execution into user-friendly messages
- * 
- * @param error The error object from a failed transaction
- * @returns A user-friendly error message
  */
 export function getTransactionErrorMessage(error: unknown): string {
   // First check if it's a transaction response with error
@@ -109,34 +120,43 @@ export function getTransactionErrorMessage(error: unknown): string {
   if (error !== null && typeof error === 'object') {
     const errorObj = error as Record<string, unknown>;
     
-    // Check for code and message properties (common in SDK errors)
+    // Check for SDK error format
     if ('code' in errorObj && 'message' in errorObj && 
         typeof errorObj.message === 'string') {
-      return `Transaction error (${errorObj.code}): ${errorObj.message}`;
+      return `Error ${errorObj.code}: ${errorObj.message}`;
+    }
+    
+    // Check for nested error objects
+    if ('error' in errorObj && errorObj.error !== null && 
+        typeof errorObj.error === 'object') {
+      const nestedError = errorObj.error as Record<string, unknown>;
+      if ('message' in nestedError && typeof nestedError.message === 'string') {
+        return nestedError.message;
+      }
     }
   }
   
   // Convert error to string for pattern matching, safely
   const errorString = String(error).toLowerCase();
   
-  // Check for common error patterns
-  if (errorString.includes('insufficient gas')) {
-    return 'Insufficient gas to execute transaction. Please ensure you have enough SUI.';
+  // Check for common error patterns with more detailed user feedback
+  if (errorString.includes('insufficient gas') || errorString.includes('gas budget')) {
+    return 'Insufficient gas to execute transaction. Please ensure you have enough SUI balance.';
   }
   
-  if (errorString.includes('authority')) {
+  if (errorString.includes('authority') || errorString.includes('unauthorized')) {
     return 'Authorization failed. You may not have permission to execute this action.';
   }
   
-  if (errorString.includes('object not found')) {
-    return 'Required object not found. It may have been modified or deleted.';
+  if (errorString.includes('object not found') || errorString.includes('missing')) {
+    return 'Required object not found. It may have been modified or deleted by another transaction.';
   }
   
   if (errorString.includes('timeout')) {
     return 'Transaction timed out. The network may be congested, please try again later.';
   }
   
-  if (errorString.includes('rejected')) {
+  if (errorString.includes('rejected') || errorString.includes('denied')) {
     return 'Transaction was rejected by the wallet. Please check your wallet and try again.';
   }
   
@@ -146,5 +166,7 @@ export function getTransactionErrorMessage(error: unknown): string {
   }
   
   // Default error message
-  return typeof error === 'string' ? error : 'An unknown error occurred during transaction execution.';
+  return typeof error === 'string' 
+    ? error 
+    : 'An unknown error occurred during transaction execution.';
 }
