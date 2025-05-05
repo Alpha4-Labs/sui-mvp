@@ -168,6 +168,9 @@ export const StakedPositionsList: React.FC = () => {
         // Positions List
         <div className="space-y-4">
           {stakePositions.map((position) => {
+            // Add log to check the date string being used
+            console.log(`Rendering position ${position.id}, calculatedUnlockDate: ${position.calculatedUnlockDate}`); 
+            
             // Calculate status variables for clarity
             // maturityPercentage now comes directly from the hook based on time
             const maturityPercentage = Math.max(0, Math.min(100, position.maturityPercentage || 0));

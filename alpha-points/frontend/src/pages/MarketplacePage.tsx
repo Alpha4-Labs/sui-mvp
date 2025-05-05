@@ -1,60 +1,65 @@
-// === MarketplacePage.tsx (Corrected) ===
-import React, { useState } from 'react';
-// Correct the hook import name
+// === MarketplacePage.tsx (Modified for SUI Redeem) ===
+import React, { useMemo, useState } from 'react';
 import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext';
-import { formatPoints } from '../utils/format';
+import { formatPoints, formatSui } from '../utils/format';
 import { MainLayout } from '../layouts/MainLayout';
-import { buildRedeemPointsTransaction } from '../utils/transaction'; // Builds PTB JSON
-// Import the adapter function
+import { buildRedeemPointsTransaction } from '../utils/transaction';
 import { adaptPtbJsonForSignAndExecute } from '../utils/transaction-adapter';
+
+// Define prices for rate calculation
+const SUI_PRICE_USD = 3.28;
+const ALPHA_POINT_PRICE_USD = 0.10;
 
 export const MarketplacePage: React.FC = () => {
   const { points, setTransactionLoading, refreshData } = useAlphaContext();
   const [redeemAmount, setRedeemAmount] = useState('');
-  const [tab, setTab] = useState<'eth' | 'perks'>('eth');
+  const [tab, setTab] = useState<'sui' | 'perks'>('sui');
 
-  // Use the correct hook name
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
 
-  const currentRate = 10000; // Example rate: 10,000 Alpha Points per ETH
+  // Calculate the dynamic rate
+  const alphaPointsPerSui = useMemo(() => {
+    if (ALPHA_POINT_PRICE_USD <= 0) return Infinity; // Avoid division by zero
+    return SUI_PRICE_USD / ALPHA_POINT_PRICE_USD;
+  }, []); // Empty dependency array, prices are constants
 
   const handleRedeem = async () => {
     const amountNumber = parseInt(redeemAmount, 10);
-    // Validate input
     if (!redeemAmount || isNaN(amountNumber) || amountNumber <= 0) {
         console.error("Invalid redeem amount");
-        return; // Or show user feedback
+        return;
     }
-    // Check balance
     if (amountNumber > points.available) {
         console.error("Insufficient available points");
-        // TODO: Show user feedback
         return;
     }
 
     setTransactionLoading(true);
     try {
-      // Build the PTB JSON
+      // Build the PTB JSON - This function already targets redeem_points<T>,
+      // which works for SUI since Escrow is EscrowVault<SUI>
       const ptbJson = buildRedeemPointsTransaction(redeemAmount);
-
-      // Adapt the PTB JSON to the input format expected by the hook
       const executionInput = adaptPtbJsonForSignAndExecute(ptbJson);
-
-      // Sign and execute using the correctly structured input
       await signAndExecute(executionInput);
-
       setRedeemAmount('');
-      refreshData(); // Ensure points balance is refreshed
+      refreshData();
     } catch (error) {
-      console.error('Error redeeming points:', error);
-      // Optionally show user feedback
+      console.error('Error redeeming points for SUI:', error);
     } finally {
       setTransactionLoading(false);
     }
   };
 
-  // --- JSX Rendering (No changes needed based on the error) ---
+  // Calculate estimated SUI receive amount
+  const estimatedSuiReceive = useMemo(() => {
+    const amountNum = parseInt(redeemAmount, 10);
+    if (!isNaN(amountNum) && amountNum > 0 && isFinite(alphaPointsPerSui) && alphaPointsPerSui > 0) {
+      return amountNum / alphaPointsPerSui;
+    }
+    return 0;
+  }, [redeemAmount, alphaPointsPerSui]);
+
   return (
     <MainLayout>
        <div className="text-center mb-8">
@@ -67,14 +72,14 @@ export const MarketplacePage: React.FC = () => {
          <div className="flex justify-center p-4 border-b border-gray-700">
              <div className="inline-flex rounded-md bg-background p-1">
                  <button
-                     onClick={() => setTab('eth')}
+                     onClick={() => setTab('sui')}
                      className={`px-6 py-2 rounded-md transition-colors ${
-                         tab === 'eth' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700'
+                         tab === 'sui' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700'
                      }`}
                  >
                     <span className="flex items-center">
-                       <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L6 12L12 15.5L18 12L12 2Z" fill="currentColor"/><path d="M12 16.5L6 13L12 22L18 13L12 16.5Z" fill="currentColor"/></svg>
-                       Redeem for ETH
+                       <span className="font-bold text-lg mr-2">S</span>
+                       Redeem for SUI
                     </span>
                  </button>
                  <button
@@ -98,12 +103,12 @@ export const MarketplacePage: React.FC = () => {
                 <span className="text-xl font-semibold text-secondary">{formatPoints(points.available)} αP</span>
             </div>
 
-           {/* Redeem for ETH Tab */}
-           {tab === 'eth' && (
+           {/* Redeem for SUI Tab */}
+           {tab === 'sui' && (
              <div>
-               <h2 className="text-xl font-semibold text-white text-center mb-4">Redeem Alpha Points for ETH</h2>
+               <h2 className="text-xl font-semibold text-white text-center mb-4">Redeem Alpha Points for SUI</h2>
                <div className="text-center text-gray-300 mb-6">
-                 Current Rate: {formatPoints(currentRate)} αP / ETH (Example)
+                 Current Rate: {alphaPointsPerSui.toFixed(2)} αP / SUI
                </div>
                <div className="mb-4">
                  <label className="block text-gray-400 mb-1 text-sm">Points to Spend (αP)</label>
@@ -113,9 +118,14 @@ export const MarketplacePage: React.FC = () => {
                    pattern="[0-9]*"
                    value={redeemAmount}
                    onChange={(e) => setRedeemAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                   placeholder="e.g., 10000"
+                   placeholder={`e.g., ${alphaPointsPerSui.toFixed(0)}`}
                    className="w-full bg-background-input rounded p-3 text-white border border-gray-600 focus:border-primary focus:ring-primary"
                  />
+                 {estimatedSuiReceive > 0 && (
+                    <div className="text-xs text-gray-400 mt-1 text-right">
+                        ≈ {formatSui(estimatedSuiReceive.toString(), 4)} SUI
+                    </div>
+                 )}
                </div>
                <button
                  onClick={handleRedeem}
@@ -125,7 +135,7 @@ export const MarketplacePage: React.FC = () => {
                  Redeem {formatPoints(redeemAmount || '0', 0)} αP
                </button>
                <div className="text-xs text-gray-500 mt-3 text-center">
-                 Requires contract ETH balance. Network fees apply.
+                 Requires contract SUI balance in Escrow Vault. Network fees apply.
                </div>
              </div>
            )}

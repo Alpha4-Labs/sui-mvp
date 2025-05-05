@@ -112,6 +112,8 @@ export const StakeCard: React.FC = () => {
     setTransactionLoading(true);
 
     try {
+      // Log the selected duration object before using its 'days' property
+      console.log("Selected Duration Object:", selectedDuration);
       console.log(`Building stake transaction for ${amountInMist.toString()} MIST, ${selectedDuration.days} days`);
       
       // Build transaction with the updated Transaction implementation

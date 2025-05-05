@@ -1,14 +1,21 @@
-export const PACKAGE_ID = import.meta.env.VITE_PACKAGE_ID || '0xee8d09ee18824fbf8a97e6e68f1ec908fca16d5e6dbcbd2b81b6852e4f2f45fe';
+import { bcs } from '@mysten/sui/bcs';
+
+// --- Contract Configuration ---
+
+// Latest Package ID from deployment Hp6r...
+export const PACKAGE_ID = import.meta.env.VITE_PACKAGE_ID || '0x6e05b684cb57e05e959026fb149f0e1f7a4d56f0805fca59ee6d890b8e80a9b8';
 
 // Shared object IDs - Updated with latest deployment fallbacks
 // !! IMPORTANT: Verify loanConfig, oracle, and escrowVault fallbacks match your latest initialization results !!
 export const SHARED_OBJECTS = {
-  config: import.meta.env.VITE_CONFIG_ID || '0xf6c5877f49fcda89b23842ee45f1816e2d103b92ceeda308b3f035c953c18b82',
-  ledger: import.meta.env.VITE_LEDGER_ID || '0x1e1b486b0a5295b11839e102aee1d8e209e7840d8389093752b596826e32c861',
-  // !! Verify these fallbacks against your latest init transaction outputs !!
-  escrowVault: import.meta.env.VITE_ESCROW_VAULT_SUI_ID || '0x6841af638ddd36433b2a3507add2ccc25461225be4c7900db7b4a665d2839aa1',
-  loanConfig: import.meta.env.VITE_LOAN_CONFIG_ID || '0x1e688df3ea9255eeca078a157406dae1eb58941f509e2d2ff86ed2068d3cb965',
-  oracle: import.meta.env.VITE_SUI_USD_ORACLE_ID || '0x90e7114e5cb593985fe984e89e7b2fce6095134edc853345dab7516a574a5294'
+  // Latest Config ID from deployment Hp6r...
+  config: import.meta.env.VITE_CONFIG_ID || '0xe6210c93431498eb0fe03afbef965167bb396bc146f10bec61b30a961cc4b9dc',
+  // Latest Ledger ID from deployment Hp6r...
+  ledger: import.meta.env.VITE_LEDGER_ID || '0xe8e7402ce5a2559c9fb29d7d7c63379788cc55c01977c85506b3da7a26c037a7',
+  // Final fallbacks based on latest initialization
+  escrowVault: import.meta.env.VITE_ESCROW_ID || '0x7c8556877573fd350e61d75797578b64f6b56205a292b8d48f220ed26f91e749', 
+  loanConfig: import.meta.env.VITE_LOAN_ID || '0x0d77e007b9c0f6e5a4b2ab884573084d16c516cd2f51e51e845ab98334e4eba1', 
+  oracle: import.meta.env.VITE_ORACLE_ID || '0x46ac1e6987ed32387cb1cc565371c4d57e1064e744281b537366dde484660b2c'   
 };
 
 // Sui coin type

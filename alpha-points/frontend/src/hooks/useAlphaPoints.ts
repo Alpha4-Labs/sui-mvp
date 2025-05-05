@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
+import { Transaction } from '@mysten/sui/transactions';
+import { bcs } from '@mysten/sui/bcs';
 
 import { PointBalance } from '../types';
 import { SHARED_OBJECTS, PACKAGE_ID } from '../config/contract';
@@ -7,30 +9,37 @@ import { SHARED_OBJECTS, PACKAGE_ID } from '../config/contract';
 /**
  * Improved decoder for u64 values from Sui Move call results
  * Handles various edge cases and provides better error reporting
+ * Now accepts standard Array<number> as input and converts internally.
  */
-function decodeU64(bytes: Uint8Array | unknown): number {
-  // Input validation with detailed error handling
+function decodeU64(bytesInput: Array<number> | Uint8Array | unknown): number {
+  let bytes: Uint8Array;
+
+  // Convert standard array to Uint8Array if necessary
+  if (Array.isArray(bytesInput) && bytesInput.every(n => typeof n === 'number')) {
+    bytes = new Uint8Array(bytesInput);
+  } else if (bytesInput instanceof Uint8Array) {
+    bytes = bytesInput;
+  } else {
+    console.error('Invalid input type for u64 decoding:', typeof bytesInput);
+    return 0;
+  }
+
+  // Original validation and decoding logic using the ensured Uint8Array
   if (!bytes) {
     console.error('No data provided for decoding u64 value');
     return 0;
   }
   
-  if (!(bytes instanceof Uint8Array)) {
-    console.error('Invalid input type for u64 decoding:', typeof bytes);
-    return 0;
-  }
-  
+  // Length check still applies
   if (bytes.length !== 8) {
     console.error(`Invalid byte length for u64: expected 8, got ${bytes.length}`);
     return 0;
   }
   
   try {
-    // Use DataView for proper binary parsing
     const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const valueBigInt = dataView.getBigUint64(0, true); // true for little-endian
     
-    // Convert to Number and check for potential precision loss
     const valueNumber = Number(valueBigInt);
     
     if (valueBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
@@ -43,7 +52,7 @@ function decodeU64(bytes: Uint8Array | unknown): number {
     return valueNumber;
   } catch (err) {
     console.error('Error decoding u64 value:', err);
-    return 0; // Return default on error
+    return 0;
   }
 }
 
@@ -76,44 +85,34 @@ export const useAlphaPoints = () => {
     try {
       console.log(`Fetching Alpha Points for ${currentAccount.address}`);
       
-      // Construct a Programmable Transaction Block for devInspect
-      // This allows us to call view functions without executing a real transaction
-      const ptb = {
-        kind: 'programmable',
-        inputs: [
-          // Input 0: Shared Ledger Object
-          { kind: 'object', value: SHARED_OBJECTS.ledger, type: 'object' },
-          // Input 1: User Address
-          { kind: 'pure', value: currentAccount.address, type: 'address' },
+      // === REFACTORED: Use TransactionBlock ===
+      const txb = new Transaction();
+
+      // Call get_available_balance
+      txb.moveCall({
+        target: `${PACKAGE_ID}::ledger::get_available_balance`,
+        arguments: [
+          txb.object(SHARED_OBJECTS.ledger), // Pass ledger object ID
+          txb.pure.address(currentAccount.address),    // Pass user address
         ],
-        transactions: [
-          // Transaction 0: Call get_available_balance
-          {
-            kind: 'MoveCall',
-            target: `${PACKAGE_ID}::ledger::get_available_balance`,
-            typeArguments: [],
-            arguments: [
-              { kind: 'Input', index: 0 }, // Reference ledger
-              { kind: 'Input', index: 1 }, // Reference address
-            ],
-          },
-          // Transaction 1: Call get_locked_balance
-          {
-            kind: 'MoveCall',
-            target: `${PACKAGE_ID}::ledger::get_locked_balance`,
-            typeArguments: [],
-            arguments: [
-              { kind: 'Input', index: 0 }, // Reference ledger
-              { kind: 'Input', index: 1 }, // Reference address
-            ],
-          },
+        typeArguments: [], // No type arguments needed
+      });
+
+      // Call get_locked_balance
+      txb.moveCall({
+        target: `${PACKAGE_ID}::ledger::get_locked_balance`,
+        arguments: [
+          txb.object(SHARED_OBJECTS.ledger), // Pass ledger object ID
+          txb.pure.address(currentAccount.address),    // Pass user address
         ],
-      };
-      
-      // Execute the transaction in devInspect mode (simulation)
+        typeArguments: [], // No type arguments needed
+      });
+      // =======================================
+
+      // Execute the transaction block in devInspect mode
       const inspectResult = await client.devInspectTransactionBlock({
         sender: currentAccount.address,
-        transactionBlock: ptb as any, // Cast to any due to potential type mismatch
+        transactionBlock: txb as any, // Cast for now, might need specific type conversion
       });
       
       // Check transaction status
@@ -136,45 +135,45 @@ export const useAlphaPoints = () => {
       let available = 0;
       let locked = 0;
       
-      // Parse Available Balance from first call
+      // Parse Available Balance from first call (index 0)
       const availableResult = inspectResult.results[0];
       if (availableResult?.returnValues?.[0]) {
         const [bytes, type] = availableResult.returnValues[0];
-        
         console.debug('Available balance return value:', { bytes, type });
         
-        if (type === 'u64' && bytes instanceof Uint8Array) {
-          try {
-            available = decodeU64(bytes);
-            console.log(`Available points parsed: ${available}`);
-          } catch (e: any) {
-            console.error("Failed to decode available balance:", e);
-            throw new Error(`Failed to parse available balance: ${e.message}`);
-          }
+        // === Add Detailed Logging ===
+        console.log('[Available Balance] Type of bytes:', typeof bytes);
+        console.log('[Available Balance] Value of bytes:', bytes);
+        // ============================
+
+        if (type === 'u64' && Array.isArray(bytes)) {
+          available = decodeU64(bytes);
+          console.log(`Available points parsed: ${available}`);
         } else {
-          throw new Error(`Unexpected format for available balance. Expected u64, got Type: ${type}`);
+          const receivedBytesType = Array.isArray(bytes) ? 'array' : typeof bytes;
+          throw new Error(`Unexpected format for available balance. Expected type 'u64' and Array bytes, got Type: ${type} and Bytes Type: ${receivedBytesType}`);
         }
       } else {
         throw new Error("Could not find available balance return value.");
       }
       
-      // Parse Locked Balance from second call
+      // Parse Locked Balance from second call (index 1)
       const lockedResult = inspectResult.results[1];
       if (lockedResult?.returnValues?.[0]) {
         const [bytes, type] = lockedResult.returnValues[0];
-        
         console.debug('Locked balance return value:', { bytes, type });
+
+        // === Add Detailed Logging ===
+        console.log('[Locked Balance] Type of bytes:', typeof bytes);
+        console.log('[Locked Balance] Value of bytes:', bytes);
+        // ============================
         
-        if (type === 'u64' && bytes instanceof Uint8Array) {
-          try {
-            locked = decodeU64(bytes);
-            console.log(`Locked points parsed: ${locked}`);
-          } catch (e: any) {
-            console.error("Failed to decode locked balance:", e);
-            throw new Error(`Failed to parse locked balance: ${e.message}`);
-          }
+        if (type === 'u64' && Array.isArray(bytes)) {
+          locked = decodeU64(bytes);
+          console.log(`Locked points parsed: ${locked}`);
         } else {
-          throw new Error(`Unexpected format for locked balance. Expected u64, got Type: ${type}`);
+          const receivedBytesType = Array.isArray(bytes) ? 'array' : typeof bytes;
+          throw new Error(`Unexpected format for locked balance. Expected type 'u64' and Array bytes, got Type: ${type} and Bytes Type: ${receivedBytesType}`);
         }
       } else {
         throw new Error("Could not find locked balance return value.");

@@ -1,51 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAlphaContext } from '../context/AlphaContext';
 import { formatPoints, formatTimeAgo } from '../utils/format';
 
 export const PointsDisplay: React.FC = () => {
-  const { points, loading, refreshData, setTransactionLoading } = useAlphaContext();
+  // Use context to get points data and loading state
+  const { points, loading, lastRefresh } = useAlphaContext();
   const [showDetails, setShowDetails] = useState(false);
-  const [claimInProgress, setClaimInProgress] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  
-  // In a real implementation, these would be fetched from the contract
-  // For now, we're using mock data
-  const accrualStartTime = Date.now() - 6313 * 60 * 1000; // 6313 minutes ago
-  const accruedPoints = 1999.243333;
-  const accrualRate = 78.5; // Points per day
-  
-  /**
-   * Handles claiming accrued Alpha Points
-   * In a real implementation, this would call a transaction
-   */
+
+  // Accrual info is currently mock - keep placeholders or remove
+  // Let's comment out for now as it's not real data
+  // const accrualStartTime = Date.now() - 6313 * 60 * 1000; 
+  // const accruedPoints = 1999.243333;
+  // const accrualRate = 78.5; 
+
+  // Claim function is disabled as it's not implemented on-chain
+  /*
   const handleClaim = async () => {
-    // Clear previous status messages
-    setError(null);
-    setSuccess(null);
-    
-    setClaimInProgress(true);
-    setTransactionLoading(true);
-    
-    try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // In a real implementation, we would call the contract
-      // For now, just show a success message
-      setSuccess(`Successfully claimed ${formatPoints(accruedPoints)} Alpha Points!`);
-      
-      // Refresh data to update UI
-      refreshData();
-    } catch (error: any) {
-      console.error('Error claiming points:', error);
-      setError(error.message || 'Failed to claim Alpha Points');
-    } finally {
-      setClaimInProgress(false);
-      setTransactionLoading(false);
-    }
+    // ... implementation removed ...
   };
-  
+  */
+
   // Show loading skeleton
   if (loading.points) {
     return (
@@ -60,22 +34,19 @@ export const PointsDisplay: React.FC = () => {
 
   return (
     <div className="bg-background-card rounded-lg p-6 shadow-lg">
-      <h2 className="text-xl font-semibold text-white mb-2">Alpha Points Balance</h2>
+      <div className="flex justify-between items-center mb-2">
+        <h2 className="text-xl font-semibold text-white">Alpha Points Balance</h2>
+        {/* Display last refresh time */}
+        {lastRefresh > 0 && (
+          <span className="text-xs text-gray-500" title={new Date(lastRefresh).toISOString()}>
+            Updated: {formatTimeAgo(lastRefresh)}
+          </span>
+        )}
+      </div>
       
-      {/* Status messages */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded-md text-red-400 text-sm">
-          {error}
-        </div>
-      )}
+      {/* Removed status messages related to mock claim */}
       
-      {success && (
-        <div className="mb-4 p-3 bg-green-900/30 border border-green-700 rounded-md text-green-400 text-sm">
-          {success}
-        </div>
-      )}
-      
-      {/* Points balance */}
+      {/* Points balance - Use data from context */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <div className="text-4xl font-bold text-secondary mb-1">
@@ -86,6 +57,7 @@ export const PointsDisplay: React.FC = () => {
           </div>
         </div>
         
+        {/* Only show locked section if locked points > 0 */}
         {points.locked > 0 && (
           <div className="text-right">
             <div className="text-2xl font-bold text-yellow-500 mb-1">
@@ -98,7 +70,8 @@ export const PointsDisplay: React.FC = () => {
         )}
       </div>
       
-      {/* Accrual info */}
+      {/* Accrual info section - commented out as it uses mock data */}
+      {/* 
       <div 
         className="bg-background rounded-lg p-4 mb-4 cursor-pointer transition-colors hover:bg-background-card"
         onClick={() => setShowDetails(!showDetails)}
@@ -137,8 +110,10 @@ export const PointsDisplay: React.FC = () => {
           </div>
         )}
       </div>
+      */}
       
-      {/* Accrued points and claim button */}
+      {/* Accrued points and claim button - commented out as it uses mock data/disabled functionality */}
+      {/*
       <div className="flex items-center justify-between bg-background/50 rounded-lg p-4">
         <div>
           <div className="text-yellow-400 text-xl font-semibold">
@@ -151,24 +126,20 @@ export const PointsDisplay: React.FC = () => {
         
         <button 
           onClick={handleClaim}
-          disabled={claimInProgress || accruedPoints <= 0}
+          disabled // Disabled permanently for now
           className="bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-4 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
         >
-          {claimInProgress ? (
-            <>
-              <span className="opacity-0">Claim</span>
-              <span className="absolute inset-0 flex items-center justify-center">
-                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              </span>
-            </>
-          ) : (
-            'Claim'
-          )}
+           Claim
         </button>
       </div>
+      */}
+
+      {/* Placeholder if no points data is available yet */}
+      {!loading.points && points.total === 0 && (
+        <div className="text-center text-gray-500 text-sm py-4">
+          No Alpha Points balance found.
+        </div>
+      )}
     </div>
   );
 };

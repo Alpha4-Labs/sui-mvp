@@ -22,3 +22,10 @@ export interface StakePosition {
   maturityPercentage: number;
   calculatedUnlockDate: string | null; // Holds ISO string derived from unlockTimeMs
 } 
+
+// Add PointBalance type definition
+export interface PointBalance {
+  available: number;
+  locked: number;
+  total: number;
+} 

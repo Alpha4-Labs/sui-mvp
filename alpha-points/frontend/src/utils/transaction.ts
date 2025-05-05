@@ -11,12 +11,12 @@ import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contra
  * Builds a transaction for staking SUI
  * 
  * @param amount Amount in MIST (SUI * 10^9)
- * @param durationEpochs Duration in epochs for the stake
+ * @param durationDays Duration in days for the stake
  * @returns Transaction object ready for execution
  */
 export const buildStakeTransaction = (
   amount: bigint,
-  durationEpochs: number
+  durationDays: number
 ) => {
   // Create a new Transaction object
   const tx = new Transaction();
@@ -30,10 +30,12 @@ export const buildStakeTransaction = (
     typeArguments: [SUI_TYPE],
     arguments: [
       tx.object(SHARED_OBJECTS.config),
+      tx.object(SHARED_OBJECTS.ledger),
       tx.object(SHARED_OBJECTS.escrowVault),
       tx.object(CLOCK_ID),
       coinToStake,
-      tx.pure(bcs.U64.serialize(durationEpochs).toBytes())
+      tx.pure(bcs.U64.serialize(durationDays).toBytes()),
+      tx.pure(bcs.option(bcs.Address).serialize(null).toBytes())
     ]
   });
   

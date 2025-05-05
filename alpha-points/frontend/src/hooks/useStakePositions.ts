@@ -92,6 +92,9 @@ export const useStakePositions = () => {
             const unlockTimeMs = parseInt(unlockTimeMsStr, 10);
             const durationDays = parseInt(durationDaysStr, 10);
 
+            // ADD LOGGING HERE to see parsed values
+            console.log(`Parsed values for ${obj.data?.objectId}: start=${startTimeMs}, unlock=${unlockTimeMs}, duration=${durationDays}`);
+
             // Validate all parsed numbers
             if (isNaN(startTimeMs) || isNaN(unlockTimeMs) || isNaN(durationDays)) {
               console.warn(`Invalid time/duration/unlock data for StakePosition ${obj.data?.objectId}: start=${startTimeMsStr}, unlock=${unlockTimeMsStr}, duration=${durationDaysStr}`);
@@ -116,12 +119,12 @@ export const useStakePositions = () => {
             // Ensure your ../types.ts definition matches these fields
             const positionData: StakePosition = {
               id: obj.data?.objectId || '',
-              owner: moveStructFields.owner || currentAccount.address,
-              principal: moveStructFields.principal || '0',
-              startTimeMs: startTimeMsStr,      // Keep as string from source
-              unlockTimeMs: unlockTimeMsStr,    // Keep as string from source
-              durationDays: durationDaysStr,    // Keep as string from source
-              encumbered: moveStructFields.encumbered || false,
+              owner: typeof moveStructFields.owner === 'string' ? moveStructFields.owner : (currentAccount.address || ''),
+              principal: typeof moveStructFields.principal === 'string' ? moveStructFields.principal : '0',
+              startTimeMs: String(startTimeMsStr),      // Always store as string
+              unlockTimeMs: String(unlockTimeMsStr),    // Always store as string
+              durationDays: String(durationDaysStr),    // Always store as string
+              encumbered: typeof moveStructFields.encumbered === 'boolean' ? moveStructFields.encumbered : false,
               maturityPercentage,
               calculatedUnlockDate: calculatedUnlockDateISO // Use the direct unlock time
             };
