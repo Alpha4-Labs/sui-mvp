@@ -28,6 +28,28 @@ try {
     // Display error directly on the page
     const rootElement = document.getElementById('root');
     if (rootElement) {
-        rootElement.innerHTML = `<h2>Critical Error</h2><pre>Message: ${error.message}</pre><pre>Stack: ${error.stack}</pre><br/>Package ID Env: ${pkgIdFromEnv || 'NOT FOUND'}`;
+        let message = 'Unknown error';
+        let stack = '';
+        if (error instanceof Error) {
+            message = error.message;
+            stack = error.stack || '';
+        } else if (typeof error === 'object' && error !== null) {
+            message = JSON.stringify(error);
+        } else {
+            message = String(error);
+        }
+        rootElement.innerHTML = `
+            <h2>Critical Error</h2>
+            <pre><strong>Message:</strong> ${message}</pre>
+            <pre><strong>Stack:</strong> ${stack || 'No stack trace available.'}</pre>
+            <br/>
+            <pre><strong>Package ID Env:</strong> ${typeof pkgIdFromEnv !== 'undefined' && pkgIdFromEnv !== null && pkgIdFromEnv !== '' ? pkgIdFromEnv : 'NOT FOUND'}</pre>
+        `;
+        // Optionally, you could also set a red background for visibility
+        rootElement.style.background = '#ffe6e6';
+        rootElement.style.color = '#a00';
+        rootElement.style.padding = '2rem';
+        rootElement.style.fontFamily = 'monospace, monospace';
+      }
     }
-}
+
