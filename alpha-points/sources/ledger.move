@@ -1,32 +1,38 @@
 /// Module that manages the internal accounting of Alpha Points.
 /// Tracks user balances and total supply using a shared Ledger object.
 module alpha_points::ledger {
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{TxContext, sender};
-    use sui::balance::{Self, Balance};
+    use sui::object::{Self, UID};
+    use sui::tx_context::TxContext;
     use sui::table::{Self, Table};
     use sui::transfer;
-    use std::option::Option;
     use sui::event;
-
-    // Import for GovernCap
-    use alpha_points::admin::GovernCap;
-    use alpha_points::admin::{Self, Config};
-    use sui::clock::{Self, Clock};
 
     // Error constants
     const EInsufficientBalance: u64 = 1;
     const EInsufficientAvailableBalance: u64 = 2;
-    const ELockExceedsBalance: u64 = 3;
-    const EUnlockExceedsLocked: u64 = 4;
-    const EHasBadDebt: u64 = 5; // Added for bad debt check
-    const ERepaymentExceedsDebt: u64 = 6; // Cannot repay more than owed
+    // Internal: const ELockExceedsBalance: u64 = 3; 
+    // Internal: const EUnlockExceedsLocked: u64 = 4; 
+    const EHasBadDebt: u64 = 5; // For integration.move to check via has_bad_debt()
+    const ERepaymentExceedsDebt: u64 = 6; // For integration.move to check via internal_remove_bad_debt()
+    const EOverflow: u64 = 7;
+    const EInsufficientLockedBalance: u64 = 8;
 
     // Scaling divisor to adjust point calculation based on MIST input
-    const POINTS_SCALING_DIVISOR: u64 = 50_000_000; // Adjust as needed for desired APY
+    // const POINTS_SCALING_DIVISOR: u64 = 50_000_000; // Commented out as unused in this module now
+
+    /// Enum to categorize different types of points being minted or tracked.
+    public enum PointType has drop {
+        Staking, // Points earned from staking
+        // Add other types as needed, e.g., Referral, Bonus
+    }
+
+    /// Public constructor for PointType::Staking variant.
+    public fun new_point_type_staking(): PointType {
+        PointType::Staking
+    }
 
     // Marker type for the Alpha Points Supply
-    public struct AlphaPointTag has drop {}
+    // public struct AlphaPointTag has drop {}
 
     /// User's point balance details with available and locked amounts
     public struct PointBalance has store {
@@ -39,6 +45,7 @@ module alpha_points::ledger {
         id: UID,
         balances: Table<address, PointBalance>,
         bad_debt: Table<address, u64> // Stores outstanding bad debt per user
+        // Removed: point_supply: Supply<AlphaPointTag>
     }
 
     // Events
@@ -70,6 +77,7 @@ module alpha_points::ledger {
             id: object::new(ctx),
             balances: table::new(ctx),
             bad_debt: table::new(ctx) // Initialize bad debt table
+            // Removed: point_supply: balance::create_supply<AlphaPointTag>(AlphaPointTag {}, ctx)
         };
         transfer::share_object(ledger);
     }
@@ -84,20 +92,19 @@ module alpha_points::ledger {
     ) {
         if (amount == 0) return;
         
-        // Increase supply for tracking, then immediately decrease it by destroying the balance.
-        // This keeps the supply count accurate without needing the Balance object itself.
-        let b = balance::increase_supply(&mut ledger.point_supply, amount);
-        balance::decrease_supply(&mut ledger.point_supply, b); // Use decrease_supply to destroy b
+        // Removed supply logic: total supply is not tracked directly in Ledger anymore
+        // let b = balance::increase_supply(&mut ledger.point_supply, amount);
+        // balance::decrease_supply(&mut ledger.point_supply, b);
                 
-        // Update user's entry in the Table
-        if (!table::contains(&ledger.entries, user)) {
+        // Update user's entry in the Table (using 'balances' field)
+        if (!table::contains(&ledger.balances, user)) {
             table::add(
-                &mut ledger.entries,
+                &mut ledger.balances,
                 user,
                 PointBalance { available: amount, locked: 0 }
             );
         } else {
-            let user_balance = table::borrow_mut(&mut ledger.entries, user);
+            let user_balance = table::borrow_mut(&mut ledger.balances, user);
             let new_available = user_balance.available + amount;
             assert!(new_available >= user_balance.available, EOverflow);
             user_balance.available = new_available;
@@ -114,15 +121,12 @@ module alpha_points::ledger {
         _ctx: &TxContext
     ) {
         if (amount == 0) return;
-        assert!(table::contains(&ledger.entries, user), EInsufficientBalance);
-        let user_balance = table::borrow_mut(&mut ledger.entries, user);
-        assert!(user_balance.available >= amount, EInsufficientBalance);
+        assert!(table::contains(&ledger.balances, user), EInsufficientBalance);
+        let user_balance = table::borrow_mut(&mut ledger.balances, user);
+        assert!(user_balance.available >= amount, EInsufficientAvailableBalance);
         user_balance.available = user_balance.available - amount;
 
-        // === Revised Approach ===
-        // Assuming the actual Coin burn happens elsewhere and calls balance::decrease_supply there,
-        // this function *only* needs to update the internal table.
-        // We remove the supply adjustment entirely from internal_spend.
+        // Removed supply adjustment
 
         event::emit(Spent { user, amount });
     }
@@ -135,9 +139,9 @@ module alpha_points::ledger {
         _ctx: &TxContext
     ) {
         if (amount == 0) return;
-        assert!(table::contains(&ledger.entries, user), EInsufficientBalance);
-        let user_balance = table::borrow_mut(&mut ledger.entries, user);
-        assert!(user_balance.available >= amount, EInsufficientBalance);
+        assert!(table::contains(&ledger.balances, user), EInsufficientBalance);
+        let user_balance = table::borrow_mut(&mut ledger.balances, user);
+        assert!(user_balance.available >= amount, EInsufficientAvailableBalance);
         user_balance.available = user_balance.available - amount;
         let new_locked = user_balance.locked + amount;
         assert!(new_locked >= user_balance.locked, EOverflow);
@@ -153,8 +157,8 @@ module alpha_points::ledger {
         _ctx: &TxContext
     ) {
         if (amount == 0) return;
-        assert!(table::contains(&ledger.entries, user), EInsufficientLockedBalance);
-        let user_balance = table::borrow_mut(&mut ledger.entries, user);
+        assert!(table::contains(&ledger.balances, user), EInsufficientLockedBalance);
+        let user_balance = table::borrow_mut(&mut ledger.balances, user);
         assert!(user_balance.locked >= amount, EInsufficientLockedBalance);
         user_balance.locked = user_balance.locked - amount;
         let new_available = user_balance.available + amount;
@@ -194,40 +198,62 @@ module alpha_points::ledger {
         accrued_points
     }
 
+    /// Public function to mint points for a user.
+    /// Currently calls internal_earn and ignores point_type for simplicity.
+    public fun mint_points(
+        ledger: &mut Ledger,
+        user: address,
+        amount: u64,
+        _point_type: PointType, // Parameter is present but not used yet
+        ctx: &TxContext
+    ) {
+        internal_earn(ledger, user, amount, ctx);
+    }
+
     // === View functions ===
 
     public fun get_available_balance(ledger: &Ledger, user: address): u64 {
-        if (!table::contains(&ledger.entries, user)) { return 0 };
-        table::borrow(&ledger.entries, user).available
+        if (!table::contains(&ledger.balances, user)) { return 0 };
+        table::borrow(&ledger.balances, user).available
     }
 
     public fun get_locked_balance(ledger: &Ledger, user: address): u64 {
-        if (!table::contains(&ledger.entries, user)) { return 0 };
-        table::borrow(&ledger.entries, user).locked
+        if (!table::contains(&ledger.balances, user)) { return 0 };
+        table::borrow(&ledger.balances, user).locked
     }
 
     public fun get_total_balance(ledger: &Ledger, user: address): u64 {
-        if (!table::contains(&ledger.entries, user)) { return 0 };
-        let balance = table::borrow(&ledger.entries, user);
+        if (!table::contains(&ledger.balances, user)) { return 0 };
+        let balance = table::borrow(&ledger.balances, user);
         balance.available + balance.locked
     }
 
-    public fun get_total_supply(ledger: &Ledger): u64 {
-        balance::supply_value(&ledger.point_supply)
+    public fun get_total_supply(_ledger: &Ledger): u64 {
+        // Total supply is not tracked directly in Ledger anymore. 
+        // This would need to be calculated by iterating over all balances or managed elsewhere.
+        assert!(false, EInsufficientLockedBalance); // Explicitly state not implemented
+        0 // Keep compiler happy, assert will prevent execution
     }
 
     /// Internal function to add to a user's bad debt amount
     /// This would be called during liquidation/forfeiture if recovered value is insufficient.
     public(package) fun internal_add_bad_debt(ledger: &mut Ledger, user: address, amount: u64) {
-        if (amount == 0) { return }; // No-op
-        let current_debt = table::borrow_mut_with_default(&mut ledger.bad_debt, user, 0);
-        *current_debt = *current_debt + amount;
-        // Note: No specific event for bad debt added yet.
+        if (amount == 0) { return };
+        if (!table::contains(&ledger.bad_debt, user)) {
+            table::add(&mut ledger.bad_debt, user, amount);
+        } else {
+            let current_debt_ref = table::borrow_mut(&mut ledger.bad_debt, user);
+            *current_debt_ref = *current_debt_ref + amount;
+        }
     }
 
     /// Get the current bad debt amount for a user
     public fun get_bad_debt(ledger: &Ledger, user: address): u64 {
-        *table::borrow_with_default(&ledger.bad_debt, user, 0)
+        if (table::contains(&ledger.bad_debt, user)) {
+            *table::borrow(&ledger.bad_debt, user)
+        } else {
+            0
+        }
     }
 
     /// Check if a user has any outstanding bad debt
@@ -238,29 +264,18 @@ module alpha_points::ledger {
     /// Internal function to subtract from a user's bad debt amount.
     /// Removes the user entry if debt becomes 0.
     public(package) fun internal_remove_bad_debt(ledger: &mut Ledger, user: address, amount: u64) {
-        if (amount == 0) { return }; // No-op
+        if (amount == 0) { return };
 
-        // Check if user actually has any debt entry
-        assert!(table::contains(&ledger.bad_debt, user), EInsufficientBalance); // Re-use error or use ERepaymentExceedsDebt? Using ERepaymentExceedsDebt seems better.
-        // assert!(table::contains(&ledger.bad_debt, user), ERepaymentExceedsDebt);
-
+        assert!(table::contains(&ledger.bad_debt, user), ERepaymentExceedsDebt); 
         let current_debt_ref = table::borrow_mut(&mut ledger.bad_debt, user);
         let current_debt = *current_debt_ref;
 
-        // Ensure repayment doesn't exceed the actual debt
-        assert!(amount <= current_debt, ERepaymentExceedsDebt);
+        assert!(current_debt >= amount, ERepaymentExceedsDebt);
+        *current_debt_ref = current_debt - amount;
 
-        let new_debt = current_debt - amount;
-
-        if (new_debt == 0) {
-            // Remove the entry from the table if debt is fully cleared
+        if (*current_debt_ref == 0) {
             table::remove(&mut ledger.bad_debt, user);
-        } else {
-            // Otherwise, update the debt amount
-            *current_debt_ref = new_debt;
         }
-        // Note: Add BadDebtRepaid event emission if needed internally, 
-        // or rely on the entry function in integration.move to emit it.
     }
 
     // === Test-only functions ===

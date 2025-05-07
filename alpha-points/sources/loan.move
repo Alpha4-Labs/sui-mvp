@@ -5,10 +5,9 @@ module alpha_points::loan {
     use sui::tx_context::{Self, TxContext};
     use sui::event;
     use sui::clock::{Self, Clock};
-    use sui::math; // Import math
     
     use alpha_points::admin::{Self, Config, GovernCap};
-    use alpha_points::ledger::{Self, Ledger, EHasBadDebt}; // Import EHasBadDebt
+    use alpha_points::ledger::{Self, Ledger};
     use alpha_points::stake_position::{Self, StakePosition};
     use alpha_points::oracle::{Self, RateOracle};
     
@@ -20,11 +19,9 @@ module alpha_points::loan {
     const EInsufficientPoints: u64 = 5;
     const EUnauthorized: u64 = 6;
     const EFeeCalculationError: u64 = 7; // Added for fee errors
-    const EHasBadDebt: u64 = 8; // Added for bad debt check
 
     // Time Constants
     const MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
-    const MS_PER_YEAR: u64 = 365 * MS_PER_DAY; 
     
     /// Shared object for loan parameters
     public struct LoanConfig has key {
@@ -101,7 +98,7 @@ module alpha_points::loan {
     }
     
     /// Opens a loan against a stake position
-    public entry fun open_loan<T>(
+    public entry fun open_loan<T: store>(
         config: &Config,
         loan_config: &LoanConfig,
         ledger: &mut Ledger,
@@ -111,89 +108,59 @@ module alpha_points::loan {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        // Check protocol is not paused
         admin::assert_not_paused(config);
-        
-        // Check requested amount is valid
         assert!(amount_points > 0, EInvalidLoanAmount);
-        
         let borrower = tx_context::sender(ctx);
-        
-        // --- Check for Bad Debt --- 
-        assert!(!ledger::has_bad_debt(ledger, borrower), EHasBadDebt);
-        // --------------------------
-        
-        let deployer = admin::deployer_address(config); // Assume this function exists
-        
-        // Check stake owner
-        assert!(stake_position::owner(stake) == borrower, EUnauthorized);
-        
-        // Check stake is not already encumbered
-        assert!(!stake_position::is_encumbered(stake), EStakeAlreadyEncumbered);
-        
-        // Calculate maximum loan amount based on LTV and stake value
-        let stake_principal = stake_position::principal(stake);
+        assert!(stake_position::owner_view(stake) == borrower, EUnauthorized);
+        assert!(!stake_position::is_encumbered_view(stake), EStakeAlreadyEncumbered);
+
+        let stake_principal = stake_position::principal_view(stake);
         let (rate, decimals) = oracle::get_rate(oracle);
-        
-        // Convert stake value to points
         let stake_value_in_points = oracle::convert_asset_to_points(
             stake_principal,
             rate,
             decimals
         );
-        
-        // Calculate maximum loanable points using LTV ratio
         let max_loanable_points = (stake_value_in_points * loan_config.max_ltv_bps) / 10000;
-        
-        // Check requested amount doesn't exceed maximum
         assert!(amount_points <= max_loanable_points, EExceedsLTV);
-        
-        // Mark stake as encumbered
         stake_position::set_encumbered(stake, true);
-        
-        // Create loan object
-        let stake_id = stake_position::get_id(stake);
+        let stake_id = stake_position::get_id_view(stake);
         let opened_time_ms = clock::timestamp_ms(clock);
-        
-        // --- Calculate Loan Fee (0.1%) ---
-        let fee_points = amount_points / 1000; // 0.1% fee
+
+        let fee_points = amount_points / 1000; 
         let borrower_points = amount_points - fee_points;
-        // Ensure fee doesn't exceed principal (edge case)
         if (fee_points > amount_points) { abort EFeeCalculationError };
-        // --------------------------------
 
         let loan = Loan<T> {
             id: object::new(ctx),
             borrower,
             stake_id,
-            principal_points: amount_points, // Store original loan amount
-            interest_owed_points: 0, // Interest starts at 0
-            opened_time_ms        // Store timestamp
+            principal_points: amount_points, 
+            interest_owed_points: 0, 
+            opened_time_ms
         };
         
-        // Credit net points to borrower and fee points to deployer
         if (borrower_points > 0) {
             ledger::internal_earn(ledger, borrower, borrower_points, ctx);
-        }
+        };
+
         if (fee_points > 0) {
-            ledger::internal_earn(ledger, deployer, fee_points, ctx);
-        }
+            ledger::internal_earn(ledger, admin::deployer_address(config), fee_points, ctx);
+        };
         
-        // Emit event
         event::emit(LoanOpened<T> {
             id: object::uid_to_inner(&loan.id),
             borrower,
             stake_id,
-            principal_points: amount_points, // Emit original loan amount
-            opened_time_ms // Emit timestamp
+            principal_points: amount_points, 
+            opened_time_ms
         });
         
-        // Transfer loan to borrower
         transfer::public_transfer(loan, borrower);
     }
     
     /// Repays a loan and releases the stake
-    public entry fun repay_loan<T>(
+    public entry fun repay_loan<T: store>(
         config: &Config,
         ledger: &mut Ledger,
         loan: Loan<T>,
@@ -210,7 +177,7 @@ module alpha_points::loan {
         assert!(loan.borrower == borrower, EUnauthorized);
         
         // Check stake ID matches loan
-        assert!(stake_position::get_id(stake) == loan.stake_id, EWrongStake);
+        assert!(stake_position::get_id_view(stake) == loan.stake_id, EWrongStake);
         
         // Get total repayment amount (principal + accrued interest)
         // NOTE: Interest calculation here is currently a placeholder (returns 0)

@@ -1,43 +1,52 @@
 /// Module that manages protocol configuration, capabilities, and global pause state.
 module alpha_points::admin {
-    use sui::object::{Self, UID};
+    use sui::object::{Self, UID, ID};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::event;
-    use sui::clock::{Self, Clock};
+    // use sui::clock::{Self, Clock}; // Clock might become unused
     
-    // Import other internal modules needed for init
-    use alpha_points::ledger;
-    use alpha_points::escrow;
-    use alpha_points::oracle;
-    use alpha_points::loan; // Assuming LoanConfig needs init
-    use alpha_points::staking_manager; // <-- Import StakingManager
+    // Removed unused internal module imports
+    // use alpha_points::ledger;
+    // use alpha_points::escrow;
+    // use alpha_points::oracle;
+    // use alpha_points::loan;
+    // use alpha_points::staking_manager;
     
     // Error constants
-    const EProtocolPaused: u64 = 1;
-    const EUnauthorized: u64 = 2;
+    // const EProtocolPaused: u64 = 1; // May become unused
+    // const EUnauthorized: u64 = 2; // May become unused
+    const EInvalidCaller: u64 = 1; // Used
+    const EPaused: u64 = 2; // Used
+    // Removed: const ENotPaused: u64 = 3;
+    const EZeroPointsRate: u64 = 4; // Used
     
     /// Singleton capability for protocol owner actions
     public struct GovernCap has key, store {
         id: UID,
-        // Adding an auth_key field to make capabilities unique 
-        // and prevent fake caps from working
         auth_key: address
     }
     
     /// Capability to update oracles
     public struct OracleCap has key, store {
         id: UID,
-        // Adding an auth_key field to make capabilities unique
         auth_key: address
     }
     
-    /// Shared object holding global pause state and configuration
+    /// Capability that grants administrative rights.
+    /// Held by the deployer.
+    public struct AdminCap has key, store {
+        id: UID
+    }
+    
+    /// Configuration object holding protocol parameters.
     public struct Config has key {
         id: UID,
-        paused: bool,
-        admin: address, // Store the admin address for authorization checks
-        points_per_sui_per_epoch: u64 // Points earned per whole SUI (10^9 MIST) per epoch
+        admin_cap_id: ID,
+        is_paused: bool,
+        points_rate_per_sui_per_epoch: u64,
+        deployer_address: address,
+        forfeiture_grace_period_ms: u64
     }
     
     // Events
@@ -59,6 +68,16 @@ module alpha_points::admin {
         new_rate: u64 // Points per SUI per epoch
     }
     
+    public struct ProtocolPaused has copy, drop {}
+    public struct ProtocolUnpaused has copy, drop {}
+    public struct PointsRateUpdated has copy, drop {
+        new_rate: u64
+    }
+    
+    public struct ForfeitureGracePeriodUpdated has copy, drop {
+        new_period_ms: u64
+    }
+    
     // === Test-only functions ===
     #[test_only]
     /// Initialize the admin module for testing
@@ -76,63 +95,76 @@ module alpha_points::admin {
         // Create and transfer governance capability
         let govern_cap = GovernCap {
             id: object::new(ctx),
-            auth_key: sender // Set the admin address as auth_key
+            auth_key: sender 
         };
         transfer::transfer(govern_cap, sender);
         
-        // Create and transfer oracle capability
         let oracle_cap = OracleCap {
             id: object::new(ctx),
-            auth_key: sender // Set the admin address as auth_key
+            auth_key: sender 
         };
         transfer::transfer(oracle_cap, sender);
         
-        // Create and share config
+        let admin_cap = AdminCap { id: object::new(ctx) };
+        let admin_cap_id = object::id(&admin_cap); // Renamed from admin_cap_actual_id for clarity
+        transfer::public_transfer(admin_cap, sender); 
+        
         let config = Config {
             id: object::new(ctx),
-            paused: false,
-            admin: sender, // Store the admin address
-            points_per_sui_per_epoch: 100_000 // EXAMPLE: 0.0001 points per SUI per epoch (Needs tuning!)
-        };
-        transfer::share_object(config);
-
-        // Initialize other core modules
-        ledger::init(ctx);
-        escrow::init(ctx);
-        oracle::init(ctx);
-        loan::init(ctx); // Initialize LoanConfig if needed
-        staking_manager::init(ctx); // <-- Initialize StakingManager
+            admin_cap_id, // Use the renamed variable
+            is_paused: false,
+            points_rate_per_sui_per_epoch: 100, 
+            deployer_address: sender,
+            forfeiture_grace_period_ms: 14 * 24 * 60 * 60 * 1000 
+        }; // Removed invalid characters and corrected structure
+        
+        transfer::share_object(config); // Ensure config is shared
     }
     
     /// Updates config.paused. Emits PauseStateChanged.
     /// Requires GovernCap for authorization.
     public entry fun set_pause_state(
         config: &mut Config, 
-        gov_cap: &GovernCap, 
-        paused: bool, 
-        ctx: &TxContext
+        admin_cap: &AdminCap, 
+        new_pause_state: bool, 
+        _ctx: &TxContext
     ) {
-        // Explicitly validate that the GovernCap has the proper auth_key
-        // This will cause test_set_pause_state_unauthorized to fail
-        assert!(gov_cap.auth_key == config.admin, EUnauthorized);
-        
-        config.paused = paused;
+        assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
+        config.is_paused = new_pause_state;
         
         // Emit event
-        event::emit(PauseStateChanged { paused });
+        if (config.is_paused) {
+            event::emit(ProtocolPaused {});
+        } else {
+            event::emit(ProtocolUnpaused {});
+        }
     }
     
     /// Updates the points earning rate. Emits PointsRateChanged.
     /// Requires GovernCap for authorization.
     public entry fun set_points_rate(
         config: &mut Config,
-        gov_cap: &GovernCap,
+        admin_cap: &AdminCap,
         new_rate: u64, // New points per SUI per epoch
         _ctx: &TxContext // Context might be needed later
     ) {
-        assert!(gov_cap.auth_key == config.admin, EUnauthorized);
-        config.points_per_sui_per_epoch = new_rate;
-        event::emit(PointsRateChanged { new_rate });
+        assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
+        assert!(new_rate > 0, EZeroPointsRate);
+        config.points_rate_per_sui_per_epoch = new_rate;
+        event::emit(PointsRateUpdated { new_rate });
+    }
+    
+    /// Updates the forfeiture grace period. Emits ForfeitureGracePeriodUpdated.
+    /// Requires AdminCap for authorization.
+    public entry fun update_forfeiture_grace_period(
+        config: &mut Config,
+        admin_cap: &AdminCap,
+        new_period_ms: u64,
+        _ctx: &TxContext
+    ) {
+        assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
+        config.forfeiture_grace_period_ms = new_period_ms;
+        event::emit(ForfeitureGracePeriodUpdated { new_period_ms });
     }
     
     /// Transfers ownership of GovernCap. Emits GovernCapTransferred.
@@ -169,17 +201,37 @@ module alpha_points::admin {
     
     /// Returns whether the protocol is paused
     public fun is_paused(config: &Config): bool {
-        config.paused
+        config.is_paused
     }
     
     /// Aborts if config.paused is true. Used by other modules.
     public fun assert_not_paused(config: &Config) {
-        assert!(!config.paused, EProtocolPaused);
+        assert!(!config.is_paused, EPaused);
     }
 
     /// Returns the configured points earning rate per SUI per epoch.
     public fun get_points_rate(config: &Config): u64 {
-        config.points_per_sui_per_epoch
+        config.points_rate_per_sui_per_epoch
+    }
+
+    /// Get the deployer address stored in the config.
+    public fun deployer_address(config: &Config): address {
+        config.deployer_address
+    }
+
+    /// Get the forfeiture grace period stored in the config.
+    public fun forfeiture_grace_period(config: &Config): u64 {
+        config.forfeiture_grace_period_ms
+    }
+
+    /// Returns true if the provided AdminCap matches the one in the Config.
+    public fun is_admin(admin_cap: &AdminCap, config: &Config): bool {
+        object::id(admin_cap) == config.admin_cap_id
+    }
+
+    /// Returns the ID of the AdminCap associated with this config.
+    public fun admin_cap_id(config: &Config): ID {
+        config.admin_cap_id
     }
 
     #[test_only]
@@ -214,5 +266,18 @@ module alpha_points::admin {
     public(package) fun destroy_test_oracle_cap(cap: OracleCap) {
         let OracleCap { id, auth_key: _ } = cap;
         object::delete(id);
-    }    
+    }
+
+    #[test_only]
+    /// Helper function for creating AdminCap in tests
+    public(package) fun create_test_admin_cap(ctx: &mut TxContext): AdminCap {
+        AdminCap { id: object::new(ctx) }
+    }
+
+    #[test_only]
+    /// Helper function for destroying AdminCap in tests
+    public(package) fun destroy_test_admin_cap(cap: AdminCap) {
+        let AdminCap { id } = cap;
+        object::delete(id);
+    }
 }
