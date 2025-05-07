@@ -110,10 +110,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       <footer className="bg-background-card py-4 px-4 text-center text-xs text-gray-500 border-t border-gray-800">
          <div className="container mx-auto">
              <div className="flex justify-center space-x-3 md:space-x-4 mb-2">
-                 <a href="#" className="text-gray-400 hover:text-white transition-colors">Main Site</a><span className="text-gray-600">•</span>
-                 <a href="#" className="text-gray-400 hover:text-white transition-colors">Discord</a><span className="text-gray-600">•</span>
-                 <a href="#" className="text-gray-400 hover:text-white transition-colors">LinkedIn</a><span className="text-gray-600">•</span>
-                 <a href="#" className="text-gray-400 hover:text-white transition-colors">X</a>
+                 <a href="https://alpha4.io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">Main Site</a><span className="text-gray-600">•</span>
+                 <a href="https://discord.gg/VuF5NmC9Dg" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">Discord</a><span className="text-gray-600">•</span>
+                 <a href="https://www.linkedin.com/company/alpha4-io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">LinkedIn</a><span className="text-gray-600">•</span>
+                 <a href="https://x.com/alpha4_io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">X</a>
              </div>
              <div className="text-gray-500 text-xs px-2"> Testnet demo for experimental purposes only. Features shown may not reflect final product and are subject to change without notice. </div>
              <div className="text-gray-500 text-xs mt-1"> Alpha Points MVP © 2025 </div>

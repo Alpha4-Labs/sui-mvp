@@ -77,11 +77,14 @@ export const buildUnstakeTransaction = (
 export const buildRedeemPointsTransaction = (
   pointsAmount: string
 ) => {
-  // Convert string to number for proper BCS handling
-  const amount = BigInt(pointsAmount);
+  // Convert string to BigInt for proper BCS handling
+  const amountBigInt = BigInt(pointsAmount);
   
   const tx = new Transaction();
   
+  // Serialize the amount to BCS bytes for u64
+  const serializedAmountBytes = bcs.U64.serialize(amountBigInt).toBytes();
+
   tx.moveCall({
     target: `${PACKAGE_ID}::integration::redeem_points`,
     typeArguments: [SUI_TYPE],
@@ -90,7 +93,7 @@ export const buildRedeemPointsTransaction = (
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(SHARED_OBJECTS.escrowVault),
       tx.object(SHARED_OBJECTS.oracle),
-      tx.pure(amount, 'u64'),
+      tx.pure(serializedAmountBytes), // Pass BCS serialized bytes
       tx.object(CLOCK_ID)
     ]
   });
