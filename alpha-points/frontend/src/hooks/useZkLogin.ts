@@ -72,7 +72,17 @@ export const useZkLogin = () => {
         maxEpoch,
         randomness
       );
-      console.log("Generated Nonce:", nonce);
+      console.log("Generated Sui Nonce:", nonce);
+
+      // --- Store the actual Sui nonce for later use during callback/proof generation ---
+      localStorage.setItem('zkLogin_nonce', nonce); 
+
+      // --- TEMPORARY NONCE FOR GOOGLE URL --- 
+      // Use a simpler nonce just for the Google redirect URL to debug 400 error.
+      // This simple nonce WILL NOT WORK for the final zkLogin proof.
+      const simpleNonceForUrl = Date.now().toString();
+      console.log("Using Simple Nonce for Google URL (DEBUGGING):", simpleNonceForUrl);
+      // --- END TEMPORARY NONCE ---
 
       // --- CRITICAL SECURITY WARNING ---
       // Storing the secret key seed directly in localStorage is INSECURE for production.
@@ -108,7 +118,8 @@ export const useZkLogin = () => {
         redirect_uri: redirectUri,
         response_type: 'id_token',
         scope: 'openid email profile',
-        nonce: nonce,
+        // Use the simple nonce for the URL sent to Google
+        nonce: simpleNonceForUrl, 
       });
 
       let authUrl;
@@ -172,11 +183,7 @@ export const useZkLogin = () => {
         // but ensure it's not accidentally reused if login flow restarts.
 
         setLoading(false);
-        console.log("zkLogin authentication successful.");
-
-        // Redirect to the dashboard
-        // Consider using useNavigate() from react-router-dom if available in context
-        window.location.href = '/dashboard';
+        console.log("zkLogin authentication successful. Callback handler component should now navigate.");
 
      } catch (err: any) {
          console.error("Error handling zkLogin callback:", err);

@@ -1,16 +1,16 @@
 import React, { useEffect } from 'react';
 import { 
-  useCurrentAccount,
   useWallets,
   useConnectWallet
 } from '@mysten/dapp-kit';
 import { useZkLogin } from '../hooks/useZkLogin';
+import { useAlphaContext } from '../context/AlphaContext';
 import { useNavigate } from 'react-router-dom';
 import alphaPointsLogo from '../assets/alpha4-logo.svg'; // Verify this path
 
 export const WelcomePage: React.FC = () => {
-  const currentAccount = useCurrentAccount();
-  const { login, loading: zkLoginLoading } = useZkLogin();
+  const alphaContext = useAlphaContext();
+  const { login, loading: zkLoginLoading, isAuthenticated: zkLoginIsAuthenticated } = useZkLogin();
   const navigate = useNavigate();
   
   // Get all available wallets
@@ -19,12 +19,13 @@ export const WelcomePage: React.FC = () => {
   // Get the connect function from useConnectWallet
   const { mutate: connectWallet } = useConnectWallet();
 
-  // Redirect to dashboard if already connected
+  // Redirect to dashboard if already connected (via AlphaContext)
   useEffect(() => {
-    if (currentAccount) {
+    if (alphaContext.isConnected) {
+      console.log("WelcomePage: Already connected (checked via AlphaContext), navigating to /dashboard.");
       navigate('/dashboard');
     }
-  }, [currentAccount, navigate]);
+  }, [alphaContext.isConnected, navigate]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
@@ -72,7 +73,7 @@ export const WelcomePage: React.FC = () => {
 
           <button
             onClick={() => login('google')}
-            disabled={zkLoginLoading || !!currentAccount}
+            disabled={zkLoginLoading || alphaContext.isConnected}
             className="w-full bg-white text-gray-700 py-2.5 px-6 rounded-lg font-medium transition-colors hover:bg-gray-200 disabled:opacity-60 flex items-center justify-center border border-gray-300 shadow-sm text-sm"
           >
             <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="#4285F4">

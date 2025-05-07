@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
+import { useSuiClient } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 
@@ -60,7 +60,6 @@ function decodeU64(bytesInput: Array<number> | Uint8Array | unknown): number {
  * Hook for fetching and managing Alpha Points balance
  */
 export const useAlphaPoints = () => {
-  const currentAccount = useCurrentAccount();
   const client = useSuiClient();
   
   // State management
@@ -69,12 +68,12 @@ export const useAlphaPoints = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState(0);
   
-  // Main fetch function
-  const fetchPoints = useCallback(async () => {
-    // Skip if no account is connected
-    if (!currentAccount?.address) {
+  // Main fetch function - now accepts userAddress
+  const fetchPoints = useCallback(async (userAddress: string | undefined) => {
+    // Skip if no account is provided
+    if (!userAddress) {
       setPoints({ available: 0, locked: 0, total: 0 });
-      setLoading(false);
+      setLoading(false); // Set loading to false if no address
       setError(null);
       return;
     }
@@ -83,39 +82,33 @@ export const useAlphaPoints = () => {
     setError(null);
     
     try {
-      console.log(`Fetching Alpha Points for ${currentAccount.address}`);
+      console.log(`Fetching Alpha Points for ${userAddress}`);
       
-      // === REFACTORED: Use TransactionBlock ===
       const txb = new Transaction();
 
-      // Call get_available_balance
       txb.moveCall({
         target: `${PACKAGE_ID}::ledger::get_available_balance`,
         arguments: [
-          txb.object(SHARED_OBJECTS.ledger), // Pass ledger object ID
-          txb.pure.address(currentAccount.address),    // Pass user address
+          txb.object(SHARED_OBJECTS.ledger),
+          txb.pure.address(userAddress), // Use provided userAddress
         ],
-        typeArguments: [], // No type arguments needed
+        typeArguments: [],
       });
 
-      // Call get_locked_balance
       txb.moveCall({
         target: `${PACKAGE_ID}::ledger::get_locked_balance`,
         arguments: [
-          txb.object(SHARED_OBJECTS.ledger), // Pass ledger object ID
-          txb.pure.address(currentAccount.address),    // Pass user address
+          txb.object(SHARED_OBJECTS.ledger),
+          txb.pure.address(userAddress), // Use provided userAddress
         ],
-        typeArguments: [], // No type arguments needed
+        typeArguments: [],
       });
-      // =======================================
 
-      // Execute the transaction block in devInspect mode
       const inspectResult = await client.devInspectTransactionBlock({
-        sender: currentAccount.address,
-        transactionBlock: txb as any, // Cast for now, might need specific type conversion
+        sender: userAddress, // Use provided userAddress
+        transactionBlock: txb as any, 
       });
       
-      // Check transaction status
       const status = inspectResult?.effects?.status?.status;
       if (status !== 'success') {
         const errorMsg = inspectResult?.effects?.status?.error || 'Unknown devInspect error';
@@ -123,10 +116,8 @@ export const useAlphaPoints = () => {
         throw new Error(`Failed to fetch points: ${errorMsg}`);
       }
       
-      // Log raw results for debugging
       console.debug('Alpha Points devInspect results:', inspectResult);
       
-      // Validate results structure
       if (!inspectResult.results || inspectResult.results.length < 2) {
         console.error('DevInspect results missing or incomplete:', inspectResult);
         throw new Error('Could not retrieve point balances: Invalid response structure.');
@@ -135,51 +126,30 @@ export const useAlphaPoints = () => {
       let available = 0;
       let locked = 0;
       
-      // Parse Available Balance from first call (index 0)
       const availableResult = inspectResult.results[0];
       if (availableResult?.returnValues?.[0]) {
         const [bytes, type] = availableResult.returnValues[0];
-        console.debug('Available balance return value:', { bytes, type });
-        
-        // === Add Detailed Logging ===
-        console.log('[Available Balance] Type of bytes:', typeof bytes);
-        console.log('[Available Balance] Value of bytes:', bytes);
-        // ============================
-
         if (type === 'u64' && Array.isArray(bytes)) {
           available = decodeU64(bytes);
-          console.log(`Available points parsed: ${available}`);
         } else {
-          const receivedBytesType = Array.isArray(bytes) ? 'array' : typeof bytes;
-          throw new Error(`Unexpected format for available balance. Expected type 'u64' and Array bytes, got Type: ${type} and Bytes Type: ${receivedBytesType}`);
+          throw new Error(`Unexpected format for available balance. Expected type 'u64' and Array bytes.`);
         }
       } else {
         throw new Error("Could not find available balance return value.");
       }
       
-      // Parse Locked Balance from second call (index 1)
       const lockedResult = inspectResult.results[1];
       if (lockedResult?.returnValues?.[0]) {
         const [bytes, type] = lockedResult.returnValues[0];
-        console.debug('Locked balance return value:', { bytes, type });
-
-        // === Add Detailed Logging ===
-        console.log('[Locked Balance] Type of bytes:', typeof bytes);
-        console.log('[Locked Balance] Value of bytes:', bytes);
-        // ============================
-        
         if (type === 'u64' && Array.isArray(bytes)) {
           locked = decodeU64(bytes);
-          console.log(`Locked points parsed: ${locked}`);
         } else {
-          const receivedBytesType = Array.isArray(bytes) ? 'array' : typeof bytes;
-          throw new Error(`Unexpected format for locked balance. Expected type 'u64' and Array bytes, got Type: ${type} and Bytes Type: ${receivedBytesType}`);
+          throw new Error(`Unexpected format for locked balance. Expected type 'u64' and Array bytes.`);
         }
       } else {
         throw new Error("Could not find locked balance return value.");
       }
       
-      // Update state with fetched balances
       const totalPoints = available + locked;
       setPoints({
         available,
@@ -196,27 +166,11 @@ export const useAlphaPoints = () => {
     } finally {
       setLoading(false);
     }
-  }, [client, currentAccount?.address]);
+  }, [client]); // Removed currentAccount.address from dependencies
   
-  // Initialize data and set up polling
-  useEffect(() => {
-    if (currentAccount?.address) {
-      fetchPoints(); // Initial fetch
-      
-      // Set up polling interval
-      const intervalId = setInterval(fetchPoints, 15000); // Poll every 15 seconds
-      
-      // Cleanup interval on unmount
-      return () => clearInterval(intervalId);
-    } else {
-      // Reset state if no account
-      setPoints({ available: 0, locked: 0, total: 0 });
-      setLoading(false);
-      setError(null);
-    }
-  }, [fetchPoints, currentAccount?.address]);
+  // REMOVED INTERNAL useEffect for initial load/polling
+  // AlphaContext will now trigger refetch with the correct address.
   
-  // Return hook state and refetch function
   return { 
     points, 
     loading, 

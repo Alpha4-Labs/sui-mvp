@@ -3,6 +3,7 @@ import React, { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 // Import necessary items from dapp-kit: ConnectButton, useCurrentAccount
 import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
+import { useAlphaContext } from '../context/AlphaContext'; // Import useAlphaContext
 import { formatAddress } from '../utils/format';
 // import alphaPointsLogo from '../assets/alphapoints-logo.svg'; // Assuming path is correct if used
 
@@ -12,8 +13,7 @@ interface MainLayoutProps {
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const location = useLocation();
-  // Use useCurrentAccount - returns WalletAccount | null
-  const currentAccount = useCurrentAccount();
+  const alphaContext = useAlphaContext(); // Use AlphaContext
 
   const navLinks = [
     { name: 'Dashboard', path: '/dashboard' },
@@ -53,29 +53,28 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
           {/* Wallet Connection Area */}
           <div className="flex items-center">
-            {currentAccount ? (
+            {alphaContext.isConnected ? (
               <div className="flex items-center bg-background rounded-lg p-1 md:p-2 text-sm">
-                {/* Network Indicator */}
+                {/* Network Indicator (can stay if relevant for both) */}
                 <span className="hidden md:inline text-gray-400 mr-2 text-xs">Testnet</span>
-                {/* Connected Account Info */}
+                
+                {/* Connected Account Info - Adapted for AlphaContext */}
                 <div className="flex items-center bg-gray-800 rounded-lg px-2 py-1 md:px-3">
-                  {/* Display wallet icon using img tag and icon directly from WalletAccount */}
-                  {/* Check if the 'icon' property exists directly on currentAccount */}
-                  {currentAccount.icon && (
-                    <img
-                       src={currentAccount.icon} // Use icon directly from currentAccount
-                       alt="Wallet icon" // Generic alt text
-                       className="h-4 w-4 mr-2 rounded-full"
-                     />
+                  {alphaContext.provider === 'google' ? (
+                    <span className="mr-2"> G </span> // Simple Google indicator
+                  ) : (
+                    // Attempt to show wallet icon if provider is dapp-kit and currentAccount might have it
+                    // This part is speculative as currentAccount isn't directly used here anymore for logic
+                    // but might be available if a wallet *is* connected via dapp-kit
+                    <span className="mr-2"> W </span> // Placeholder for wallet icon
                   )}
-                  {/* Display formatted address */}
-                  <span className="font-mono">{formatAddress(currentAccount.address)}</span>
+                  <span className="font-mono">{formatAddress(alphaContext.address || '')}</span>
                 </div>
-                 {/* You could place <ConnectButton /> here too - it adapts display based on state */}
-                 {/* <ConnectButton /> */}
+                {/* Optional: Add a disconnect button here that calls alphaContext.logout() */}
+                {/* <button onClick={() => alphaContext.logout()} className="ml-2 text-red-500">Sign Out</button> */}
               </div>
             ) : (
-              // Show ConnectButton if not connected
+              // Show ConnectButton if not connected (handles traditional wallet flow)
               <ConnectButton className="!bg-primary !hover:bg-primary-dark !text-white !py-2 !px-4 !rounded-lg !text-sm" />
             )}
           </div>

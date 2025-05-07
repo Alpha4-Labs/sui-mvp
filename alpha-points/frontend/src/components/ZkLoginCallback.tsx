@@ -5,7 +5,7 @@ import { useZkLogin } from '../hooks/useZkLogin';
 import { jwtDecode } from 'jwt-decode';
 
 export const ZkLoginCallback: React.FC = () => {
-  const { handleCallback, loading, error } = useZkLogin();
+  const { handleCallback, loading, error, isAuthenticated } = useZkLogin();
   const navigate = useNavigate();
   
   useEffect(() => {
@@ -30,6 +30,14 @@ export const ZkLoginCallback: React.FC = () => {
       navigate('/');
     }
   }, [handleCallback, navigate]);
+  
+  // New useEffect to handle navigation after authentication
+  useEffect(() => {
+    if (isAuthenticated) {
+      console.log("ZkLoginCallback: isAuthenticated is true, navigating to /dashboard.");
+      navigate('/dashboard');
+    }
+  }, [isAuthenticated, navigate]);
   
   if (loading) {
     return (

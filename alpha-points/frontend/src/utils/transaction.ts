@@ -7,35 +7,49 @@ import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contract';
 
+// Define constant for Sui System State Object ID
+const SUI_SYSTEM_STATE_ID = '0x5';
+
 /**
  * Builds a transaction for staking SUI
  * 
  * @param amount Amount in MIST (SUI * 10^9)
  * @param durationDays Duration in days for the stake
+ * @param validatorAddress Validator's address
  * @returns Transaction object ready for execution
  */
-export const buildStakeTransaction = (
+export const buildStakeSuiTransaction = (
   amount: bigint,
-  durationDays: number
+  durationDays: number,
+  validatorAddress: string
 ) => {
-  // Create a new Transaction object
   const tx = new Transaction();
   
-  // For splitCoins, use direct values as they are automatically converted
+  // 1. Split SUI coin for staking
   const [coinToStake] = tx.splitCoins(tx.gas, [amount]);
   
-  // Call the route_stake function with properly typed arguments
+  // 2. Request to add stake to a validator (returns StakedSui object)
+  const stakedSui = tx.moveCall({
+    target: `0x3::sui_system::request_add_stake`, // Use 0x3 for sui_system module on mainnet/testnet
+    arguments: [
+      tx.object(SUI_SYSTEM_STATE_ID), // SuiSystemState object ID
+      coinToStake,                    // The Coin<SUI> to stake
+      tx.pure(validatorAddress),      // Validator's address
+    ]
+  });
+  
+  // 3. Call the integration module's route_stake_sui function
+  //    passing the StakedSui object from the previous step.
   tx.moveCall({
-    target: `${PACKAGE_ID}::integration::route_stake`,
-    typeArguments: [SUI_TYPE],
+    target: `${PACKAGE_ID}::integration::route_stake_sui`,
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),
-      tx.object(SHARED_OBJECTS.escrowVault),
+      tx.object(SHARED_OBJECTS.stakingManager),
       tx.object(CLOCK_ID),
-      coinToStake,
+      stakedSui,  // Pass the StakedSui object from the previous call
       tx.pure(bcs.U64.serialize(durationDays).toBytes()),
-      tx.pure(bcs.option(bcs.Address).serialize(null).toBytes())
+      tx.pure(bcs.option(bcs.Address).serialize(null).toBytes()) // Referrer (Option<address>)
     ]
   });
   
@@ -77,12 +91,8 @@ export const buildUnstakeTransaction = (
 export const buildRedeemPointsTransaction = (
   pointsAmount: string
 ) => {
-  // Convert string to BigInt for proper BCS handling
   const amountBigInt = BigInt(pointsAmount);
-  
   const tx = new Transaction();
-  
-  // Serialize the amount to BCS bytes for u64
   const serializedAmountBytes = bcs.U64.serialize(amountBigInt).toBytes();
 
   tx.moveCall({
@@ -93,7 +103,7 @@ export const buildRedeemPointsTransaction = (
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(SHARED_OBJECTS.escrowVault),
       tx.object(SHARED_OBJECTS.oracle),
-      tx.pure(serializedAmountBytes), // Pass BCS serialized bytes
+      tx.pure(serializedAmountBytes),
       tx.object(CLOCK_ID)
     ]
   });
@@ -112,23 +122,16 @@ export const buildCreateLoanTransaction = (
   stakeId: string,
   pointsAmount: number
 ) => {
-  // Defensive check: Ensure pointsAmount is a valid non-negative integer
   if (
     typeof pointsAmount !== 'number' ||
-    !Number.isInteger(pointsAmount) || // Use isInteger to ensure no floats
+    !Number.isInteger(pointsAmount) ||
     pointsAmount < 0
   ) {
-    // Provide more context in the error message
     throw new Error(`Invalid pointsAmount for BCS serialization: must be a non-negative integer. Received type: ${typeof pointsAmount}, value: ${pointsAmount}`);
   }
 
   const tx = new Transaction();
-
-  // Explicitly serialize the number to BCS bytes for u64
   const serializedPointsAmountBytes = bcs.U64.serialize(pointsAmount).toBytes();
-
-  // Log the serialized bytes for debugging if needed
-  // console.log('Serialized pointsAmount (bytes):', serializedPointsAmountBytes);
 
   tx.moveCall({
     target: `${PACKAGE_ID}::loan::open_loan`,
@@ -139,8 +142,7 @@ export const buildCreateLoanTransaction = (
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(stakeId),
       tx.object(SHARED_OBJECTS.oracle),
-      // Pass the BCS-serialized bytes directly
-      tx.pure(serializedPointsAmountBytes), // NOTE: No second 'u64' argument needed here!
+      tx.pure(serializedPointsAmountBytes),
       tx.object(CLOCK_ID)
     ]
   });

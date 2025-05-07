@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
-import { useCurrentAccount } from '@mysten/dapp-kit';
+import { useCurrentAccount, useDisconnectWallet } from '@mysten/dapp-kit';
 import { useAlphaPoints } from '../hooks/useAlphaPoints';
 import { useStakePositions } from '../hooks/useStakePositions';
 import { useLoans } from '../hooks/useLoans';
+import { useZkLogin } from '../hooks/useZkLogin';
 import { Loan, StakePosition, PointBalance, DurationOption } from '../types';
 
 // Define the shape of the context value using specific types
@@ -10,6 +11,7 @@ interface AlphaContextType {
   // Data
   isConnected: boolean;
   address: string | undefined;
+  provider: string | null;
   points: PointBalance;
   stakePositions: StakePosition[];
   loans: Loan[];
@@ -33,12 +35,14 @@ interface AlphaContextType {
   // Functions
   refreshData: () => void;
   setTransactionLoading: (loading: boolean) => void;
+  logout: () => void;
 }
 
 // Create context with a proper initial value that matches the type
 const defaultContext: AlphaContextType = {
   isConnected: false,
   address: undefined,
+  provider: null,
   points: { available: 0, locked: 0, total: 0 },
   stakePositions: [],
   loans: [],
@@ -58,6 +62,7 @@ const defaultContext: AlphaContextType = {
   setSelectedDuration: () => {},
   refreshData: () => {},
   setTransactionLoading: () => {},
+  logout: () => {},
 };
 
 // Create context with proper initial value
@@ -75,6 +80,8 @@ const DEFAULT_DURATIONS: DurationOption[] = [
 
 export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const currentAccount = useCurrentAccount();
+  const zkLogin = useZkLogin();
+  const { mutate: disconnectWalletDappKit } = useDisconnectWallet();
 
   // Use the data fetching hooks with proper typing
   const { 
@@ -107,24 +114,54 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Combined refresh function for all data
   const refreshData = useCallback(() => {
-    console.log("AlphaContext: Refreshing all data...");
-    refetchPoints();
-    refetchPositions();
-    refetchLoans();
-  }, [refetchPoints, refetchPositions, refetchLoans]);
-
-  // Auto-refresh when account changes
-  useEffect(() => {
-    if (currentAccount?.address) {
-      console.log("AlphaContext: Account changed, refreshing data for", currentAccount.address);
-      refreshData();
+    const activeAddress = zkLogin.address || currentAccount?.address;
+    console.log("AlphaContext: Refreshing all data... for address:", activeAddress);
+    if (activeAddress) {
+      refetchPoints(activeAddress);
+      refetchPositions(activeAddress);
+      // TODO: Modify useLoans similarly and call it here with activeAddress
+      // refetchLoans(activeAddress);
+    } else {
+      // If no active address, clear data by calling refetch with undefined
+      refetchPoints(undefined);
+      refetchPositions(undefined);
+      // refetchLoans(undefined);
     }
-  }, [currentAccount?.address, refreshData]);
+  }, [refetchPoints, refetchPositions, refetchLoans, currentAccount?.address, zkLogin.address, zkLogin.isAuthenticated]);
+
+  // Auto-refresh when account changes (either from wallet or zkLogin)
+  useEffect(() => {
+    const activeAddress = zkLogin.address || currentAccount?.address;
+    // Trigger refresh if isConnected state changes (e.g. after login) or address changes
+    if (zkLogin.isAuthenticated || currentAccount?.address) {
+      console.log("AlphaContext: Account changed or zkLogin/wallet detected, refreshing data for", activeAddress);
+      refreshData();
+    } else {
+      // If not connected (e.g. after logout), ensure data is cleared
+      console.log("AlphaContext: No active session, ensuring data is cleared.");
+      refreshData(); // This will call refetches with undefined address
+    }
+  }, [currentAccount?.address, zkLogin.address, zkLogin.isAuthenticated, refreshData]);
+
+  // Unified logout function
+  const logout = useCallback(() => {
+    console.log("AlphaContext: Initiating logout...");
+    if (zkLogin.isAuthenticated) {
+      console.log("AlphaContext: Logging out from zkLogin.");
+      zkLogin.logout();
+    }
+    if (currentAccount) {
+      console.log("AlphaContext: Disconnecting dapp-kit wallet.");
+      disconnectWalletDappKit();
+    }
+    // Data clearing should be handled by the refreshData effect when addresses become null
+  }, [zkLogin, currentAccount, disconnectWalletDappKit]);
 
   // Construct the context value
   const value: AlphaContextType = {
-    isConnected: !!currentAccount,
-    address: currentAccount?.address,
+    isConnected: zkLogin.isAuthenticated || !!currentAccount,
+    address: zkLogin.address || currentAccount?.address,
+    provider: zkLogin.isAuthenticated ? zkLogin.provider : (currentAccount ? 'dapp-kit' : null),
     points,
     stakePositions,
     loans,
@@ -144,6 +181,7 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setSelectedDuration,
     refreshData,
     setTransactionLoading,
+    logout,
   };
 
   return <AlphaContext.Provider value={value}>{children}</AlphaContext.Provider>;

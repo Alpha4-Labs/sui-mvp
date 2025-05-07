@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { useSignAndExecuteTransaction, useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
+import { useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext';
-import { buildStakeTransaction } from '../utils/transaction';
+import { buildStakeSuiTransaction } from '../utils/transaction';
 import {
   getTransactionErrorMessage,
   getTransactionResponseError,
 } from '../utils/transaction-adapter';
 import { formatSui } from '../utils/format';
 import { Transaction } from '@mysten/sui/transactions';
+import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { getZkLoginSignature } from '@mysten/sui/zklogin';
 import { bcs } from '@mysten/sui/bcs';
 import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contract';
 
@@ -19,9 +21,11 @@ export const StakeCard: React.FC = () => {
     setSelectedDuration,
     setTransactionLoading,
     loading: contextLoading,
+    address: alphaAddress,
+    isConnected: alphaIsConnected,
+    provider: alphaProvider
   } = useAlphaContext();
 
-  const currentAccount = useCurrentAccount();
   const suiClient = useSuiClient();
 
   const [amount, setAmount] = useState('');
@@ -34,16 +38,23 @@ export const StakeCard: React.FC = () => {
 
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
+  // Clear error when connection status changes to connected
+  useEffect(() => {
+    if (alphaIsConnected) {
+      setError(null); // Clear any lingering error messages upon connection
+    }
+  }, [alphaIsConnected]);
+
   // Fetch user's SUI balance with improved error handling
   useEffect(() => {
     const fetchBalance = async () => {
-      if (!currentAccount?.address) return;
+      if (!alphaAddress) return;
 
       setIsLoadingBalance(true);
       try {
-        console.log(`Fetching balance for ${currentAccount.address}`);
+        console.log(`Fetching balance for ${alphaAddress}`);
         const { totalBalance } = await suiClient.getBalance({
-          owner: currentAccount.address,
+          owner: alphaAddress,
           coinType: '0x2::sui::SUI'
         });
         console.log(`Retrieved balance: ${totalBalance}`);
@@ -56,23 +67,24 @@ export const StakeCard: React.FC = () => {
       }
     };
 
-    if (currentAccount?.address) {
+    if (alphaAddress) {
       fetchBalance();
     } else {
       // Clear balance if account disconnects
       setAvailableBalance('0');
     }
-  }, [currentAccount?.address, suiClient]);
+  }, [alphaAddress, suiClient]);
 
   /**
    * Handles staking SUI tokens with improved transaction handling
    */
   const handleStake = async () => {
+    console.log('Current alphaProvider:', alphaProvider);
     setError(null);
     setSuccess(null);
 
-    if (!currentAccount?.address) {
-      setError("Please connect your wallet.");
+    if (!alphaIsConnected || !alphaAddress) {
+      setError("Please connect your wallet or sign in.");
       return;
     }
 
@@ -112,26 +124,66 @@ export const StakeCard: React.FC = () => {
     setTransactionLoading(true);
 
     try {
-      // Log the selected duration object before using its 'days' property
       console.log("Selected Duration Object:", selectedDuration);
       console.log(`Building stake transaction for ${amountInMist.toString()} MIST, ${selectedDuration.days} days`);
       
-      // Build transaction with the updated Transaction implementation
-      const transaction = buildStakeTransaction(amountInMist, selectedDuration.days);
-      
-      console.log("Transaction built");
-      
-      // Execute transaction - convert Transaction to serialized format for compatibility
-      const result = await signAndExecute({ transaction: transaction.serialize() });
-      console.log("Transaction result:", result);
+      // TODO: Fetch or configure the target validator address
+      const placeholderValidatorAddress = "0x0000000000000000000000000000000000000000000000000000000000000000"; // REPLACE THIS
+      if (placeholderValidatorAddress === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+        console.warn("Using placeholder validator address for staking. This needs to be replaced with a real validator address.");
+        setError("Configuration error: Validator address not set. Please contact support or replace the placeholder.");
+        setTransactionLoading(false);
+        setTransactionInFlight(false);
+        return;
+      }
 
-      // Check if result has a digest (success indicator)
-      if (result && 'digest' in result) {
+      const transaction = buildStakeSuiTransaction(amountInMist, selectedDuration.days, placeholderValidatorAddress);
+      console.log("Transaction built");
+
+      let result: any;
+
+      if (alphaProvider === 'google' && alphaAddress) {
+        console.log("Executing transaction via zkLogin path...");
+
+        // Set the sender for the transaction block
+        transaction.setSender(alphaAddress);
+
+        const jwt = localStorage.getItem('zkLogin_jwt');
+        const ephemeralSecretKeySeedString = localStorage.getItem('zkLogin_ephemeralSecretKeySeed');
+        const userSaltString = localStorage.getItem('zkLogin_userSalt') || BigInt(0).toString();
+        const maxEpochString = localStorage.getItem('zkLogin_maxEpoch') || '0';
+        const randomness = localStorage.getItem('zkLogin_randomness');
+
+        if (!jwt || !ephemeralSecretKeySeedString || !randomness) {
+          throw new Error("Missing required zkLogin data from localStorage for transaction execution.");
+        }
+        
+        const secretKeySeed = Uint8Array.from(JSON.parse(ephemeralSecretKeySeedString));
+        const ephemeralKeypair = Ed25519Keypair.fromSecretKey(secretKeySeed.slice(0, 32));
+
+        // Now build the transaction with the sender set
+        const txbBytes = await transaction.build({ client: suiClient as any });
+        
+        const userSignature = await ephemeralKeypair.sign(txbBytes); 
+
+        console.warn("zkLogin transaction signing is not fully implemented yet. Placeholder for userSignature:", userSignature);
+        throw new Error("zkLogin signing not complete.");
+
+      } else if (alphaProvider === 'dapp-kit' && alphaAddress) {
+        console.log("Executing transaction via dapp-kit (signAndExecute)...");
+        result = await signAndExecute({ transaction: transaction.serialize() });
+        console.log("dapp-kit transaction result:", result);
+      } else {
+        throw new Error ("Cannot determine transaction execution path: No provider or address.");
+      }
+
+      // Common result processing (needs to be adapted based on structure of 'result' from both paths)
+      if (result && result.digest) { // Check if digest exists, common success indicator
         const txDigest = result.digest;
         console.log('Stake transaction submitted successfully:', txDigest);
 
-        // Check for failure in the effects
-        const responseError = getTransactionResponseError(result);
+        // Check for failure in the effects (effects might be nested differently)
+        const responseError = getTransactionResponseError(result); // This might need adjustment
         if (responseError) {
           throw new Error(responseError);
         }
@@ -145,10 +197,10 @@ export const StakeCard: React.FC = () => {
           refreshData();
           
           // Re-fetch balance after staking
-          if (currentAccount?.address) {
+          if (alphaAddress) {
             try {
               suiClient.getBalance({
-                owner: currentAccount.address,
+                owner: alphaAddress,
                 coinType: '0x2::sui::SUI'
               }).then(balanceResult => {
                 setAvailableBalance(balanceResult.totalBalance);
@@ -224,7 +276,7 @@ export const StakeCard: React.FC = () => {
                 }
               }}
               className="text-xs text-primary hover:text-primary-dark transition-colors"
-              disabled={!currentAccount || isLoadingBalance || contextLoading.transaction}
+              disabled={!alphaIsConnected || isLoadingBalance || contextLoading.transaction}
             >
               Max
             </button>
@@ -246,7 +298,7 @@ export const StakeCard: React.FC = () => {
               placeholder="0.0"
               className="w-full bg-background-input rounded p-3 text-white border border-gray-600 focus:border-primary focus:ring-primary pr-16"
               aria-label="Amount to Stake in SUI"
-              disabled={!currentAccount || contextLoading.transaction}
+              disabled={!alphaIsConnected || contextLoading.transaction}
             />
             <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400">
               SUI
@@ -271,7 +323,7 @@ export const StakeCard: React.FC = () => {
                     : 'bg-background-input text-gray-300 hover:bg-gray-700'
                 }`}
                 onClick={() => setSelectedDuration(duration)}
-                disabled={!currentAccount || contextLoading.transaction}
+                disabled={!alphaIsConnected || contextLoading.transaction}
               >
                 {duration.label}
               </button>
@@ -313,7 +365,7 @@ export const StakeCard: React.FC = () => {
           <button
             onClick={handleStake}
             disabled={
-                !currentAccount || 
+                !alphaIsConnected || 
                 !amount || 
                 !(parseFloat(amount) > 0) || 
                 contextLoading.transaction || 
@@ -332,8 +384,8 @@ export const StakeCard: React.FC = () => {
                   </svg>
                 </span>
               </>
-            ) : !currentAccount ? (
-                 'Connect Wallet'
+            ) : !alphaIsConnected ? (
+                 'Connect Wallet or Sign In'
             ) :(
               'Stake SUI'
             )}

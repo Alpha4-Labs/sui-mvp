@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useCurrentAccount, useSuiClient, useDisconnectWallet } from '@mysten/dapp-kit';
 import { useNavigate } from 'react-router-dom';
+import { useAlphaContext } from '../context/AlphaContext';
 import { formatSui } from '../utils/format';
 import { StakeCard } from '../components/StakeCard';
 import { PointsDisplay } from '../components/PointsDisplay';
@@ -24,8 +25,7 @@ interface Source {
 }
 
 export const DashboardPage: React.FC = () => {
-  const currentAccount = useCurrentAccount();
-  const { mutate: disconnectWallet } = useDisconnectWallet();
+  const alphaContext = useAlphaContext();
   const client = useSuiClient();
   const navigate = useNavigate();
   
@@ -45,19 +45,20 @@ export const DashboardPage: React.FC = () => {
 
   // Redirect to welcome page if not connected
   useEffect(() => {
-    if (!currentAccount) {
+    if (!alphaContext.isConnected) {
+      console.log("DashboardPage: Not connected (checked via AlphaContext), navigating to /welcome.");
       navigate('/');
     }
-  }, [currentAccount, navigate]);
+  }, [alphaContext.isConnected, navigate]);
 
   // Fetch SUI balance
   const fetchBalance = useCallback(async () => {
-    if (!currentAccount?.address) return;
+    if (!alphaContext.address) return;
 
     setIsLoadingBalance(true);
     try {
       const { totalBalance } = await client.getBalance({
-        owner: currentAccount.address,
+        owner: alphaContext.address,
         coinType: '0x2::sui::SUI'
       });
       setSuiBalance(totalBalance);
@@ -66,11 +67,11 @@ export const DashboardPage: React.FC = () => {
     } finally {
       setIsLoadingBalance(false);
     }
-  }, [client, currentAccount?.address]);
+  }, [client, alphaContext.address]);
 
   // Initialize data
   useEffect(() => {
-    if (currentAccount?.address) {
+    if (alphaContext.address) {
       fetchBalance();
       
       // Generate mock projection data
@@ -111,7 +112,7 @@ export const DashboardPage: React.FC = () => {
       });
       setSourceToggles(initialToggles);
     }
-  }, [currentAccount?.address, client, fetchBalance]);
+  }, [alphaContext.address, client, fetchBalance]);
 
   // Handler for opening the faucet in a new tab
   const handleOpenFaucet = () => {
@@ -120,8 +121,9 @@ export const DashboardPage: React.FC = () => {
   
   // Handler for disconnecting the wallet
   const handleDisconnect = () => {
-    disconnectWallet();
-    navigate('/');
+    console.log("DashboardPage: handleDisconnect called, calling alphaContext.logout().");
+    alphaContext.logout(); // Use the unified logout from context
+    navigate('/'); // Navigate to welcome page after logout actions are initiated
   };
   
   // Handlers for projection chart
@@ -167,7 +169,7 @@ export const DashboardPage: React.FC = () => {
               onClick={handleDisconnect}
               className="w-full bg-red-500 hover:bg-red-600 text-white py-2 px-4 rounded transition-colors"
             >
-              Disconnect Wallet
+              {alphaContext.provider === 'google' ? 'Sign Out' : 'Disconnect Wallet'} 
             </button>
           </div>
         </div>
