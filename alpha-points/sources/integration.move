@@ -13,14 +13,16 @@ module alpha_points::integration {
     
     // Corrected Sui System State and Staking Pool imports
     use sui_system::sui_system::SuiSystemState;
+    use sui_system::staking_pool::{Self, StakedSui, staked_sui_amount};
 
     use std::string::{Self, String};
     use std::u64;
+    use std::option::{Self, Option};
     
-    use alpha_points::admin::{Self, Config, AdminCap, is_admin};
+    use alpha_points::admin::{Self, Config, AdminCap, is_admin, get_target_validator};
     use alpha_points::ledger::{Self, Ledger, mint_points, PointType};
     use alpha_points::escrow::{Self, EscrowVault};
-    use alpha_points::stake_position::{Self, StakePosition, MS_PER_DAY as STAKE_POS_MS_PER_DAY};
+    use alpha_points::stake_position::{Self, StakePosition};
     use alpha_points::oracle::{Self, RateOracle};
     use alpha_points::staking_manager::{Self, StakingManager};
     use alpha_points::loan::{Self, Loan};
@@ -124,7 +126,7 @@ module alpha_points::integration {
     }
     
     /// Event emitted when staked assets are deposited into the protocol
-    public struct StakeDeposited<phantom T: store> has copy, drop {
+    public struct StakeDeposited<phantom T> has copy, drop {
         staker: address,
         stake_id: ID,
         asset_type: string::String, 
@@ -518,5 +520,65 @@ module alpha_points::integration {
 
         let epochs_passed = current_epoch - last_claim_epoch;
         points_per_epoch * epochs_passed
+    }
+
+    /// Public entry function to stake SUI into the protocol.
+    /// Stakes the provided Coin<SUI> natively using the Sui system, creates a StakePosition<SUI> NFT,
+    /// stores the underlying StakedSui object in the StakingManager, and transfers the
+    /// StakePosition<SUI> NFT to the staker.
+    public entry fun route_stake_sui(
+        config: &Config,
+        _ledger: &mut Ledger, // Unused parameter prefixed
+        manager: &mut StakingManager,
+        clock: &Clock,
+        staked_sui: StakedSui, // Added StakedSui parameter, removed Coin<SUI>
+        duration_days: u64,
+        _referrer: Option<address>, // Referrer address (currently unused)
+        ctx: &mut TxContext
+    ) {
+        // 1. Pre-checks
+        admin::assert_not_paused(config);
+        let staker = tx_context::sender(ctx);
+
+        let stake_amount_mist = staked_sui_amount(&staked_sui); 
+        let native_stake_id = object::id(&staked_sui);
+
+        // 2. Store Native Stake in Manager (was step 3)
+        // The StakedSui object is now passed directly
+        staking_manager::store_native_stake(manager, staked_sui, ctx);
+
+        // 3. Calculate Unlock Time (was step 4)
+        let current_time_ms = sui::clock::timestamp_ms(clock);
+        let duration_ms = duration_days * stake_position::get_ms_per_day(); // Use getter
+        let unlock_time_ms_for_event = current_time_ms + duration_ms;
+
+        // 4. Create StakePosition NFT (was step 5)
+        // Use StakedSui as the type parameter
+        let mut stake_position_obj = stake_position::create_stake<StakedSui>( 
+            stake_amount_mist, 
+            duration_days,
+            clock, 
+            ctx
+        );
+        stake_position::set_native_stake_id_mut(&mut stake_position_obj, native_stake_id);
+        
+        let stake_position_id = object::id(&stake_position_obj);
+
+        // 5. Transfer StakePosition NFT to user (was step 6)
+        transfer::public_transfer(stake_position_obj, staker);
+
+        // 6. Emit Event (was step 7)
+        // Use StakedSui for the type parameter, and get asset_name_string accordingly
+        let staked_sui_type_name_ascii = std::type_name::into_string(std::type_name::get<StakedSui>());
+        let asset_name_string = string::utf8(ascii::into_bytes(staked_sui_type_name_ascii));
+        event::emit(StakeDeposited<StakedSui> { 
+            staker,
+            stake_id: stake_position_id,
+            asset_type: asset_name_string,
+            amount_staked: stake_amount_mist,
+            duration_days,
+            unlock_time_ms: unlock_time_ms_for_event,
+            native_stake_id
+        });
     }
 }

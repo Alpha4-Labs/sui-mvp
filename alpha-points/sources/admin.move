@@ -46,7 +46,8 @@ module alpha_points::admin {
         is_paused: bool,
         points_rate_per_sui_per_epoch: u64,
         deployer_address: address,
-        forfeiture_grace_period_ms: u64
+        forfeiture_grace_period_ms: u64,
+        target_validator_address: address
     }
     
     // Events
@@ -76,6 +77,11 @@ module alpha_points::admin {
     
     public struct ForfeitureGracePeriodUpdated has copy, drop {
         new_period_ms: u64
+    }
+
+    public struct TargetValidatorChanged has copy, drop {
+        old_validator: address,
+        new_validator: address
     }
     
     // === Test-only functions ===
@@ -115,7 +121,8 @@ module alpha_points::admin {
             is_paused: false,
             points_rate_per_sui_per_epoch: 100, 
             deployer_address: sender,
-            forfeiture_grace_period_ms: 14 * 24 * 60 * 60 * 1000 
+            forfeiture_grace_period_ms: 14 * 24 * 60 * 60 * 1000,
+            target_validator_address: @0x0 
         }; // Removed invalid characters and corrected structure
         
         transfer::share_object(config); // Ensure config is shared
@@ -165,6 +172,20 @@ module alpha_points::admin {
         assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
         config.forfeiture_grace_period_ms = new_period_ms;
         event::emit(ForfeitureGracePeriodUpdated { new_period_ms });
+    }
+    
+    /// Updates the target validator address for native staking.
+    /// Requires AdminCap for authorization.
+    public entry fun set_target_validator(
+        config: &mut Config,
+        admin_cap: &AdminCap,
+        new_validator: address,
+        _ctx: &TxContext
+    ) {
+        assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
+        let old_validator = config.target_validator_address;
+        config.target_validator_address = new_validator;
+        event::emit(TargetValidatorChanged { old_validator, new_validator });
     }
     
     /// Transfers ownership of GovernCap. Emits GovernCapTransferred.
@@ -232,6 +253,11 @@ module alpha_points::admin {
     /// Returns the ID of the AdminCap associated with this config.
     public fun admin_cap_id(config: &Config): ID {
         config.admin_cap_id
+    }
+
+    /// Returns the configured target validator address for native staking.
+    public fun get_target_validator(config: &Config): address {
+        config.target_validator_address
     }
 
     #[test_only]

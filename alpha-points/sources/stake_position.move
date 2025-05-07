@@ -227,4 +227,9 @@ module alpha_points::stake_position {
     ) {
         stake.staked_sui_id = object::id_to_address(&native_id);
     }
+
+    // Public getter for MS_PER_DAY
+    public fun get_ms_per_day(): u64 {
+        MS_PER_DAY
+    }
 }
