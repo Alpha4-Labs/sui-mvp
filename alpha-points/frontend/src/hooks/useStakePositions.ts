@@ -121,12 +121,18 @@ export const useStakePositions = () => {
               id: obj.data?.objectId || '',
               owner: typeof moveStructFields.owner === 'string' ? moveStructFields.owner : (currentAccount.address || ''),
               principal: typeof moveStructFields.principal === 'string' ? moveStructFields.principal : '0',
+              amount: typeof moveStructFields.principal === 'string' ? moveStructFields.principal : '0',
               startTimeMs: String(startTimeMsStr),      // Always store as string
               unlockTimeMs: String(unlockTimeMsStr),    // Always store as string
               durationDays: String(durationDaysStr),    // Always store as string
               encumbered: typeof moveStructFields.encumbered === 'boolean' ? moveStructFields.encumbered : false,
               maturityPercentage,
-              calculatedUnlockDate: calculatedUnlockDateISO // Use the direct unlock time
+              calculatedUnlockDate: calculatedUnlockDateISO, // Use the direct unlock time
+              lastClaimEpoch: typeof moveStructFields.last_claim_epoch === 'string' ? moveStructFields.last_claim_epoch : '0',
+              assetType: SUI_TYPE,
+              startEpoch: typeof moveStructFields.start_epoch === 'string' ? moveStructFields.start_epoch : '0',
+              unlockEpoch: typeof moveStructFields.unlock_epoch === 'string' ? moveStructFields.unlock_epoch : '0',
+              durationEpochs: typeof moveStructFields.duration_epochs === 'string' ? moveStructFields.duration_epochs : '0'
             };
             return positionData;
           }
@@ -165,7 +171,7 @@ export const useStakePositions = () => {
 };
 
 // --- IMPORTANT ---
-// You MUST also update your `StakePosition` type definition in `src/types.ts`
+// You MUST also update your `StakePosition` type definition in `src/types/index.ts`
 // to match the new fields used here (startTimeMs, unlockTimeMs, durationDays).
 // Example structure:
 /*
@@ -173,11 +179,17 @@ export interface StakePosition {
   id: string;
   owner: string;
   principal: string;
+  amount: string;
   startTimeMs: string;    // Store as string from source
   unlockTimeMs: string;   // Store as string from source
   durationDays: string;   // Store as string from source
   encumbered: boolean;
   maturityPercentage: number;
   calculatedUnlockDate: string | null; // Holds ISO string derived from unlockTimeMs
+  lastClaimEpoch: string;
+  assetType: string;
+  startEpoch: string;
+  unlockEpoch: string;
+  durationEpochs: string;
 }
 */

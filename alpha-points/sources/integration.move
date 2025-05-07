@@ -34,6 +34,12 @@ module alpha_points::integration {
     
     // Constants
     const STAKE_EXPIRY_DAYS: u64 = 14;
+
+    // APY Calculation Constants
+    const EPOCHS_PER_YEAR: u64 = 365; // Assuming daily epochs for simplicity
+    const SUI_TO_MIST_CONVERSION: u64 = 1_000_000_000;
+    const APY_POINT_SCALING_FACTOR: u64 = 25; // Scales APY_bps * 25 for points calculation
+    const EInvalidStakeDurationForApy: u64 = 110; // Error for APY lookup
     
     // Constants for Event Structs
     const POINTS_ACCRUED_EVENT_TYPE: vector<u8> = b"PointsAccrued";
@@ -163,7 +169,7 @@ module alpha_points::integration {
         if (user_asset_amount > 0) {
             escrow::withdraw(escrow, user_asset_amount, user, ctx);
         };
-        if (fee_asset_amount > 0) { 
+        if (fee_asset_amount > 0) {
             escrow::withdraw(escrow, fee_asset_amount, deployer, ctx);
         };
         
@@ -218,15 +224,30 @@ module alpha_points::integration {
         });
     }
     
+    // Helper to get APY in Basis Points (bps) based on duration_days
+    // Matches frontend DEFAULT_DURATIONS APY values
+    // For MVP, this is a hardcoded lookup. Could be driven by Config later.
+    fun get_apy_bps_for_duration_days(duration_days: u64): u64 {
+        if (duration_days == 7) { 500 } // 5.0%
+        else if (duration_days == 14) { 750 } // 7.5%
+        else if (duration_days == 30) { 1000 } // 10.0%
+        else if (duration_days == 90) { 1500 } // 15.0%
+        else if (duration_days == 180) { 2000 } // 20.0%
+        else if (duration_days == 365) { 2500 } // 25.0%
+        else {
+            abort EInvalidStakeDurationForApy
+        }
+    }
+
     /// Allows a user to claim accrued Alpha Points for their stake position.
     public entry fun claim_accrued_points<T: key + store>(
-        config: &Config,
+        _config: &Config, // config might be needed if APY lookup moves to admin module later
         stake_position_obj: &mut StakePosition<T>,
         ledger: &mut Ledger,
-        _clock: &Clock,
+        _clock: &Clock, // Not directly used if current_epoch from ctx is sufficient
         ctx: &mut TxContext
     ) {
-        admin::assert_not_paused(config);
+        admin::assert_not_paused(_config); 
         let claimer = tx_context::sender(ctx);
 
         let current_epoch = ctx.epoch();
@@ -234,8 +255,17 @@ module alpha_points::integration {
         assert!(current_epoch > last_claim_epoch, EAlreadyClaimedOrTooSoon);
 
         let stake_id = stake_position::get_id_view(stake_position_obj);
-        let principal = stake_position::principal_view(stake_position_obj);
-        let points_per_epoch = principal / 100;
+        let principal_mist = stake_position::principal_view(stake_position_obj);
+        
+        let duration_days = stake_position::duration_days_view(stake_position_obj);
+        let stake_apy_bps = get_apy_bps_for_duration_days(duration_days);
+
+        let numerator_part1 = (principal_mist as u128) * (stake_apy_bps as u128);
+        let numerator = numerator_part1 * (APY_POINT_SCALING_FACTOR as u128);
+        let denominator = (SUI_TO_MIST_CONVERSION as u128) * (EPOCHS_PER_YEAR as u128);
+        
+        let points_per_epoch = if (denominator > 0) { (numerator / denominator) as u64 } else { 0 };
+
         let epochs_passed = current_epoch - last_claim_epoch;
         let points_to_claim = points_per_epoch * epochs_passed;
 
@@ -430,7 +460,7 @@ module alpha_points::integration {
 
         // Call the function without assigning its result
         staking_manager::request_native_stake_withdrawal(
-            manager, 
+            manager,
             sui_system_state_obj, 
             stake_id, 
             ctx
@@ -465,4 +495,28 @@ module alpha_points::integration {
         withdrawn_coin
     }
     */
+
+    public fun view_accrued_points_for_stake<T: key + store>(
+        stake_position_obj: &StakePosition<T>,
+        // _config: &Config, // Pass if APY logic moves to config
+        current_epoch: u64
+    ): u64 {
+        let last_claim_epoch = stake_position::last_claim_epoch_view(stake_position_obj);
+        if (current_epoch <= last_claim_epoch) {
+            return 0;
+        };
+
+        let principal_mist = stake_position::principal_view(stake_position_obj);
+        let duration_days = stake_position::duration_days_view(stake_position_obj);
+        let stake_apy_bps = get_apy_bps_for_duration_days(duration_days);
+
+        let numerator_part1 = (principal_mist as u128) * (stake_apy_bps as u128);
+        let numerator = numerator_part1 * (APY_POINT_SCALING_FACTOR as u128);
+        let denominator = (SUI_TO_MIST_CONVERSION as u128) * (EPOCHS_PER_YEAR as u128);
+        
+        let points_per_epoch = if (denominator > 0) { (numerator / denominator) as u64 } else { 0 };
+
+        let epochs_passed = current_epoch - last_claim_epoch;
+        points_per_epoch * epochs_passed
+    }
 }

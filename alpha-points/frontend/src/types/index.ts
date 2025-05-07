@@ -16,11 +16,19 @@ export interface StakePosition {
   startEpoch: string;
   unlockEpoch: string;
   durationEpochs: string;
+  durationDays: string;
   encumbered: boolean;
   maturityPercentage: number;
   
   // New field for improved date handling
   calculatedUnlockDate?: string;
+
+  // Fields required by PointsDisplay.tsx
+  lastClaimEpoch: string; 
+  amount: string; // Corresponds to 'principal'
+  startTimeMs: string;
+  unlockTimeMs: string;
+  assetType: string;
 }
 
 /**
@@ -103,8 +111,14 @@ export function isStakePosition(value: any): value is StakePosition {
     isString(value.startEpoch) &&
     isString(value.unlockEpoch) &&
     isString(value.durationEpochs) &&
+    isString(value.durationDays) &&
     typeof value.encumbered === 'boolean' &&
-    isNumber(value.maturityPercentage)
+    isNumber(value.maturityPercentage) &&
+    isString(value.lastClaimEpoch) &&
+    isString(value.amount) &&
+    isString(value.startTimeMs) &&
+    isString(value.unlockTimeMs) &&
+    isString(value.assetType)
   );
 }
 
@@ -137,3 +151,4 @@ export function isLoan(value: any): value is Loan {
     isString(value.estimatedRepayment)
   );
 }
+

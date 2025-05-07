@@ -52,14 +52,7 @@ export const StakedPositionsList: React.FC = () => {
       console.log('Unstake transaction built:', transaction);
 
       // Execute the transaction with the updated hook API
-      const result = await signAndExecute({
-        transaction,
-        options: {
-          showEffects: true,
-          showEvents: true,
-          showObjectChanges: true
-        }
-      });
+      const result = await signAndExecute({ transaction: transaction.serialize() });
       
       console.log('Unstake transaction result:', result);
 

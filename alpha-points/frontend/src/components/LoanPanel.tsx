@@ -158,7 +158,7 @@ export const LoanPanel: React.FC = () => {
 
       // If dry run is successful, proceed to sign and execute
       console.log("Dry run successful. Proceeding to sign and execute...");
-      // Pass the original tx object (which now has sender set, but serialize() ignores it)
+      // Attempt to use tx.serialize() to bypass Transaction object identity issue
       const result = await signAndExecute({ transaction: tx.serialize() });
       console.log("Execution result:", result); 
 
@@ -180,6 +180,7 @@ export const LoanPanel: React.FC = () => {
     setTransactionLoading(true);
     try {
       const tx = buildRepayLoanTransaction(loanId, stakeId);
+      // Attempt to use tx.serialize() to bypass Transaction object identity issue
       const result = await signAndExecute({ transaction: tx.serialize() });
       refreshData();
     } catch (error) {

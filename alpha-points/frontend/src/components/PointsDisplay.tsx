@@ -1,27 +1,149 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAlphaContext } from '../context/AlphaContext';
-import { formatPoints, formatTimeAgo } from '../utils/format';
+import { formatPoints } from '../utils/format';
+import { useSignAndExecuteTransaction, useSuiClient, useCurrentAccount } from '@mysten/dapp-kit';
+import { Transaction } from '@mysten/sui/transactions';
+import { SuiSystemStateSummary } from '@mysten/sui/client';
+import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contract';
+import { StakePosition } from '../types';
 
 export const PointsDisplay: React.FC = () => {
-  // Use context to get points data and loading state
-  const { points, loading, lastRefresh } = useAlphaContext();
-  const [showDetails, setShowDetails] = useState(false);
+  const { 
+    points, 
+    loading, 
+    stakePositions,
+    refreshData,
+    setTransactionLoading
+  } = useAlphaContext();
 
-  // Accrual info is currently mock - keep placeholders or remove
-  // Let's comment out for now as it's not real data
-  // const accrualStartTime = Date.now() - 6313 * 60 * 1000; 
-  // const accruedPoints = 1999.243333;
-  // const accrualRate = 78.5; 
+  const [totalClaimablePoints, setTotalClaimablePoints] = useState(0n);
+  const [loadingClaimable, setLoadingClaimable] = useState(false);
+  const [currentEpoch, setCurrentEpoch] = useState<bigint | null>(null);
 
-  // Claim function is disabled as it's not implemented on-chain
-  /*
+  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const suiClient = useSuiClient();
+  const currentAccount = useCurrentAccount();
+
+  const EPOCHS_PER_YEAR = 365;
+  const SUI_TO_MIST_CONVERSION = 1_000_000_000n;
+  const APY_POINT_SCALING_FACTOR = 25n;
+  const MS_PER_DAY = 86_400_000;
+
+  function getApyBpsForDurationDays(durationDays: number): number {
+    if (durationDays === 7) return 500;
+    if (durationDays === 14) return 750;
+    if (durationDays === 30) return 1000;
+    if (durationDays === 90) return 1500;
+    if (durationDays === 180) return 2000;
+    if (durationDays === 365) return 2500;
+    return 0; 
+  }
+
+  useEffect(() => {
+    suiClient.getLatestSuiSystemState().then((state: SuiSystemStateSummary) => setCurrentEpoch(BigInt(state.epoch)));
+  }, [suiClient]);
+
+  useEffect(() => {
+    if (!currentEpoch || loading.positions || !stakePositions || stakePositions.length === 0) {
+      setTotalClaimablePoints(0n);
+      return;
+    }
+    setLoadingClaimable(true);
+    let accumulatedPoints = 0n;
+
+    stakePositions.forEach((pos: StakePosition) => {
+      if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined' || typeof pos.assetType === 'undefined') {
+        console.warn('Stake position object is missing required fields', pos);
+        return; 
+      }
+      const lastClaimEpochBigInt = BigInt(pos.lastClaimEpoch);
+      if (currentEpoch <= lastClaimEpochBigInt) {
+        return; 
+      }
+
+      const principalMist = BigInt(pos.amount);
+      const durationMs = BigInt(pos.unlockTimeMs) - BigInt(pos.startTimeMs);
+      const durationDays = durationMs > 0n ? Number(durationMs / BigInt(MS_PER_DAY)) : 0;
+      
+      const stakeApyBps = BigInt(getApyBpsForDurationDays(durationDays));
+
+      if (stakeApyBps === 0n) return;
+
+      const numeratorPart1 = principalMist * stakeApyBps;
+      const numerator = numeratorPart1 * APY_POINT_SCALING_FACTOR;
+      const denominator = SUI_TO_MIST_CONVERSION * BigInt(EPOCHS_PER_YEAR);
+
+      const pointsPerEpoch = denominator > 0n ? numerator / denominator : 0n;
+      
+      const epochsPassed = currentEpoch - lastClaimEpochBigInt;
+      if (epochsPassed > 0n) {
+        accumulatedPoints += pointsPerEpoch * epochsPassed;
+      }
+    });
+
+    setTotalClaimablePoints(accumulatedPoints);
+    setLoadingClaimable(false);
+  }, [currentEpoch, stakePositions, loading.positions]);
+
   const handleClaim = async () => {
-    // ... implementation removed ...
-  };
-  */
+    if (!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || !stakePositions || stakePositions.length === 0) {
+      console.error("Cannot claim: No account, no claimable points, or no stake positions.");
+      return;
+    }
 
-  // Show loading skeleton
-  if (loading.points) {
+    setTransactionLoading(true);
+    try {
+      const tx = new Transaction();
+      let claimsAdded = 0;
+
+      for (const pos of stakePositions as StakePosition[]) {
+        if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined' || typeof pos.assetType === 'undefined') continue;
+        
+        const lastClaimEpochBigInt = BigInt(pos.lastClaimEpoch);
+        if (currentEpoch && currentEpoch > lastClaimEpochBigInt) {
+            const principalMist = BigInt(pos.amount);
+            const durationMs = BigInt(pos.unlockTimeMs) - BigInt(pos.startTimeMs);
+            const durationDays = durationMs > 0n ? Number(durationMs / BigInt(MS_PER_DAY)) : 0;
+            const stakeApyBps = BigInt(getApyBpsForDurationDays(durationDays));
+
+            if (stakeApyBps > 0n && principalMist > 0n) {
+                const numeratorPart1 = principalMist * stakeApyBps;
+                const numerator = numeratorPart1 * APY_POINT_SCALING_FACTOR;
+                const denominator = SUI_TO_MIST_CONVERSION * BigInt(EPOCHS_PER_YEAR);
+                const pointsPerEpoch = denominator > 0n ? numerator / denominator : 0n;
+                const epochsPassed = currentEpoch - lastClaimEpochBigInt;
+                if (pointsPerEpoch * epochsPassed > 0n) {
+                    tx.moveCall({
+                        target: `${PACKAGE_ID}::integration::claim_accrued_points`,
+                        typeArguments: [pos.assetType || SUI_TYPE],
+                        arguments: [
+                            tx.object(SHARED_OBJECTS.config),
+                            tx.object(pos.id),
+                            tx.object(SHARED_OBJECTS.ledger),
+                            tx.object(CLOCK_ID),
+                        ],
+                    });
+                    claimsAdded++;
+                }
+            }
+        }
+      }
+
+      if (claimsAdded === 0) {
+        console.log("No claims to add to transaction.");
+        setTransactionLoading(false);
+        return;
+      }
+      
+      await signAndExecute({ transaction: tx.serialize() }, { onSuccess: () => refreshData() });
+    } catch (error) {
+      console.error('Error claiming points:', error);
+    } finally {
+      setTransactionLoading(false);
+    }
+  };
+
+  if (loading.points || loadingClaimable) {
     return (
       <div className="bg-background-card rounded-lg p-6 shadow-lg animate-pulse">
         <div className="h-8 bg-gray-700 rounded w-3/4 mb-4"></div>
@@ -36,17 +158,8 @@ export const PointsDisplay: React.FC = () => {
     <div className="bg-background-card rounded-lg p-6 shadow-lg">
       <div className="flex justify-between items-center mb-2">
         <h2 className="text-xl font-semibold text-white">Alpha Points Balance</h2>
-        {/* Display last refresh time */}
-        {lastRefresh > 0 && (
-          <span className="text-xs text-gray-500" title={new Date(lastRefresh).toISOString()}>
-            Updated: {formatTimeAgo(lastRefresh)}
-          </span>
-        )}
       </div>
       
-      {/* Removed status messages related to mock claim */}
-      
-      {/* Points balance - Use data from context */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <div className="text-4xl font-bold text-secondary mb-1">
@@ -57,7 +170,6 @@ export const PointsDisplay: React.FC = () => {
           </div>
         </div>
         
-        {/* Only show locked section if locked points > 0 */}
         {points.locked > 0 && (
           <div className="text-right">
             <div className="text-2xl font-bold text-yellow-500 mb-1">
@@ -70,71 +182,27 @@ export const PointsDisplay: React.FC = () => {
         )}
       </div>
       
-      {/* Accrual info section - commented out as it uses mock data */}
-      {/* 
-      <div 
-        className="bg-background rounded-lg p-4 mb-4 cursor-pointer transition-colors hover:bg-background-card"
-        onClick={() => setShowDetails(!showDetails)}
-      >
+      <div className="mt-4 bg-background/50 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center text-sm text-gray-400">
-            <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
-            <span>Accruing Since: {formatTimeAgo(accrualStartTime)}</span>
+          <div>
+            <div className="text-yellow-400 text-xl font-semibold">
+              +{formatPoints(totalClaimablePoints.toString())} Accrued
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              Estimated claimable from your stakes
+            </div>
           </div>
-          <div className="text-gray-500">
-            <svg 
-              className={`w-4 h-4 transform transition-transform ${showDetails ? 'rotate-180' : ''}`} 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
+          
+          <button 
+            onClick={handleClaim}
+            disabled={!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || loading.transaction || loadingClaimable}
+            className="bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-4 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
+          >
+            {loading.transaction ? 'Claiming...' : 'Claim All'}
+          </button>
         </div>
-        
-        {showDetails && (
-          <div className="mt-4 pt-4 border-t border-gray-700 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Generation Rate:</span>
-              <span className="text-white">{accrualRate} Points/day</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Total Generated:</span>
-              <span className="text-white">{formatPoints(points.total)} Points</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Sources:</span>
-              <span className="text-white">Staking, Referrals</span>
-            </div>
-          </div>
-        )}
       </div>
-      */}
-      
-      {/* Accrued points and claim button - commented out as it uses mock data/disabled functionality */}
-      {/*
-      <div className="flex items-center justify-between bg-background/50 rounded-lg p-4">
-        <div>
-          <div className="text-yellow-400 text-xl font-semibold">
-            +{formatPoints(accruedPoints)} Accrued
-          </div>
-          <div className="text-xs text-gray-500 mt-1">
-            Since last claim
-          </div>
-        </div>
-        
-        <button 
-          onClick={handleClaim}
-          disabled // Disabled permanently for now
-          className="bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-4 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
-        >
-           Claim
-        </button>
-      </div>
-      */}
 
-      {/* Placeholder if no points data is available yet */}
       {!loading.points && points.total === 0 && (
         <div className="text-center text-gray-500 text-sm py-4">
           No Alpha Points balance found.
