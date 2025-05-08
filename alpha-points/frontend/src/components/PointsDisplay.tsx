@@ -7,6 +7,18 @@ import { SuiSystemStateSummary } from '@mysten/sui/client';
 import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contract';
 import { StakePosition } from '../types';
 
+// Helper to format time remaining
+function formatTimeLeft(ms: number): string {
+  if (ms <= 0) return "Epoch changing...";
+
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
 export const PointsDisplay: React.FC = () => {
   const { 
     points, 
@@ -19,6 +31,8 @@ export const PointsDisplay: React.FC = () => {
   const [totalClaimablePoints, setTotalClaimablePoints] = useState(0n);
   const [loadingClaimable, setLoadingClaimable] = useState(false);
   const [currentEpoch, setCurrentEpoch] = useState<bigint | null>(null);
+  const [nextEpochTime, setNextEpochTime] = useState<number | null>(null);
+  const [timeLeft, setTimeLeft] = useState<string>("Calculating...");
 
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
   const suiClient = useSuiClient();
@@ -39,24 +53,73 @@ export const PointsDisplay: React.FC = () => {
     return 0; 
   }
 
+  // Fetch system state for epoch info
   useEffect(() => {
-    suiClient.getLatestSuiSystemState().then((state: SuiSystemStateSummary) => setCurrentEpoch(BigInt(state.epoch)));
+    let isMounted = true;
+    const fetchSystemState = async () => {
+      try {
+        const state: SuiSystemStateSummary = await suiClient.getLatestSuiSystemState();
+        if (isMounted) {
+          const epoch = BigInt(state.epoch);
+          const startMs = BigInt(state.epochStartTimestampMs);
+          const durationMs = BigInt(state.epochDurationMs);
+          const nextEpochStartMs = Number(startMs + durationMs);
+          
+          setCurrentEpoch(epoch);
+          setNextEpochTime(nextEpochStartMs);
+        }
+      } catch (error) {
+        console.error("[PointsDisplay] Error fetching Sui system state:", error);
+        if (isMounted) {
+          setTimeLeft("Error fetching epoch time");
+        }
+      }
+    };
+
+    fetchSystemState();
+    return () => { isMounted = false; };
   }, [suiClient]);
 
+  // Update countdown timer
   useEffect(() => {
-    if (!currentEpoch || loading.positions || !stakePositions || stakePositions.length === 0) {
+    if (nextEpochTime === null) {
+      setTimeLeft("Waiting for epoch data...");
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      const now = Date.now();
+      const remainingMs = nextEpochTime - now;
+      setTimeLeft(formatTimeLeft(remainingMs));
+
+      if (remainingMs <= 0) {
+        clearInterval(intervalId);
+      }
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [nextEpochTime]);
+
+  // Calculate Claimable Points
+  useEffect(() => {
+    if (!currentEpoch || loading.positions || !stakePositions) { 
       setTotalClaimablePoints(0n);
       return;
     }
+    if (stakePositions.length === 0) {
+        setTotalClaimablePoints(0n);
+      return;
+    }
+    
     setLoadingClaimable(true);
     let accumulatedPoints = 0n;
 
-    stakePositions.forEach((pos: StakePosition) => {
+    stakePositions.forEach((pos: StakePosition, index: number) => {
       if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined' || typeof pos.assetType === 'undefined') {
-        console.warn('Stake position object is missing required fields', pos);
         return; 
       }
       const lastClaimEpochBigInt = BigInt(pos.lastClaimEpoch);
+      
       if (currentEpoch <= lastClaimEpochBigInt) {
         return; 
       }
@@ -64,20 +127,22 @@ export const PointsDisplay: React.FC = () => {
       const principalMist = BigInt(pos.amount);
       const durationMs = BigInt(pos.unlockTimeMs) - BigInt(pos.startTimeMs);
       const durationDays = durationMs > 0n ? Number(durationMs / BigInt(MS_PER_DAY)) : 0;
-      
       const stakeApyBps = BigInt(getApyBpsForDurationDays(durationDays));
 
-      if (stakeApyBps === 0n) return;
+      if (stakeApyBps === 0n) {
+          return;
+      }
 
       const numeratorPart1 = principalMist * stakeApyBps;
       const numerator = numeratorPart1 * APY_POINT_SCALING_FACTOR;
       const denominator = SUI_TO_MIST_CONVERSION * BigInt(EPOCHS_PER_YEAR);
 
       const pointsPerEpoch = denominator > 0n ? numerator / denominator : 0n;
-      
       const epochsPassed = currentEpoch - lastClaimEpochBigInt;
+      
       if (epochsPassed > 0n) {
-        accumulatedPoints += pointsPerEpoch * epochsPassed;
+        const pointsToAdd = pointsPerEpoch * epochsPassed;
+        accumulatedPoints += pointsToAdd;
       }
     });
 
@@ -87,7 +152,6 @@ export const PointsDisplay: React.FC = () => {
 
   const handleClaim = async () => {
     if (!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || !stakePositions || stakePositions.length === 0) {
-      console.error("Cannot claim: No account, no claimable points, or no stake positions.");
       return;
     }
 
@@ -130,7 +194,6 @@ export const PointsDisplay: React.FC = () => {
       }
 
       if (claimsAdded === 0) {
-        console.log("No claims to add to transaction.");
         setTransactionLoading(false);
         return;
       }
@@ -158,6 +221,10 @@ export const PointsDisplay: React.FC = () => {
     <div className="bg-background-card rounded-lg p-6 shadow-lg">
       <div className="flex justify-between items-center mb-2">
         <h2 className="text-xl font-semibold text-white">Alpha Points Balance</h2>
+        {/* Display Time Left */}
+        <div className="text-xs text-gray-400">
+           Next Epoch In: <span className="font-medium text-gray-300 tabular-nums">{timeLeft}</span>
+        </div>
       </div>
       
       <div className="flex items-center justify-between mb-4">

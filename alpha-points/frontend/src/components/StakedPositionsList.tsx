@@ -45,16 +45,16 @@ export const StakedPositionsList: React.FC = () => {
     setTransactionLoading(true); // Mark global transaction loading
 
     try {
-      console.log(`Attempting to unstake position ${stakeId}`);
+      // console.log(`Attempting to unstake position ${stakeId}`);
       
       // Build transaction with the updated Transaction API
       const transaction = buildUnstakeTransaction(stakeId);
-      console.log('Unstake transaction built:', transaction);
+      // console.log('Unstake transaction built:', transaction);
 
       // Execute the transaction with the updated hook API
       const result = await signAndExecute({ transaction: transaction.serialize() });
       
-      console.log('Unstake transaction result:', result);
+      // console.log('Unstake transaction result:', result);
 
       // Verify success
       if (!result || typeof result !== 'object' || !('digest' in result)) {
@@ -88,31 +88,18 @@ export const StakedPositionsList: React.FC = () => {
   };
 
   // Helper for Estimated Rewards Calculation
-  // Uses durationDays directly
-  const calculateEstRewards = (principal?: string, durationDaysStr?: string): string => {
-    if (!principal || !durationDaysStr) return '0';
+  // Now uses APY directly from the position object
+  const calculateEstRewards = (principal?: string, durationDaysStr?: string, positionApy?: number): string => {
+    if (!principal || !durationDaysStr || typeof positionApy === 'undefined') return '0';
     try {
-      const principalNum = parseInt(principal, 10);
-      const durationDays = parseInt(durationDaysStr, 10); // Use durationDays
+      const principalNum = parseInt(principal, 10); // This is MIST
+      const durationDays = parseInt(durationDaysStr, 10);
+      const apy = positionApy / 100; // APY from position is in percent, convert to decimal
 
-      // Improved APY calculation based on duration
-      let apy = 0.05; // 5% base APY
-
-      // Scale APY based on duration (example scaling)
-      if (durationDays >= 365) {
-        apy = 0.25; // 25% for 1 year+
-      } else if (durationDays >= 180) {
-        apy = 0.20; // 20% for 6 months+
-      } else if (durationDays >= 90) {
-        apy = 0.15; // 15% for 3 months+
-      } else if (durationDays >= 30) {
-        apy = 0.10; // 10% for 1 month+
-      }
-
-      if (isNaN(principalNum) || isNaN(durationDays) || durationDays <= 0) return '0';
+      if (isNaN(principalNum) || isNaN(durationDays) || durationDays <= 0 || isNaN(apy)) return '0';
 
       // Calculate reward based on principal in SUI, APY, and duration
-      const principalSui = principalNum / 1_000_000_000;
+      const principalSui = principalNum / 1_000_000_000; // Convert MIST to SUI
       const rewards = principalSui * apy * (durationDays / 365);
 
       return isFinite(rewards) ? formatSui(rewards.toString(), 4) : '0';
@@ -162,7 +149,7 @@ export const StakedPositionsList: React.FC = () => {
         <div className="space-y-4">
           {stakePositions.map((position) => {
             // Add log to check the date string being used
-            console.log(`Rendering position ${position.id}, calculatedUnlockDate: ${position.calculatedUnlockDate}`); 
+            // console.log(`Rendering position ${position.id}, calculatedUnlockDate: ${position.calculatedUnlockDate}`); 
             
             // Calculate status variables for clarity
             // maturityPercentage now comes directly from the hook based on time
@@ -219,7 +206,7 @@ export const StakedPositionsList: React.FC = () => {
 
                   <span className="text-gray-400">Est. Rewards</span>
                   <span className="text-green-400 text-right">
-                     ~{calculateEstRewards(position.principal, position.durationDays)} SUI
+                     ~{calculateEstRewards(position.principal, position.durationDays, position.apy)} SUI
                   </span>
                 </div>
 

@@ -11,10 +11,122 @@ import { adaptPtbJsonForSignAndExecute } from '../utils/transaction-adapter';
 const SUI_PRICE_USD = 3.28;
 const ALPHA_POINT_PRICE_USD = 0.10;
 
+// --- Crypto Redemption Card Component ---
+interface CryptoRedemptionCardProps {
+  cryptoName: string;
+  icon?: React.ReactNode; // Optional icon
+  exchangeRateText: string; // e.g., "32.80 αP / SUI"
+  pointsAvailable: number;
+  onRedeem: (amount: string) => Promise<void>; // Async function for handling redeem
+}
+
+const CryptoRedemptionCard: React.FC<CryptoRedemptionCardProps> = ({
+  cryptoName,
+  icon,
+  exchangeRateText,
+  pointsAvailable,
+  onRedeem,
+}) => {
+  const [redeemAmount, setRedeemAmount] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Basic calculation for estimated crypto receive amount (can be enhanced)
+  const estimatedCryptoReceive = useMemo(() => {
+    const amountNum = parseInt(redeemAmount, 10);
+    // Extract rate from text like "32.80 αP / SUI"
+    const rateMatch = exchangeRateText.match(/^([\d.]+)\s+αP/);
+    const pointsPerCrypto = rateMatch ? parseFloat(rateMatch[1]) : Infinity;
+
+    if (!isNaN(amountNum) && amountNum > 0 && isFinite(pointsPerCrypto) && pointsPerCrypto > 0) {
+      return amountNum / pointsPerCrypto;
+    }
+    return 0;
+  }, [redeemAmount, exchangeRateText]);
+
+  const handleRedeemClick = async () => {
+    const amountNumber = parseInt(redeemAmount, 10);
+    if (!redeemAmount || isNaN(amountNumber) || amountNumber <= 0) {
+        setError("Please enter a valid amount.");
+        return;
+    }
+    if (amountNumber > pointsAvailable) {
+        setError("Insufficient available points.");
+        return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      await onRedeem(redeemAmount);
+      setRedeemAmount(''); // Clear input on success
+    } catch (err: any) {
+      console.error(`Error redeeming for ${cryptoName}:`, err);
+      setError(err.message || `Failed to redeem points for ${cryptoName}.`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="border border-gray-700 rounded-lg p-4 bg-background-input space-y-3 text-center">
+      <h3 className="text-lg font-semibold text-white flex items-center justify-center">
+        {icon && <span className="mr-2 text-xl">{icon}</span>}
+        {cryptoName}
+      </h3>
+      {error && (
+        <div className="p-2 text-xs bg-red-900/30 border border-red-700 rounded-md text-red-400 break-words text-left">
+           {error}
+        </div>
+      )}
+      <div className="text-sm text-gray-300">
+        Rate: {exchangeRateText}
+      </div>
+      <div className="text-left">
+        <label className="block text-gray-400 mb-1 text-xs">Points to Spend (αP)</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={redeemAmount}
+          onChange={(e) => setRedeemAmount(e.target.value.replace(/[^0-9]/g, ''))}
+          placeholder={`Available: ${formatPoints(pointsAvailable)} αP`}
+          className="w-full bg-background rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary text-sm"
+          disabled={isLoading}
+        />
+        {estimatedCryptoReceive > 0 && (
+          <div className="text-xs text-gray-400 mt-1 text-right">
+            ≈ {estimatedCryptoReceive.toFixed(4)} {cryptoName}
+          </div>
+        )}
+      </div>
+      <button
+        onClick={handleRedeemClick}
+        disabled={isLoading || !redeemAmount || parseInt(redeemAmount) <= 0 || parseInt(redeemAmount) > pointsAvailable}
+        className="w-full bg-primary hover:bg-primary-dark text-white py-2 px-3 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium relative"
+      >
+        {isLoading ? (
+          <>
+            <span className="opacity-0">Redeeming...</span> {/* Keep layout */}
+            <span className="absolute inset-0 flex items-center justify-center">
+              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </span>
+          </>
+        ) : (
+          `Redeem ${formatPoints(redeemAmount || '0', 0)} αP`
+        )}
+      </button>
+    </div>
+  );
+};
+// --- End Card Component ---
+
 export const MarketplacePage: React.FC = () => {
   const { points, setTransactionLoading, refreshData } = useAlphaContext();
-  const [redeemAmount, setRedeemAmount] = useState('');
-  const [tab, setTab] = useState<'sui' | 'perks'>('sui');
+  const [tab, setTab] = useState<'crypto' | 'perks'>('crypto'); // Changed 'sui' to 'crypto'
 
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
 
@@ -24,41 +136,22 @@ export const MarketplacePage: React.FC = () => {
     return SUI_PRICE_USD / ALPHA_POINT_PRICE_USD;
   }, []); // Empty dependency array, prices are constants
 
-  const handleRedeem = async () => {
-    const amountNumber = parseInt(redeemAmount, 10);
-    if (!redeemAmount || isNaN(amountNumber) || amountNumber <= 0) {
-        console.error("Invalid redeem amount");
-        return;
-    }
-    if (amountNumber > points.available) {
-        console.error("Insufficient available points");
-        return;
-    }
-
+  const handleRedeemSui = async (amountToRedeem: string) => {
+    // This function is now passed to the Card component's onRedeem prop
     setTransactionLoading(true);
     try {
-      // Build the PTB JSON - This function already targets redeem_points<T>,
-      // which works for SUI since Escrow is EscrowVault<SUI>
-      const ptbJson = buildRedeemPointsTransaction(redeemAmount);
+      const ptbJson = buildRedeemPointsTransaction(amountToRedeem);
       const executionInput = adaptPtbJsonForSignAndExecute(ptbJson);
       await signAndExecute(executionInput);
-      setRedeemAmount('');
-      refreshData();
+      refreshData(); // Refresh data after successful execution
     } catch (error) {
       console.error('Error redeeming points for SUI:', error);
+      // Let the card component handle displaying the error
+      throw error; // Re-throw error so card can catch it
     } finally {
       setTransactionLoading(false);
     }
   };
-
-  // Calculate estimated SUI receive amount
-  const estimatedSuiReceive = useMemo(() => {
-    const amountNum = parseInt(redeemAmount, 10);
-    if (!isNaN(amountNum) && amountNum > 0 && isFinite(alphaPointsPerSui) && alphaPointsPerSui > 0) {
-      return amountNum / alphaPointsPerSui;
-    }
-    return 0;
-  }, [redeemAmount, alphaPointsPerSui]);
 
   return (
     <MainLayout>
@@ -72,19 +165,22 @@ export const MarketplacePage: React.FC = () => {
          <div className="flex justify-center p-4 border-b border-gray-700">
              <div className="inline-flex rounded-md bg-background p-1">
                  <button
-                     onClick={() => setTab('sui')}
-                     className={`px-6 py-2 rounded-md transition-colors ${
-                         tab === 'sui' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700'
+                     onClick={() => setTab('crypto')} // Changed 'sui' to 'crypto'
+                     className={`px-6 py-2 rounded-md transition-colors ${ 
+                         tab === 'crypto' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700'
                      }`}
                  >
                     <span className="flex items-center">
-                       <span className="font-bold text-lg mr-2">S</span>
-                       Redeem for SUI
+                       {/* Placeholder Crypto Icon */}
+                       <svg className="w-5 h-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.042 21.672 13.684 16.6m0 0-2.51 2.225.569-2.47 5.227 7.917-3.286-.672Zm-7.518-.267A8.25 8.25 0 1 1 20.25 10.5M8.288 14.212A5.25 5.25 0 1 1 17.25 10.5" />
+                       </svg>
+                       Redeem for Crypto {/* Renamed Tab Label */}
                     </span>
                  </button>
                  <button
                      onClick={() => setTab('perks')}
-                     className={`px-6 py-2 rounded-md transition-colors ${
+                     className={`px-6 py-2 rounded-md transition-colors ${ 
                          tab === 'perks' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700'
                      }`}
                  >
@@ -103,39 +199,62 @@ export const MarketplacePage: React.FC = () => {
                 <span className="text-xl font-semibold text-secondary">{formatPoints(points.available)} αP</span>
             </div>
 
-           {/* Redeem for SUI Tab */}
-           {tab === 'sui' && (
+           {/* Redeem for Crypto Tab */}
+           {tab === 'crypto' && (
              <div>
-               <h2 className="text-xl font-semibold text-white text-center mb-4">Redeem Alpha Points for SUI</h2>
-               <div className="text-center text-gray-300 mb-6">
-                 Current Rate: {alphaPointsPerSui.toFixed(2)} αP / SUI
-               </div>
-               <div className="mb-4">
-                 <label className="block text-gray-400 mb-1 text-sm">Points to Spend (αP)</label>
-                 <input
-                   type="text"
-                   inputMode="numeric"
-                   pattern="[0-9]*"
-                   value={redeemAmount}
-                   onChange={(e) => setRedeemAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                   placeholder={`e.g., ${alphaPointsPerSui.toFixed(0)}`}
-                   className="w-full bg-background-input rounded p-3 text-white border border-gray-600 focus:border-primary focus:ring-primary"
+               <h2 className="text-xl font-semibold text-white text-center mb-6">Redeem Alpha Points for Crypto</h2>
+               
+               {/* Cards for each crypto */}
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                 {/* SUI Redemption Card */}
+                 <CryptoRedemptionCard
+                    cryptoName="Sui"
+                    icon={<span className="font-bold text-lg">S</span>} // Simple S icon
+                    exchangeRateText={`${alphaPointsPerSui.toFixed(2)} αP / SUI`}
+                    pointsAvailable={points.available}
+                    onRedeem={handleRedeemSui}
                  />
-                 {estimatedSuiReceive > 0 && (
-                    <div className="text-xs text-gray-400 mt-1 text-right">
-                        ≈ {formatSui(estimatedSuiReceive.toString(), 4)} SUI
-                    </div>
-                 )}
+                 
+                 {/* Placeholder for Avalanche */}
+                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
+                    <span className="text-2xl mb-2">AVAX</span>
+                    <span>Avalanche Coming Soon</span>
+                    <span className="text-xs mt-1">Rate: TBD</span>
+                 </div>
+
+                 {/* Placeholder for ETH */}
+                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
+                    <span className="text-2xl mb-2">ETH</span>
+                    <span>Ethereum Coming Soon</span>
+                    <span className="text-xs mt-1">Rate: TBD</span>
+                 </div>
+
+                 {/* Placeholder for USDC */}
+                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
+                    <span className="text-2xl mb-2">USDC</span>
+                    <span>USDC Coming Soon</span>
+                    <span className="text-xs mt-1">Rate: TBD</span>
+                 </div>
+
+                 {/* Placeholder for Solana */}
+                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
+                    <span className="text-2xl mb-2">SOL</span>
+                    <span>Solana Coming Soon</span>
+                    <span className="text-xs mt-1">Rate: TBD</span>
+                 </div>
+
+                 {/* Placeholder for other cryptos */}
+                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
+                    <span className="text-2xl mb-2">?</span>
+                    <span>More Cryptos Soon</span>
+                    <span className="text-xs mt-1">Rate: TBD</span>
+                 </div>
+
                </div>
-               <button
-                 onClick={handleRedeem}
-                 disabled={!redeemAmount || parseInt(redeemAmount) <= 0 || parseInt(redeemAmount) > points.available}
-                 className="w-full bg-primary hover:bg-primary-dark text-white py-3 px-4 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-               >
-                 Redeem {formatPoints(redeemAmount || '0', 0)} αP
-               </button>
-               <div className="text-xs text-gray-500 mt-3 text-center">
-                 Requires contract SUI balance in Escrow Vault. Network fees apply.
+               
+               {/* Generalized Text Added Below Grid */}
+               <div className="text-xs text-gray-400 mt-6 text-center px-4"> 
+                 Alpha Points allows you to unlock cryptocurrency assets on native chains. Each cryptocurrency has its own exchange rate, based on market values, and will be dynamically discerned via oracles. Additionally this cross-chain system will be available later. Network fees apply.
                </div>
              </div>
            )}
@@ -146,7 +265,7 @@ export const MarketplacePage: React.FC = () => {
                   <h2 className="text-xl font-semibold text-white text-center mb-6">Alpha Perks</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Perks data */}
-                    {[
+                    {[ 
                       { name: 'Trading Fee Discount', cost: '5,000 αP', image: '🔄', comingSoon: true },
                       { name: 'Early Access Features', cost: '10,000 αP', image: '🔑', comingSoon: true },
                       { name: 'NFT Whitelist Spot', cost: '25,000 αP', image: '🎨', comingSoon: true },
@@ -163,6 +282,10 @@ export const MarketplacePage: React.FC = () => {
                         </div>
                       </div>
                     ))}
+                 </div>
+                 {/* Disclaimer Added Here */}
+                 <div className="mt-6 pt-4 border-t border-gray-700 text-xs text-gray-400 text-center italic">
+                   Disclaimer: The perks shown here are conceptual, meant to articulate some, not all, possibilities that Alpha Points can be used by the Alpha4 platform and by partnering teams to extend the Alpha Points ecosystem.
                  </div>
               </div>
            )}

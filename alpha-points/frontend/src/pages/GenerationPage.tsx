@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { MainLayout } from '../layouts/MainLayout';
 
 // Define a generation method interface
@@ -51,9 +52,11 @@ export const GenerationPage: React.FC = () => {
             </div>
           </div>
           <div className="text-center">
-            <button className="bg-primary hover:bg-primary-dark text-white py-2 px-6 rounded transition-colors">
-              Go to Staking
-            </button>
+            <Link to="/dashboard">
+              <button className="bg-primary hover:bg-primary-dark text-white py-2 px-6 rounded transition-colors">
+                Go to Staking
+              </button>
+            </Link>
           </div>
         </div>
       ),

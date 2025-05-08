@@ -41,10 +41,11 @@ export const useZkLogin = () => {
      const existingJwt = localStorage.getItem('zkLogin_jwt');
      const existingProvider = localStorage.getItem('zkLogin_provider') as Provider | null;
      const existingAddress = localStorage.getItem('zkLogin_address'); // Assuming you store address
+     // const existingUserSalt = localStorage.getItem('zkLogin_userSalt'); // Also check for salt for full session restore logic
 
-     if (existingJwt && existingProvider && existingAddress) {
+     if (existingJwt && existingProvider && existingAddress /*&& existingUserSalt*/) {
         // Basic check: could add JWT expiry check here
-        console.log("Restoring existing zkLogin session");
+        // console.log("Restoring existing zkLogin session");
         setState({
             isAuthenticated: true,
             address: existingAddress,
@@ -54,72 +55,88 @@ export const useZkLogin = () => {
    }, []);
 
   const login = useCallback(async (provider: Provider = 'google') => {
+    // console.log("--- Running UPDATED useZkLogin login function (using Enoki nonce) ---"); // Updated entry log
     setLoading(true);
     setError(null);
-    console.log(`Initiating zkLogin with ${provider}...`);
-
-    // Reset state if retrying after error?
-    // setState(initialState);
-    // Clear relevant localStorage? Depends on desired flow.
+    // console.log(`Initiating zkLogin with ${provider} via Enoki nonce...`);
 
     try {
-      const { epoch } = await suiClient.getLatestSuiSystemState();
-      const maxEpoch = Number(epoch) + 2; // Example: active for 2 epochs
+      // Generate ephemeral keypair first
       const ephemeralKeypair = new Ed25519Keypair();
-      const randomness = generateRandomness();
-      const nonce = generateNonce(
-        ephemeralKeypair.getPublicKey(),
-        maxEpoch,
-        randomness
-      );
-      console.log("Generated Sui Nonce:", nonce);
+      const ephemeralPublicKeyBase64 = ephemeralKeypair.getPublicKey().toSuiPublicKey();
+      // console.log("[useZkLogin] Generated Ephemeral Public Key (Base64):", ephemeralPublicKeyBase64);
 
-      // --- Store the actual Sui nonce for later use during callback/proof generation ---
-      localStorage.setItem('zkLogin_nonce', nonce); 
+      // --- Call Enoki Nonce Endpoint --- 
+      // console.log("[useZkLogin] Calling Enoki /v1/zklogin/nonce endpoint...");
+      const VITE_ENOKI_KEY = import.meta.env.VITE_ENOKI_KEY;
+      if (!VITE_ENOKI_KEY) {
+          throw new Error("Configuration error: VITE_ENOKI_KEY is missing.");
+      }
 
-      // --- TEMPORARY NONCE FOR GOOGLE URL --- 
-      // Use a simpler nonce just for the Google redirect URL to debug 400 error.
-      // This simple nonce WILL NOT WORK for the final zkLogin proof.
-      const simpleNonceForUrl = Date.now().toString();
-      console.log("Using Simple Nonce for Google URL (DEBUGGING):", simpleNonceForUrl);
-      // --- END TEMPORARY NONCE ---
+      const nonceResponseRaw = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin/nonce', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${VITE_ENOKI_KEY}`,
+        },
+        body: JSON.stringify({
+          network: 'testnet', // Or your target network
+          ephemeralPublicKey: ephemeralPublicKeyBase64,
+          // additionalEpochs: 2 // Optional: defaults to 2
+        })
+      });
 
-      // --- CRITICAL SECURITY WARNING ---
-      // Storing the secret key seed directly in localStorage is INSECURE for production.
-      // Use secure storage (e.g., browser extension APIs, platform secure storage)
-      // or manage keys via a dedicated wallet adapter/service.
+      if (!nonceResponseRaw.ok) {
+        const errorBody = await nonceResponseRaw.text();
+        console.error("Enoki Nonce Request Payload:", { network: 'testnet', ephemeralPublicKey: ephemeralPublicKeyBase64 });
+        throw new Error(`Enoki Nonce service error: ${nonceResponseRaw.status} ${nonceResponseRaw.statusText} - ${errorBody}`);
+      }
+
+      const nonceResponse = await nonceResponseRaw.json();
+      if (!nonceResponse.data || !nonceResponse.data.nonce || !nonceResponse.data.randomness || !nonceResponse.data.maxEpoch) {
+        console.error("Invalid Enoki Nonce response structure:", nonceResponse);
+        throw new Error("Invalid response structure from Enoki Nonce service.");
+      }
+
+      const { nonce, randomness, maxEpoch } = nonceResponse.data; // Destructure directly
+      // console.log("[useZkLogin] Received from Enoki Nonce service:", { nonce, randomness, maxEpoch });
+      // --- End Enoki Nonce Endpoint Call --- 
+
+      // --- Store necessary data --- 
+      // Nonce itself is sent to Google, not stored long-term here usually, but good for debug
+      localStorage.setItem('zkLogin_nonce_from_enoki', nonce);
+      
+      // Store key seed (INSECURE - for demo only) 
       const ephemeralSecretKeySeedString = JSON.stringify(Array.from(ephemeralKeypair.getSecretKey()));
       localStorage.setItem('zkLogin_ephemeralSecretKeySeed', ephemeralSecretKeySeedString);
-      console.log("Stored ephemeral key seed (INSECURE METHOD)");
-      // --- End Warning ---
+      // console.log("Stored ephemeral key seed (INSECURE METHOD)");
 
-      // Store other necessary info
+      // Store Enoki-provided randomness and maxEpoch
       localStorage.setItem('zkLogin_maxEpoch', maxEpoch.toString());
-      localStorage.setItem('zkLogin_randomness', randomness);
+      localStorage.setItem('zkLogin_randomness', randomness); // Enoki returns randomness as string
+      
       localStorage.setItem('zkLogin_provider', provider);
-      // Store public key bytes as string array for potential reconstruction
+      
+      // Store public key bytes (still needed by StakeCard to reconstruct pubkey base64 for Enoki ZKP call)
       localStorage.setItem('zkLogin_ephemeralPublicKeyBytes', JSON.stringify(Array.from(ephemeralKeypair.getPublicKey().toRawBytes())));
-
+      // --- End Storing Data --- 
 
       const clientId = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID;
-      console.log("Using Client ID:", clientId ? clientId.substring(0, 10) + '...' : 'Not Found!');
-
+      // console.log("Using Client ID:", clientId ? clientId.substring(0, 10) + '...' : 'Not Found!');
       if (!clientId) {
-          const errorMsg = "Config Error: VITE_GOOGLE_WEB_CLIENT_ID not set.";
-          console.error(errorMsg); setError(errorMsg); setLoading(false); return;
+          throw new Error("Config Error: VITE_GOOGLE_WEB_CLIENT_ID not set.");
       }
 
       const redirectUri = `${window.location.origin}/callback`;
-      console.log("Using Redirect URI:", redirectUri);
-      // Ensure origin and redirect URI are configured in Google Cloud Console
+      // console.log("Using Redirect URI:", redirectUri);
 
       const oauthParams = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'id_token',
         scope: 'openid email profile',
-        // Use the simple nonce for the URL sent to Google
-        nonce: simpleNonceForUrl, 
+        // Use the nonce received from the Enoki Nonce endpoint
+        nonce: nonce, 
       });
 
       let authUrl;
@@ -129,9 +146,7 @@ export const useZkLogin = () => {
           break;
         default: throw new Error(`Unsupported provider: ${provider}`);
       }
-      console.log("Redirecting to Auth URL...");
-
-      // Redirect user
+      // console.log("Redirecting to Auth URL...");
       window.location.href = authUrl;
 
     } catch (err: any) {
@@ -139,27 +154,47 @@ export const useZkLogin = () => {
       setError(`Failed to initiate login: ${err.message || 'Unknown error'}`);
       setLoading(false);
     }
-    // No setLoading(false) here because of redirection
-  }, [/* suiClient */]); // Removed suiClient dependency as getLatestSuiSystemState is outside useCallback now
+  }, []); 
 
 
   // --- Add handleCallback Function ---
   const handleCallback = useCallback(async (jwt: string) => {
-     console.log("Handling zkLogin callback...");
+     // console.log("Handling zkLogin callback...");
      setLoading(true);
      setError(null);
 
      try {
-        // --- CRITICAL: User Salt ---
-        // Replace BigInt(0) with a unique, secure salt for each user.
-        const userSalt = BigInt(0); // <<< REPLACE THIS IN PRODUCTION
-        console.warn("Using insecure userSalt (BigInt(0)) for zkLogin address derivation.");
-        // --- End Salt Warning ---
+        // --- Get Address and Salt from Enoki --- 
+        // console.log("[handleCallback] Calling Enoki GET /v1/zklogin endpoint...");
+        const VITE_ENOKI_KEY = import.meta.env.VITE_ENOKI_KEY;
+        if (!VITE_ENOKI_KEY) {
+            throw new Error("Configuration error: VITE_ENOKI_KEY is missing.");
+        }
 
-        // Derive the Sui address
-        const address = jwtToAddress(jwt, userSalt);
-        console.log("Derived zkLogin address:", address);
+        const enokiAddressResponseRaw = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${VITE_ENOKI_KEY}`,
+                'zklogin-jwt': jwt, 
+            }
+        });
 
+        if (!enokiAddressResponseRaw.ok) {
+            const errorBody = await enokiAddressResponseRaw.text();
+            console.error("Enoki GET /zklogin JWT used (first 20 chars):", jwt ? jwt.substring(0,20) : "N/A");
+            throw new Error(`Enoki GET /zklogin service error: ${enokiAddressResponseRaw.status} ${enokiAddressResponseRaw.statusText} - ${errorBody}`);
+        }
+        
+        const enokiAddressResponse = await enokiAddressResponseRaw.json();
+        if (!enokiAddressResponse.data || !enokiAddressResponse.data.address || !enokiAddressResponse.data.salt) {
+           console.error("Invalid Enoki GET /zklogin response structure:", enokiAddressResponse);
+           throw new Error("Invalid response structure from Enoki GET /zklogin service.");
+        }
+        
+        const { address, salt: userSaltFromEnoki } = enokiAddressResponse.data;
+        // console.log("[handleCallback] Received from Enoki GET /zklogin:", { address, userSaltFromEnoki });
+        // --- End Get Address/Salt from Enoki ---
+        
         // Retrieve provider from storage
          const provider = localStorage.getItem('zkLogin_provider') as Provider | null;
          if (!provider) {
@@ -167,11 +202,12 @@ export const useZkLogin = () => {
              throw new Error("Provider not found in localStorage during callback.");
          }
 
-        // Store JWT and derived address
+        // Store JWT and Enoki-derived address
         localStorage.setItem('zkLogin_jwt', jwt);
-        localStorage.setItem('zkLogin_address', address); // Store address for session restore
+        localStorage.setItem('zkLogin_address', address); // Store Enoki-verified address
+        localStorage.setItem('zkLogin_userSalt_from_enoki', userSaltFromEnoki); // Store Enoki salt for debug/potential use
 
-        // Update React state
+        // Update React state using Enoki-verified address
         setState({
             isAuthenticated: true,
             address: address,
@@ -183,32 +219,31 @@ export const useZkLogin = () => {
         // but ensure it's not accidentally reused if login flow restarts.
 
         setLoading(false);
-        console.log("zkLogin authentication successful. Callback handler component should now navigate.");
+        // console.log("zkLogin authentication successful. Callback handler component should now navigate.");
 
      } catch (err: any) {
          console.error("Error handling zkLogin callback:", err);
          setError(`Failed to complete authentication: ${err.message || 'Unknown callback error'}`);
          setState(initialState); // Reset state on error
          // Clear potentially partial localStorage data on callback error
-         localStorage.removeItem('zkLogin_jwt');
-         localStorage.removeItem('zkLogin_address');
-         // Keep provider/maxEpoch/randomness/key? Or clear all? Depends on desired retry behavior.
-         // Let's clear all for simplicity on error during callback:
          localStorage.removeItem('zkLogin_ephemeralSecretKeySeed');
          localStorage.removeItem('zkLogin_maxEpoch');
          localStorage.removeItem('zkLogin_randomness');
          localStorage.removeItem('zkLogin_provider');
          localStorage.removeItem('zkLogin_ephemeralPublicKeyBytes');
-         localStorage.removeItem('zkLogin_nonce');
+         localStorage.removeItem('zkLogin_nonce_from_enoki');
+         // Also remove userSalt if a new one was generated and an error occurred after that
+         localStorage.removeItem('zkLogin_userSalt'); // Remove old client-side salt key if present
+         localStorage.removeItem('zkLogin_userSalt_from_enoki'); // Remove enoki salt on error too
 
          setLoading(false);
      }
-  }, [/* dependencies */]); // No dependencies needed if only using localStorage and setting state
+  }, []);
 
 
   // --- Add logout Function ---
   const logout = useCallback(() => {
-      console.log("Logging out from zkLogin...");
+      // console.log("Logging out from zkLogin...");
       setState(initialState); // Reset React state
 
       // Clear all related zkLogin items from localStorage
@@ -219,11 +254,13 @@ export const useZkLogin = () => {
       localStorage.removeItem('zkLogin_jwt');
       localStorage.removeItem('zkLogin_address');
       localStorage.removeItem('zkLogin_ephemeralPublicKeyBytes');
-      localStorage.removeItem('zkLogin_nonce');
+      localStorage.removeItem('zkLogin_nonce_from_enoki');
+      localStorage.removeItem('zkLogin_userSalt'); // Clear old client-side salt key
+      localStorage.removeItem('zkLogin_userSalt_from_enoki'); // Also clear enoki salt on logout
 
        // Optionally redirect to home page after logout
        // window.location.href = '/';
-       console.log("zkLogin local storage cleared.");
+       // console.log("zkLogin local storage cleared.");
   }, []);
 
 

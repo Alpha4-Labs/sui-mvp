@@ -1,6 +1,7 @@
 /**
  * Transaction builder utilities for Alpha Points operations
  * Updated with proper BCS serialization for Sui SDK v1.0+
+ * Adjusted for two-transaction native staking flow.
  */
 
 import { Transaction } from '@mysten/sui/transactions';
@@ -11,35 +12,55 @@ import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contra
 const SUI_SYSTEM_STATE_ID = '0x5';
 
 /**
- * Builds a transaction for staking SUI
+ * Transaction 1: Builds a transaction to request adding stake to the Sui system.
+ * This transaction, when executed, will result in a StakedSui object being
+ * transferred to the sender.
  * 
  * @param amount Amount in MIST (SUI * 10^9)
- * @param durationDays Duration in days for the stake
  * @param validatorAddress Validator's address
  * @returns Transaction object ready for execution
  */
-export const buildStakeSuiTransaction = (
+export const buildRequestAddStakeTransaction = (
   amount: bigint,
-  durationDays: number,
   validatorAddress: string
 ) => {
   const tx = new Transaction();
   
-  // 1. Split SUI coin for staking
-  const [coinToStake] = tx.splitCoins(tx.gas, [amount]);
+  // Create the coin for staking by splitting from tx.gas
+  const stakeCoin = tx.splitCoins(tx.gas, [tx.pure.u64(amount)]);
   
-  // 2. Request to add stake to a validator (returns StakedSui object)
-  const stakedSui = tx.moveCall({
-    target: `0x3::sui_system::request_add_stake`, // Use 0x3 for sui_system module on mainnet/testnet
+  // 2. Request to add stake to a validator
+  // This transfers the resulting StakedSui object to the sender.
+  tx.moveCall({
+    target: `0x3::sui_system::request_add_stake`, // Use 0x3 for sui_system module
     arguments: [
       tx.object(SUI_SYSTEM_STATE_ID), // SuiSystemState object ID
-      coinToStake,                    // The Coin<SUI> to stake
-      tx.pure(validatorAddress),      // Validator's address
+      stakeCoin,                    // The Coin<SUI> to stake (split from gas)
+      tx.pure.address(validatorAddress)     // Validator's address, using tx.pure.address() helper
     ]
   });
   
-  // 3. Call the integration module's route_stake_sui function
-  //    passing the StakedSui object from the previous step.
+  // Note: The StakedSui object is NOT returned as a result usable in the same PTB.
+  // The user needs to find this object in their account after executing this transaction.
+  return tx;
+};
+
+/**
+ * Transaction 2: Builds a transaction to register a StakedSui object with our protocol
+ * and receive a StakePosition NFT.
+ * 
+ * @param stakedSuiObjectId The Object ID of the StakedSui object obtained from Transaction 1.
+ * @param durationDays The desired staking duration in days.
+ * @returns Transaction object ready for execution
+ */
+export const buildRegisterStakeTransaction = (
+  stakedSuiObjectId: string,
+  durationDays: number
+) => {
+  const tx = new Transaction();
+
+  // Call the integration module's function, passing the StakedSui object by ID.
+  // The function expects the object itself, so we pass the object ID as an argument.
   tx.moveCall({
     target: `${PACKAGE_ID}::integration::route_stake_sui`,
     arguments: [
@@ -47,7 +68,7 @@ export const buildStakeSuiTransaction = (
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(SHARED_OBJECTS.stakingManager),
       tx.object(CLOCK_ID),
-      stakedSui,  // Pass the StakedSui object from the previous call
+      tx.object(stakedSuiObjectId),  // Pass the StakedSui object ID as an object argument
       tx.pure(bcs.U64.serialize(durationDays).toBytes()),
       tx.pure(bcs.option(bcs.Address).serialize(null).toBytes()) // Referrer (Option<address>)
     ]
@@ -69,7 +90,7 @@ export const buildUnstakeTransaction = (
   
   tx.moveCall({
     target: `${PACKAGE_ID}::integration::redeem_stake`,
-    typeArguments: [SUI_TYPE],
+    typeArguments: [SUI_TYPE], // NOTE: Verify if this should be StakedSui or something else after refactor
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),
@@ -97,7 +118,7 @@ export const buildRedeemPointsTransaction = (
 
   tx.moveCall({
     target: `${PACKAGE_ID}::integration::redeem_points`,
-    typeArguments: [SUI_TYPE],
+    typeArguments: [SUI_TYPE], // NOTE: Verify this type argument
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),
@@ -131,11 +152,15 @@ export const buildCreateLoanTransaction = (
   }
 
   const tx = new Transaction();
-  const serializedPointsAmountBytes = bcs.U64.serialize(pointsAmount).toBytes();
+  // Convert the JavaScript number to a BigInt before serializing for u64.
+  const pointsAmountAsBigInt = BigInt(pointsAmount);
+  const serializedPointsAmountBytes = bcs.U64.serialize(pointsAmountAsBigInt).toBytes();
 
   tx.moveCall({
     target: `${PACKAGE_ID}::loan::open_loan`,
-    typeArguments: [SUI_TYPE],
+    // The type argument T for open_loan<T> is the type of the asset STAKED,
+    // which is 0x3::staking_pool::StakedSui for native SUI stakes.
+    typeArguments: ['0x3::staking_pool::StakedSui'], 
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.loanConfig),
@@ -164,7 +189,8 @@ export const buildRepayLoanTransaction = (
   
   tx.moveCall({
     target: `${PACKAGE_ID}::loan::repay_loan`,
-    typeArguments: [SUI_TYPE],
+    // NOTE: Verify type argument (similar to create loan)
+    typeArguments: [`${PACKAGE_ID}::stake_position::StakePosition<0x3::staking_pool::StakedSui>`], // Example: Needs verification
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),

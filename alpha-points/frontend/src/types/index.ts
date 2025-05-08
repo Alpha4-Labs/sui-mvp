@@ -13,12 +13,13 @@ export interface StakePosition {
   id: string;
   owner: string;
   principal: string;
-  startEpoch: string;
-  unlockEpoch: string;
-  durationEpochs: string;
+  startEpoch?: string;
+  unlockEpoch?: string;
+  durationEpochs?: string;
   durationDays: string;
   encumbered: boolean;
   maturityPercentage: number;
+  apy: number;
   
   // New field for improved date handling
   calculatedUnlockDate?: string;
@@ -108,12 +109,13 @@ export function isStakePosition(value: any): value is StakePosition {
     isString(value.id) &&
     isString(value.owner) &&
     isString(value.principal) &&
-    isString(value.startEpoch) &&
-    isString(value.unlockEpoch) &&
-    isString(value.durationEpochs) &&
+    (value.startEpoch === undefined || isString(value.startEpoch)) &&
+    (value.unlockEpoch === undefined || isString(value.unlockEpoch)) &&
+    (value.durationEpochs === undefined || isString(value.durationEpochs)) &&
     isString(value.durationDays) &&
     typeof value.encumbered === 'boolean' &&
     isNumber(value.maturityPercentage) &&
+    isNumber(value.apy) &&
     isString(value.lastClaimEpoch) &&
     isString(value.amount) &&
     isString(value.startTimeMs) &&

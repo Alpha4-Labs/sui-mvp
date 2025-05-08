@@ -71,6 +71,7 @@ export const WelcomePage: React.FC = () => {
             )}
           </div>
 
+          {/* === COMMENT OUT ZKLOGIN BUTTON ===
           <button
             onClick={() => login('google')}
             disabled={zkLoginLoading || alphaContext.isConnected}
@@ -81,6 +82,7 @@ export const WelcomePage: React.FC = () => {
             </svg>
             Sign in with Google
           </button>
+          === END COMMENT OUT ZKLOGIN BUTTON === */}
         </div>
       </div>
 

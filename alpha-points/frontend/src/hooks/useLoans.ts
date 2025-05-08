@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
 
 import { Loan } from '../types';
-import { PACKAGE_ID, SUI_TYPE } from '../config/contract';
+import { PACKAGE_ID } from '../config/contract';
+
+// Define the explicit type argument for native StakedSui, consistent with useStakePositions
+const NATIVE_STAKED_SUI_TYPE_ARG = '0x3::staking_pool::StakedSui';
 
 /**
  * Hook for fetching and managing user's loans against staked positions
@@ -33,7 +36,7 @@ export const useLoans = () => {
       const response = await client.getOwnedObjects({
         owner: currentAccount.address,
         filter: {
-          StructType: `${PACKAGE_ID}::loan::Loan<${SUI_TYPE}>`,
+          StructType: `${PACKAGE_ID}::loan::Loan<${NATIVE_STAKED_SUI_TYPE_ARG}>`,
         },
         options: {
           showContent: true, // Request content to get fields

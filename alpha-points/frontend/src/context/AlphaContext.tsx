@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
-import { useCurrentAccount, useDisconnectWallet } from '@mysten/dapp-kit';
+import { useCurrentAccount, useDisconnectWallet, useSuiClient } from '@mysten/dapp-kit';
 import { useAlphaPoints } from '../hooks/useAlphaPoints';
 import { useStakePositions } from '../hooks/useStakePositions';
 import { useLoans } from '../hooks/useLoans';
@@ -8,14 +8,20 @@ import { Loan, StakePosition, PointBalance, DurationOption } from '../types';
 
 // Define the shape of the context value using specific types
 interface AlphaContextType {
-  // Data
+  // Connection & Account
   isConnected: boolean;
   address: string | undefined;
   provider: string | null;
+  
+  // Core Data
+  suiBalance: string;
   points: PointBalance;
   stakePositions: StakePosition[];
   loans: Loan[];
+  
+  // Loading States
   loading: {
+    suiBalance: boolean;
     points: boolean;
     positions: boolean;
     loans: boolean;
@@ -43,10 +49,12 @@ const defaultContext: AlphaContextType = {
   isConnected: false,
   address: undefined,
   provider: null,
+  suiBalance: '0',
   points: { available: 0, locked: 0, total: 0 },
   stakePositions: [],
   loans: [],
   loading: {
+    suiBalance: false,
     points: false,
     positions: false,
     loans: false,
@@ -58,7 +66,7 @@ const defaultContext: AlphaContextType = {
     loans: null,
   },
   durations: [],
-  selectedDuration: { days: 30, label: '30 days', apy: 10.0 }, // Default value
+  selectedDuration: { days: 30, label: '30 days', apy: 10.0 },
   setSelectedDuration: () => {},
   refreshData: () => {},
   setTransactionLoading: () => {},
@@ -82,6 +90,7 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const currentAccount = useCurrentAccount();
   const zkLogin = useZkLogin();
   const { mutate: disconnectWalletDappKit } = useDisconnectWallet();
+  const suiClient = useSuiClient();
 
   // Use the data fetching hooks with proper typing
   const { 
@@ -105,6 +114,10 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     refetch: refetchLoans 
   } = useLoans();
 
+  // SUI Balance state
+  const [suiBalance, setSuiBalance] = useState<string>('0');
+  const [loadingSuiBalance, setLoadingSuiBalance] = useState(false);
+
   // Transaction loading state
   const [transactionLoading, setTransactionLoading] = useState(false);
   
@@ -112,46 +125,61 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [durations] = useState<DurationOption[]>(DEFAULT_DURATIONS);
   const [selectedDuration, setSelectedDuration] = useState<DurationOption>(DEFAULT_DURATIONS[2]); // Default to 30 days
 
+  // Data fetching functions
+  const fetchSuiBalance = useCallback(async (addr: string | undefined) => {
+    if (!addr) {
+      setSuiBalance('0');
+      return;
+    }
+    setLoadingSuiBalance(true);
+    try {
+      const { totalBalance } = await suiClient.getBalance({ owner: addr, coinType: '0x2::sui::SUI' });
+      setSuiBalance(totalBalance);
+    } catch (err) {
+      console.error("[AlphaContext] Error fetching SUI balance:", err);
+      setSuiBalance('0'); // Reset on error
+    } finally {
+      setLoadingSuiBalance(false);
+    }
+  }, [suiClient]);
+
   // Combined refresh function for all data
   const refreshData = useCallback(() => {
     const activeAddress = zkLogin.address || currentAccount?.address;
-    console.log("AlphaContext: Refreshing all data... for address:", activeAddress);
     if (activeAddress) {
+      fetchSuiBalance(activeAddress);
       refetchPoints(activeAddress);
       refetchPositions(activeAddress);
-      // TODO: Modify useLoans similarly and call it here with activeAddress
-      // refetchLoans(activeAddress);
     } else {
-      // If no active address, clear data by calling refetch with undefined
+      fetchSuiBalance(undefined);
       refetchPoints(undefined);
       refetchPositions(undefined);
-      // refetchLoans(undefined);
     }
-  }, [refetchPoints, refetchPositions, refetchLoans, currentAccount?.address, zkLogin.address, zkLogin.isAuthenticated]);
+  }, [
+    fetchSuiBalance,
+    refetchPoints, 
+    refetchPositions, 
+    refetchLoans, 
+    currentAccount?.address, 
+    zkLogin.address
+  ]);
 
   // Auto-refresh when account changes (either from wallet or zkLogin)
   useEffect(() => {
     const activeAddress = zkLogin.address || currentAccount?.address;
-    // Trigger refresh if isConnected state changes (e.g. after login) or address changes
     if (zkLogin.isAuthenticated || currentAccount?.address) {
-      console.log("AlphaContext: Account changed or zkLogin/wallet detected, refreshing data for", activeAddress);
       refreshData();
     } else {
-      // If not connected (e.g. after logout), ensure data is cleared
-      console.log("AlphaContext: No active session, ensuring data is cleared.");
       refreshData(); // This will call refetches with undefined address
     }
   }, [currentAccount?.address, zkLogin.address, zkLogin.isAuthenticated, refreshData]);
 
   // Unified logout function
   const logout = useCallback(() => {
-    console.log("AlphaContext: Initiating logout...");
     if (zkLogin.isAuthenticated) {
-      console.log("AlphaContext: Logging out from zkLogin.");
       zkLogin.logout();
     }
     if (currentAccount) {
-      console.log("AlphaContext: Disconnecting dapp-kit wallet.");
       disconnectWalletDappKit();
     }
     // Data clearing should be handled by the refreshData effect when addresses become null
@@ -162,10 +190,12 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     isConnected: zkLogin.isAuthenticated || !!currentAccount,
     address: zkLogin.address || currentAccount?.address,
     provider: zkLogin.isAuthenticated ? zkLogin.provider : (currentAccount ? 'dapp-kit' : null),
+    suiBalance,
     points,
     stakePositions,
     loans,
     loading: {
+      suiBalance: loadingSuiBalance,
       points: loadingPoints,
       positions: loadingPositions,
       loans: loadingLoans,

@@ -170,3 +170,20 @@ export function getTransactionErrorMessage(error: unknown): string {
     ? error 
     : 'An unknown error occurred during transaction execution.';
 }
+
+/**
+ * Extracts created object changes from a transaction response.
+ * Requires the response to include object changes.
+ */
+import { SuiTransactionBlockResponse, SuiObjectChangeCreated } from '@mysten/sui/client';
+
+export function getCreatedObjects(response: SuiTransactionBlockResponse): SuiObjectChangeCreated[] | null {
+  if (!response.objectChanges) {
+    console.warn('Cannot get created objects: response does not include objectChanges.');
+    return null;
+  }
+
+  return response.objectChanges.filter(
+    (change): change is SuiObjectChangeCreated => change.type === 'created'
+  );
+}
