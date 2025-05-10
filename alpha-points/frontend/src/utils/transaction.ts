@@ -189,8 +189,8 @@ export const buildRepayLoanTransaction = (
   
   tx.moveCall({
     target: `${PACKAGE_ID}::loan::repay_loan`,
-    // NOTE: Verify type argument (similar to create loan)
-    typeArguments: [`${PACKAGE_ID}::stake_position::StakePosition<0x3::staking_pool::StakedSui>`], // Example: Needs verification
+    // Corrected type argument: T should be the type of the staked asset (e.g., StakedSui)
+    typeArguments: ['0x2::staking_pool::StakedSui'], // Corrected from 0x3
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),

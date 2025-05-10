@@ -9,7 +9,7 @@ import { adaptPtbJsonForSignAndExecute } from '../utils/transaction-adapter';
 
 // Define prices for rate calculation
 const SUI_PRICE_USD = 3.28;
-const ALPHA_POINT_PRICE_USD = 0.10;
+const ALPHA_POINT_PRICE_USD = 3.28 / 1191360; // Approx. 0.000002753 target rate for 1,191,360 αP / SUI
 
 // --- Crypto Redemption Card Component ---
 interface CryptoRedemptionCardProps {
@@ -210,7 +210,7 @@ export const MarketplacePage: React.FC = () => {
                  <CryptoRedemptionCard
                     cryptoName="Sui"
                     icon={<span className="font-bold text-lg">S</span>} // Simple S icon
-                    exchangeRateText={`${alphaPointsPerSui.toFixed(2)} αP / SUI`}
+                    exchangeRateText={`${alphaPointsPerSui.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} αP / SUI`}
                     pointsAvailable={points.available}
                     onRedeem={handleRedeemSui}
                  />

@@ -3,17 +3,17 @@ import { bcs } from '@mysten/sui/bcs';
 // --- Contract Configuration ---
 
 // Latest Package ID from deployment 85Nb36...
-export const PACKAGE_ID = '0x3a1be8e089de0f39587577c575e19f01b2458966a634eaa63f8c2dde5e08515f';
+export const PACKAGE_ID = '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a';
 
 // Shared object IDs - Updated with latest deployment fallbacks
 // !! IMPORTANT: Verify loanConfig, oracle, and escrowVault fallbacks match your latest initialization results !!
 export const SHARED_OBJECTS = {
   // Latest Config ID from deployment 85Nb36...
-  config: '0xa540c2c983d62f08f287f1b3362fd11d3fefd7c79e136be22dcae9b40f152716',
+  config: '0xf180290c291c7c9628e90e04484ec9e5688802273997e9a05df5431798342f05',
   // Latest Ledger ID from deployment 85Nb36...
-  ledger: '0x8bf7c5a86e5f3d551f628825a44e84b23cd58e95f3959c79ce0d27b1ee9bd2e0',
+  ledger: '0x46d8bcb53f05d758b4b77924095a8358da5b7005a9b3e08a4e970ef617690335',
   // StakingManager ID from deployment 85Nb36...
-  stakingManager: '0x5193ca5ab52d9503a6c3c22a5cb455a70dea279492a41ffc1758b15198b088df',
+  stakingManager: '0xf4f96a8211465553dd477e0471f4a57dc5ec3f1810d457e90d9bf9f9539262eb',
   // IDs to be updated after separate initialization if not part of main package init
   // Default to environment variable, or an empty string if the env var is not set.
   escrowVault: import.meta.env.VITE_ESCROW_ID || '', 

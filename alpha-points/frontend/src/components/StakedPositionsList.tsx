@@ -88,23 +88,29 @@ export const StakedPositionsList: React.FC = () => {
   };
 
   // Helper for Estimated Rewards Calculation
-  // Now uses APY directly from the position object
-  const calculateEstRewards = (principal?: string, durationDaysStr?: string, positionApy?: number): string => {
-    if (!principal || !durationDaysStr || typeof positionApy === 'undefined') return '0';
+  // Now uses APY directly from the position object and calculates Alpha Points
+  const calculateEstAlphaPointRewards = (principal?: string, durationDaysStr?: string, positionApy?: number): string => {
+    if (!principal || !durationDaysStr || typeof positionApy === 'undefined') return '~0 αP (0 αP/epoch)';
     try {
       const principalNum = parseInt(principal, 10); // This is MIST
       const durationDays = parseInt(durationDaysStr, 10);
-      const apy = positionApy / 100; // APY from position is in percent, convert to decimal
-
-      if (isNaN(principalNum) || isNaN(durationDays) || durationDays <= 0 || isNaN(apy)) return '0';
-
-      // Calculate reward based on principal in SUI, APY, and duration
       const principalSui = principalNum / 1_000_000_000; // Convert MIST to SUI
-      const rewards = principalSui * apy * (durationDays / 365);
 
-      return isFinite(rewards) ? formatSui(rewards.toString(), 4) : '0';
+      if (isNaN(principalSui) || isNaN(durationDays) || durationDays <= 0) return '~0 αP (0 αP/epoch)';
+
+      const ALPHA_POINTS_PER_SUI_PER_EPOCH = 68;
+      const EPOCHS_PER_DAY = 1; // Corrected: Sui Testnet epochs are 24 hours
+
+      const totalEpochs = durationDays * EPOCHS_PER_DAY; // This will now correctly be equal to durationDays
+      const totalAlphaPointsRewards = principalSui * ALPHA_POINTS_PER_SUI_PER_EPOCH * totalEpochs;
+      const alphaPointsPerEpoch = principalSui * ALPHA_POINTS_PER_SUI_PER_EPOCH; // This remains per 24h epoch
+
+      const formattedTotalAlphaPoints = totalAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
+      const formattedAlphaPointsPerEpoch = alphaPointsPerEpoch.toLocaleString(undefined, {maximumFractionDigits: 0});
+
+      return `~${formattedTotalAlphaPoints} αP (${formattedAlphaPointsPerEpoch} αP/epoch)`;
     } catch {
-      return '0';
+      return '~0 αP (0 αP/epoch)';
     }
   };
 
@@ -206,7 +212,7 @@ export const StakedPositionsList: React.FC = () => {
 
                   <span className="text-gray-400">Est. Rewards</span>
                   <span className="text-green-400 text-right">
-                     ~{calculateEstRewards(position.principal, position.durationDays, position.apy)} SUI
+                     {calculateEstAlphaPointRewards(position.principal, position.durationDays, position.apy)}
                   </span>
                 </div>
 

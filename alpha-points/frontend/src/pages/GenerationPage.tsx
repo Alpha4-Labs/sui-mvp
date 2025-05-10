@@ -33,22 +33,22 @@ export const GenerationPage: React.FC = () => {
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">7-Day Stake</div>
               <div className="text-white font-medium">5% APY</div>
-              <div className="text-green-400 text-sm mt-1">+500 Points/day per 1000 ALPHA</div>
+              <div className="text-green-400 text-sm mt-1">+{500 .toLocaleString()} Points/day per {1000 .toLocaleString()} ALPHA</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">30-Day Stake</div>
               <div className="text-white font-medium">10% APY</div>
-              <div className="text-green-400 text-sm mt-1">+650 Points/day per 1000 ALPHA</div>
+              <div className="text-green-400 text-sm mt-1">+{650 .toLocaleString()} Points/day per {1000 .toLocaleString()} ALPHA</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">90-Day Stake</div>
               <div className="text-white font-medium">15% APY</div>
-              <div className="text-green-400 text-sm mt-1">+800 Points/day per 1000 ALPHA</div>
+              <div className="text-green-400 text-sm mt-1">+{800 .toLocaleString()} Points/day per {1000 .toLocaleString()} ALPHA</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">365-Day Stake</div>
               <div className="text-white font-medium">25% APY</div>
-              <div className="text-green-400 text-sm mt-1">+1200 Points/day per 1000 ALPHA</div>
+              <div className="text-green-400 text-sm mt-1">+{1200 .toLocaleString()} Points/day per {1000 .toLocaleString()} ALPHA</div>
             </div>
           </div>
           <div className="text-center">

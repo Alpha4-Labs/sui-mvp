@@ -37,8 +37,12 @@ export const LoanPanel: React.FC = () => {
   const [selectedPercentage, setSelectedPercentage] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Assume 1 Alpha Point = $0.10 USD for demonstration
-  const ALPHA_POINT_USD_VALUE = 0.1;
+  // Use the same price constants as MarketplacePage for consistency
+  // These should ideally be imported from a shared config if they become more complex
+  const SUI_PRICE_USD_FOR_LOAN = 3.28;
+  const ALPHA_POINT_PRICE_USD_FOR_LOAN = 3.28 / 1191360; // Matches MarketplacePage target rate for 1,191,360 aP / SUI
+  const ALPHA_POINTS_PER_SUI_FOR_LOAN = SUI_PRICE_USD_FOR_LOAN / ALPHA_POINT_PRICE_USD_FOR_LOAN; // Should be ~1,191,360
+
   // Loan-to-Value ratio (70%)
   const LTV_RATIO = 0.7;
 
@@ -53,16 +57,17 @@ export const LoanPanel: React.FC = () => {
     if (selectedStakeId) {
       const selectedPosition = eligiblePositions.find(pos => pos.id === selectedStakeId);
       if (selectedPosition) {
-        // Convert SUI to Alpha Points (simplified conversion for demo)
-        // Assuming 1 SUI = 10 Alpha Points for this example
-        const stakeValueInPoints = Number(selectedPosition.principal) / 1_000_000_000 * 10;
-        const maxLoan = Math.floor(stakeValueInPoints * LTV_RATIO);
+        const principalSuiValue = Number(selectedPosition.principal) / 1_000_000_000;
+        // Calculate the stake's value in Alpha Points using the new rate
+        const stakeValueInAlphaPoints = principalSuiValue * ALPHA_POINTS_PER_SUI_FOR_LOAN;
+        
+        const maxLoan = Math.floor(stakeValueInAlphaPoints * LTV_RATIO);
         setMaxLoanAmount(maxLoan);
-        setMaxLoanUsd(maxLoan * ALPHA_POINT_USD_VALUE);
-
-        // Reset loan amount and percentage when position changes
-        setLoanAmount('');
-        setSelectedPercentage(null);
+        
+        // USD value of the max loan, using the new Alpha Point USD value
+        setMaxLoanUsd(maxLoan * ALPHA_POINT_PRICE_USD_FOR_LOAN);
+        setLoanAmount(maxLoan > 0 ? maxLoan.toString() : '0'); // Default to max loan if possible
+        setError(null); // Clear previous errors
       }
     } else {
       setMaxLoanAmount(0);
@@ -99,8 +104,13 @@ export const LoanPanel: React.FC = () => {
     } else {
       setLoanAmount(numericValue);
       // Calculate and set the percentage
-      const percentage = Math.round((numericAmount / maxLoanAmount) * 100);
-      setSelectedPercentage(percentage);
+      const currentLoanAmount = parseInt(numericValue, 10);
+      if (maxLoanAmount > 0 && !isNaN(currentLoanAmount)) { // Add check for maxLoanAmount > 0
+        const percentage = Math.round((currentLoanAmount / maxLoanAmount) * 100);
+        setSelectedPercentage(percentage);
+      } else {
+        setSelectedPercentage(null); // Reset if maxLoanAmount is 0 or input is invalid
+      }
     }
   };
 
@@ -240,15 +250,17 @@ export const LoanPanel: React.FC = () => {
                   <input
                     type="text"
                     inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={loanAmount}
-                    onChange={(e) => handleLoanAmountChange(e.target.value)}
+                    value={parseInt(loanAmount, 10).toLocaleString(undefined, {maximumFractionDigits: 0}) || ''}
+                    onChange={(e) => {
+                      const rawValue = e.target.value.replace(/[^0-9]/g, '');
+                      handleLoanAmountChange(rawValue);
+                    }}
                     placeholder={`Max ${formatPoints(maxLoanAmount.toString())} αP`}
                     className="w-full bg-background-input rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary"
                   />
-                  {loanAmount && (
+                  {loanAmount && parseInt(loanAmount) > 0 && (
                     <div className="text-xs text-gray-400 mt-1">
-                      ≈ ${(parseInt(loanAmount) * ALPHA_POINT_USD_VALUE).toFixed(2)} USD
+                      ≈ ${(parseInt(loanAmount) * ALPHA_POINT_PRICE_USD_FOR_LOAN).toFixed(2)} USD
                     </div>
                   )}
                 </div>

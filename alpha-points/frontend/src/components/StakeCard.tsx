@@ -497,7 +497,7 @@ export const StakeCard: React.FC = () => {
                   const availableInSui = parseFloat(suiBalance) / 1_000_000_000;
                   const gasBufferInSui = 0.01; // 0.01 SUI
                   const maxPossible = Math.max(0, availableInSui - gasBufferInSui);
-                  const minStakeSui = 0.001;
+                  const minStakeSui = 1.0;
                   
                   if (maxPossible >= minStakeSui) {
                     // Format with proper precision avoiding scientific notation
@@ -539,7 +539,7 @@ export const StakeCard: React.FC = () => {
           </div>
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>Currently Staked: {formatSui(currentlyStaked)} SUI</span>
-            <span>Min: 0.001 SUI</span>
+            <span>Min: 1.00 SUI</span>
           </div>
         </div>
 
@@ -657,7 +657,7 @@ export const StakeCard: React.FC = () => {
             disabled={ 
                 !alphaIsConnected || 
                 !amount || 
-                !(parseFloat(amount) > 0) || 
+                !(parseFloat(amount) >= 1.0) ||
                 isLoadingBalance ||
                 (stakingStage !== 'idle' && stakingStage !== 'failed' && stakingStage !== 'success') // Disable if mid-process
             }
