@@ -1,6 +1,6 @@
 [package]
 name    = "alpha_points"
-version = "0.0.2"
+version = "0.1.1"
 authors = ["Alpha4 Team"]
 edition = "2024.alpha"
 

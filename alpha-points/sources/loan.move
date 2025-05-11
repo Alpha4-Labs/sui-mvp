@@ -30,8 +30,8 @@ module alpha_points::loan {
         interest_rate_bps: u64    // Annual interest rate in basis points (e.g., 500 = 5%)
     }
     
-    /// Owned object representing an active loan tied to a StakePosition<T>
-    public struct Loan<phantom T> has key, store {
+    /// Owned object representing an active loan tied to a StakePosition
+    public struct Loan has key, store {
         id: UID,
         borrower: address,
         stake_id: ID,
@@ -131,7 +131,7 @@ module alpha_points::loan {
         let borrower_points = amount_points - fee_points;
         if (fee_points > amount_points) { abort EFeeCalculationError };
 
-        let loan = Loan<T> {
+        let loan = Loan {
             id: object::new(ctx),
             borrower,
             stake_id,
@@ -160,11 +160,11 @@ module alpha_points::loan {
     }
     
     /// Repays a loan and releases the stake
-    public entry fun repay_loan<T: store>(
+    public entry fun repay_loan<T_stake: store>(
         config: &Config,
         ledger: &mut Ledger,
-        loan: Loan<T>,
-        stake: &mut StakePosition<T>,
+        loan: Loan,
+        stake: &mut StakePosition<T_stake>,
         clock: &Clock,
         ctx: &mut TxContext
     ) {
@@ -193,8 +193,8 @@ module alpha_points::loan {
         // Mark stake as unencumbered
         stake_position::set_encumbered(stake, false);
         
-        // Emit event
-        event::emit(LoanRepaid<T> {
+        // Emit event using T_stake from the StakePosition
+        event::emit(LoanRepaid<T_stake> {
             id: object::uid_to_inner(&loan.id),
             borrower,
             stake_id: loan.stake_id,
@@ -203,8 +203,7 @@ module alpha_points::loan {
             total_paid_points: total_repayment
         });
         
-        // Destroy loan object
-        // Note: removed opened_epoch from destructuring
+        // Destroy loan object (non-generic)
         let Loan { id, borrower: _, stake_id: _, principal_points: _, interest_owed_points: _, opened_time_ms: _ } = loan;
         object::delete(id);
     }
@@ -234,15 +233,15 @@ module alpha_points::loan {
     // === View functions ===
     
     /// Get loan details (principal, interest owed (currently always 0), opened time ms)
-    public fun get_loan_details<T>(loan: &Loan<T>): (u64, u64, u64) {
+    public fun get_loan_details(loan: &Loan): (u64, u64, u64) {
         (loan.principal_points, loan.interest_owed_points, loan.opened_time_ms)
     }
     
     /// Get current repayment amount including accrued interest.
     /// WARNING: Accrued interest calculation is currently a placeholder and returns 0.
     /// A proper implementation requires access to LoanConfig or calculation during repayment.
-    public fun get_current_repayment_amount<T>(
-        loan: &Loan<T>,
+    public fun get_current_repayment_amount(
+        loan: &Loan,
         clock: &Clock
     ): (u64, u64) { 
         let current_time_ms = clock::timestamp_ms(clock);
@@ -266,12 +265,12 @@ module alpha_points::loan {
     }
     
     /// Get the borrower of a loan
-    public fun get_borrower<T>(loan: &Loan<T>): address {
+    public fun get_borrower(loan: &Loan): address {
         loan.borrower
     }
     
     /// Get the stake ID associated with a loan
-    public fun get_stake_id<T>(loan: &Loan<T>): ID {
+    public fun get_stake_id(loan: &Loan): ID {
         loan.stake_id
     }
 }
