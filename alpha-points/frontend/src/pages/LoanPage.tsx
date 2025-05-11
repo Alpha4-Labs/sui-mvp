@@ -11,8 +11,6 @@ export const LoanPage: React.FC = () => {
       </div>
       
       <div className="bg-background-card rounded-lg shadow-lg mb-6 p-6">
-        <h2 className="text-xl font-semibold text-white mb-4">How Loans Work</h2>
-        
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <div className="bg-background p-4 rounded-lg">
             <div className="text-4xl text-primary mb-3 text-center">①</div>

@@ -125,6 +125,9 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [durations] = useState<DurationOption[]>(DEFAULT_DURATIONS);
   const [selectedDuration, setSelectedDuration] = useState<DurationOption>(DEFAULT_DURATIONS[2]); // Default to 30 days
 
+  // Version state to force context consumers to re-render on data refresh
+  const [version, setVersion] = useState(0);
+
   // Data fetching functions
   const fetchSuiBalance = useCallback(async (addr: string | undefined) => {
     if (!addr) {
@@ -144,17 +147,24 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [suiClient]);
 
   // Combined refresh function for all data
-  const refreshData = useCallback(() => {
+  const refreshData = useCallback(async () => {
     const activeAddress = zkLogin.address || currentAccount?.address;
     if (activeAddress) {
-      fetchSuiBalance(activeAddress);
-      refetchPoints(activeAddress);
-      refetchPositions(activeAddress);
+      await Promise.all([
+        fetchSuiBalance(activeAddress),
+        refetchPoints(activeAddress),
+        refetchPositions(activeAddress),
+        refetchLoans(activeAddress),
+      ]);
     } else {
-      fetchSuiBalance(undefined);
-      refetchPoints(undefined);
-      refetchPositions(undefined);
+      await Promise.all([
+        fetchSuiBalance(undefined),
+        refetchPoints(undefined),
+        refetchPositions(undefined),
+        refetchLoans(undefined),
+      ]);
     }
+    setVersion(v => v + 1); // Force context consumers to re-render
   }, [
     fetchSuiBalance,
     refetchPoints, 
@@ -186,7 +196,7 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [zkLogin, currentAccount, disconnectWalletDappKit]);
 
   // Construct the context value
-  const value: AlphaContextType = {
+  const value: AlphaContextType & { version: number } = {
     isConnected: zkLogin.isAuthenticated || !!currentAccount,
     address: zkLogin.address || currentAccount?.address,
     provider: zkLogin.isAuthenticated ? zkLogin.provider : (currentAccount ? 'dapp-kit' : null),
@@ -212,6 +222,7 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     refreshData,
     setTransactionLoading,
     logout,
+    version,
   };
 
   return <AlphaContext.Provider value={value}>{children}</AlphaContext.Provider>;

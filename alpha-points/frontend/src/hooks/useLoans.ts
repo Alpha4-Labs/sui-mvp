@@ -20,8 +20,9 @@ export const useLoans = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Main fetch function
-  const fetchLoans = useCallback(async () => {
-    if (!currentAccount?.address) {
+  const fetchLoans = useCallback(async (address?: string) => {
+    const owner = address || currentAccount?.address;
+    if (!owner) {
       setLoans([]);
       setLoading(false);
       setError(null);
@@ -34,9 +35,9 @@ export const useLoans = () => {
     try {
       // Query owned objects of type Loan
       const response = await client.getOwnedObjects({
-        owner: currentAccount.address,
+        owner,
         filter: {
-          StructType: `${PACKAGE_ID}::loan::Loan<${NATIVE_STAKED_SUI_TYPE_ARG}>`,
+          StructType: `${PACKAGE_ID}::loan::Loan`,
         },
         options: {
           showContent: true, // Request content to get fields
@@ -72,7 +73,7 @@ export const useLoans = () => {
               stakeId: moveStructFields.stake_id || '',
               principalPoints: moveStructFields.principal_points || '0',
               interestOwedPoints: moveStructFields.interest_owed_points || '0',
-              openedEpoch: moveStructFields.opened_epoch || '0',
+              openedTimeMs: moveStructFields.opened_time_ms || '0',
               estimatedRepayment,
             };
             return loanData;

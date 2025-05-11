@@ -6,6 +6,7 @@ import { formatPoints, formatSui } from '../utils/format';
 import { MainLayout } from '../layouts/MainLayout';
 import { buildRedeemPointsTransaction } from '../utils/transaction';
 import { adaptPtbJsonForSignAndExecute } from '../utils/transaction-adapter';
+import suiLogo from '../assets/sui-logo.jpg';
 
 // Define prices for rate calculation
 const SUI_PRICE_USD = 3.28;
@@ -83,7 +84,33 @@ const CryptoRedemptionCard: React.FC<CryptoRedemptionCardProps> = ({
         Rate: {exchangeRateText}
       </div>
       <div className="text-left">
-        <label className="block text-gray-400 mb-1 text-xs">Points to Spend (αP)</label>
+        <label className="block text-gray-400 mb-1 text-xs flex items-center justify-between">
+          <span>Points to Spend (αP)</span>
+          <span className="flex space-x-1">
+            {[25, 50, 75, 100].map((pct, idx) => {
+              const pctValue = Math.floor(pointsAvailable * pct / 100);
+              const isSelected =
+                redeemAmount !== '' &&
+                parseInt(redeemAmount, 10) === pctValue;
+              return (
+                <button
+                  key={pct}
+                  type="button"
+                  className={`text-xs px-2 py-0.5 rounded border border-gray-600 transition-colors ${
+                    isSelected
+                      ? 'bg-primary text-white'
+                      : 'bg-background text-gray-300 hover:bg-primary hover:text-white'
+                  }${idx !== 0 ? ' ml-1' : ''}`}
+                  style={{ minWidth: 0 }}
+                  onClick={() => setRedeemAmount(pctValue.toString())}
+                  disabled={isLoading || pointsAvailable === 0}
+                >
+                  {pct}%
+                </button>
+              );
+            })}
+          </span>
+        </label>
         <input
           type="text"
           inputMode="numeric"
@@ -209,7 +236,7 @@ export const MarketplacePage: React.FC = () => {
                  {/* SUI Redemption Card */}
                  <CryptoRedemptionCard
                     cryptoName="Sui"
-                    icon={<span className="font-bold text-lg">S</span>} // Simple S icon
+                    icon={<img src={suiLogo} alt="Sui Logo" className="w-6 h-6 rounded-full object-cover" />}
                     exchangeRateText={`${alphaPointsPerSui.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} αP / SUI`}
                     pointsAvailable={points.available}
                     onRedeem={handleRedeemSui}

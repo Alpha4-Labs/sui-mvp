@@ -190,7 +190,7 @@ export const buildRepayLoanTransaction = (
   tx.moveCall({
     target: `${PACKAGE_ID}::loan::repay_loan`,
     // Corrected type argument: T should be the type of the staked asset (e.g., StakedSui)
-    typeArguments: ['0x2::staking_pool::StakedSui'], // Corrected from 0x3
+    typeArguments: ['0x3::staking_pool::StakedSui'],
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),

@@ -50,7 +50,7 @@ export interface Loan {
   stakeId: string;
   principalPoints: string;
   interestOwedPoints: string;
-  openedEpoch: string;
+  openedTimeMs: string;
   estimatedRepayment: string;
 }
 
@@ -149,7 +149,7 @@ export function isLoan(value: any): value is Loan {
     isString(value.stakeId) &&
     isString(value.principalPoints) &&
     isString(value.interestOwedPoints) &&
-    isString(value.openedEpoch) &&
+    isString(value.openedTimeMs) &&
     isString(value.estimatedRepayment)
   );
 }

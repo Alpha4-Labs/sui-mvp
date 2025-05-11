@@ -218,61 +218,48 @@ export const PointsDisplay: React.FC = () => {
   }
 
   return (
-    <div className="bg-background-card rounded-lg p-6 shadow-lg">
-      <div className="flex justify-between items-center mb-2">
+    <div className="bg-background-card rounded-lg pt-6 pr-6 pl-6 pb-3 shadow-lg">
+      {/* Header Section - Title and Timer on one line */}
+      <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold text-white">Alpha Points Balance</h2>
-        {/* Display Time Left */}
-        <div className="text-xs text-gray-400">
-           Next Epoch In: <span className="font-medium text-gray-300 tabular-nums">{timeLeft}</span>
+        <div className="text-xs text-gray-400 tabular-nums">
+           Next Epoch In: <span className="font-medium text-gray-300">{timeLeft}</span>
         </div>
       </div>
       
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <div className="text-4xl font-bold text-secondary mb-1">
-            {formatPoints(points.available)}
-          </div>
-          <div className="text-sm text-gray-400">
-            Available Alpha Points
-          </div>
-        </div>
+      {/* New Single-Line: [Balance Number] | [+Accrued Number] | [Claim All] */}
+      <div className="bg-background/50 rounded-lg p-1 flex items-baseline justify-between mb-1">
+        {/* Available Points Number */}
+        <span className="text-3xl font-bold text-secondary">
+          {formatPoints(points.available)}
+        </span>
         
-        {points.locked > 0 && (
-          <div className="text-right">
-            <div className="text-2xl font-bold text-yellow-500 mb-1">
-              {formatPoints(points.locked)}
-            </div>
-            <div className="text-sm text-gray-400">
-              Locked (Loans)
-            </div>
-          </div>
+        {/* Accrued Points Number (with +) - Conditionally Rendered */}
+        {totalClaimablePoints > 0n && (
+          <span className="text-yellow-400 text-xl font-semibold">
+            +{formatPoints(totalClaimablePoints.toString())}
+          </span>
         )}
-      </div>
-      
-      <div className="mt-4 bg-background/50 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-yellow-400 text-xl font-semibold">
-              +{formatPoints(totalClaimablePoints.toString())} Accrued
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              Estimated claimable from your stakes
-            </div>
-          </div>
-          
-          <button 
-            onClick={handleClaim}
-            disabled={!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || loading.transaction || loadingClaimable}
-            className="bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-4 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
-          >
-            {loading.transaction ? 'Claiming...' : 'Claim All'}
-          </button>
-        </div>
+        
+        {/* Claim Button */}
+        <button 
+          onClick={handleClaim}
+          disabled={!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || loading.transaction || loadingClaimable}
+          className="bg-yellow-500 hover:bg-yellow-600 text-white py-0.5 px-2 rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
+        >
+          {loading.transaction ? 'Claiming...' : 'Claim All'}
+        </button>
       </div>
 
-      {!loading.points && points.total === 0 && (
-        <div className="text-center text-gray-500 text-sm py-4">
-          No Alpha Points balance found.
+      {/* Locked Points Display (if any, shown below the main line) */}
+      {points.locked > 0 && (
+        <div className="text-right">
+          <div className="text-lg font-bold text-yellow-500">
+            {formatPoints(points.locked)}
+          </div>
+          <div className="text-xs text-gray-400">
+            Locked (Loans)
+          </div>
         </div>
       )}
     </div>

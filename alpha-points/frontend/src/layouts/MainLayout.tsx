@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext'; // Import useAlphaContext
 import { formatAddress } from '../utils/format';
+import alpha4Logo from '../../public/alpha4-logo.svg';
 // import alphaPointsLogo from '../assets/alphapoints-logo.svg'; // Assuming path is correct if used
 
 interface MainLayoutProps {
@@ -23,15 +24,14 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-white">
+    <div className="min-h-screen flex flex-col bg-background text-white box-border overflow-y-auto lg:h-screen lg:overflow-hidden">
       {/* Header */}
-      <header className="bg-background-card py-4 px-6 shadow-lg">
+      <header className="bg-background-card py-2 px-4 shadow-lg flex-shrink-0">
         <div className="container mx-auto flex justify-between items-center">
           {/* Logo/Brand */}
           <div className="flex items-center">
             <Link to="/dashboard" className="flex items-center">
-              <span className="text-2xl font-bold text-primary mr-1">α</span>
-              <span className="text-xl font-bold text-white">Points</span>
+              <img src={alpha4Logo} alt="Alpha4 Logo" className="w-8 h-8 object-contain object-center flex-shrink-0" />
             </Link>
             {/* Desktop Navigation */}
             <nav className="hidden md:flex ml-10 space-x-1">
@@ -101,22 +101,23 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
        </nav>
 
       {/* Main Content Area */}
-      <main className="flex-grow container mx-auto px-4 py-8 pb-20 md:pb-8">
+      <main className="container mx-auto px-4 pt-4 pb-0 box-border flex-grow">
         {children}
       </main>
 
       {/* Footer */}
-      <footer className="bg-background-card py-4 px-4 text-center text-xs text-gray-500 border-t border-gray-800">
-         <div className="container mx-auto">
-             <div className="flex justify-center space-x-3 md:space-x-4 mb-2">
-                 <a href="https://alpha4.io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">Main Site</a><span className="text-gray-600">•</span>
-                 <a href="https://discord.gg/VuF5NmC9Dg" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">Discord</a><span className="text-gray-600">•</span>
-                 <a href="https://www.linkedin.com/company/alpha4-io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">LinkedIn</a><span className="text-gray-600">•</span>
-                 <a href="https://x.com/alpha4_io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">X</a>
-             </div>
-             <div className="text-gray-500 text-xs px-2"> Testnet demo for experimental purposes only. Features shown may not reflect final product and are subject to change without notice. </div>
-             <div className="text-gray-500 text-xs mt-1"> Alpha Points MVP © 2025 </div>
-         </div>
+      <footer className="bg-background-card py-2 px-4 text-center text-xs text-gray-500 border-t border-gray-800 flex-shrink-0 w-full">
+        <div className="w-full flex flex-col items-center">
+          <div className="flex flex-wrap justify-center items-center space-x-3 md:space-x-4 w-full overflow-x-auto whitespace-nowrap">
+            <a href="https://alpha4.io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">Main Site</a><span className="text-gray-600">•</span>
+            <a href="https://discord.gg/VuF5NmC9Dg" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">Discord</a><span className="text-gray-600">•</span>
+            <a href="https://www.linkedin.com/company/alpha4-io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">LinkedIn</a><span className="text-gray-600">•</span>
+            <a href="https://x.com/alpha4_io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">X</a>
+          </div>
+          <div className="w-full truncate text-gray-500 text-xs px-2 mt-1" title="Testnet demo for experimental purposes only. Features shown may not reflect final product and are subject to change without notice. Alpha Points MVP © 2025">
+            Testnet demo for experimental purposes only. Features shown may not reflect final product and are subject to change without notice. Alpha Points MVP © 2025
+          </div>
+        </div>
       </footer>
     </div>
   );
