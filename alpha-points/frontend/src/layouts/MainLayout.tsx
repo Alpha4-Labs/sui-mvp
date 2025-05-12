@@ -1,5 +1,5 @@
 // === MainLayout.tsx (Corrected Icon Access v2) ===
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 // Import necessary items from dapp-kit: ConnectButton, useCurrentAccount
 import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
@@ -7,6 +7,8 @@ import { useAlphaContext } from '../context/AlphaContext'; // Import useAlphaCon
 import { formatAddress } from '../utils/format';
 import alpha4Logo from '../../public/alpha4-logo.svg';
 // import alphaPointsLogo from '../assets/alphapoints-logo.svg'; // Assuming path is correct if used
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -15,6 +17,8 @@ interface MainLayoutProps {
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const location = useLocation();
   const alphaContext = useAlphaContext(); // Use AlphaContext
+  const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const navLinks = [
     { name: 'Dashboard', path: '/dashboard' },
@@ -22,6 +26,19 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     { name: 'Generation', path: '/generation' },
     { name: 'Loans', path: '/loans' },
   ];
+
+  // Click outside to close dropdown - MOVED INSIDE THE COMPONENT
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsWalletDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [dropdownRef]); // Dependency array is correct
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-white box-border overflow-y-auto lg:h-screen lg:overflow-hidden">
@@ -54,27 +71,44 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           {/* Wallet Connection Area */}
           <div className="flex items-center">
             {alphaContext.isConnected ? (
-              <div className="flex items-center bg-background rounded-lg p-1 md:p-2 text-sm">
-                {/* Network Indicator (can stay if relevant for both) */}
+              <div className="relative flex items-center bg-background rounded-lg p-1 md:p-2 text-sm" ref={dropdownRef}>
+                {/* Network Indicator */}
                 <span className="hidden md:inline text-gray-400 mr-2 text-xs">Testnet</span>
                 
-                {/* Connected Account Info - Adapted for AlphaContext */}
-                <div className="flex items-center bg-gray-800 rounded-lg px-2 py-1 md:px-3">
+                {/* Connected Account Info - Clickable Trigger */}
+                <button 
+                  onClick={() => setIsWalletDropdownOpen(!isWalletDropdownOpen)}
+                  className="flex items-center bg-gray-800 hover:bg-gray-700 rounded-lg px-2 py-1 md:px-3 transition-colors"
+                >
                   {alphaContext.provider === 'google' ? (
-                    <span className="mr-2"> G </span> // Simple Google indicator
+                    <span className="mr-2"> G </span>
                   ) : (
-                    // Attempt to show wallet icon if provider is dapp-kit and currentAccount might have it
-                    // This part is speculative as currentAccount isn't directly used here anymore for logic
-                    // but might be available if a wallet *is* connected via dapp-kit
-                    <span className="mr-2"> W </span> // Placeholder for wallet icon
+                    <span className="mr-2"> W </span>
                   )}
                   <span className="font-mono">{formatAddress(alphaContext.address || '')}</span>
-                </div>
-                {/* Optional: Add a disconnect button here that calls alphaContext.logout() */}
-                {/* <button onClick={() => alphaContext.logout()} className="ml-2 text-red-500">Sign Out</button> */}
+                  <svg className={`w-3 h-3 ml-1.5 transform transition-transform duration-200 ${isWalletDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+
+                {/* Dropdown Menu */}
+                {isWalletDropdownOpen && (
+                  <div className="absolute top-full right-0 mt-1.5 w-48 bg-background-card rounded-md shadow-lg py-1 z-50 border border-gray-700">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await alphaContext.logout();
+                          setIsWalletDropdownOpen(false);
+                        } catch (error) {
+                          console.error("Error disconnecting:", error);
+                        }
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
-              // Show ConnectButton if not connected (handles traditional wallet flow)
               <ConnectButton className="!bg-primary !hover:bg-primary-dark !text-white !py-2 !px-4 !rounded-lg !text-sm" />
             )}
           </div>
@@ -119,6 +153,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           </div>
         </div>
       </footer>
+      <ToastContainer />
     </div>
   );
 };

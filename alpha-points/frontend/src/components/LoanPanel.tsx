@@ -8,9 +8,7 @@ import { buildCreateLoanTransaction, buildRepayLoanTransaction } from '../utils/
 import { getTransactionErrorMessage } from '../utils/transaction-adapter';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Navigation, Pagination, A11y } from 'swiper/modules';
-import 'swiper/css';
-import 'swiper/css/navigation';
-import 'swiper/css/pagination';
+
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -43,7 +41,6 @@ export const LoanPanel: React.FC = () => {
   const [selectedStakeId, setSelectedStakeId] = useState('');
   const [loanAmount, setLoanAmount] = useState('');
   const [maxLoanAmount, setMaxLoanAmount] = useState(0);
-  const [maxLoanUsd, setMaxLoanUsd] = useState(0);
   const [selectedPercentage, setSelectedPercentage] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [swiperInstance, setSwiperInstance] = useState<any>(null);
@@ -78,13 +75,13 @@ export const LoanPanel: React.FC = () => {
         setMaxLoanAmount(maxLoan);
         
         // USD value of the max loan, using the new Alpha Point USD value
-        setMaxLoanUsd(maxLoan * ALPHA_POINT_PRICE_USD_FOR_LOAN);
+        // setMaxLoanUsd(maxLoan * ALPHA_POINT_PRICE_USD_FOR_LOAN); // Removed as maxLoanUsd is not used
         setLoanAmount(maxLoan > 0 ? maxLoan.toString() : '0'); // Default to max loan if possible
         setError(null); // Clear previous errors
       }
     } else {
       setMaxLoanAmount(0);
-      setMaxLoanUsd(0);
+      // setMaxLoanUsd(0); // Removed as maxLoanUsd is not used
       setLoanAmount('');
       setSelectedPercentage(null);
     }
@@ -147,13 +144,11 @@ export const LoanPanel: React.FC = () => {
         pointsAmount <= 0 ||
         pointsAmount > maxLoanAmount
       ) {
-        console.error("Invalid loan amount:", loanAmount, "Parsed:", pointsAmount);
         setError("Please enter a valid loan amount within the allowed maximum.");
         setTransactionLoading(false);
         return;
       }
 
-      console.log("Building transaction with stakeId:", selectedStakeId, "and pointsAmount:", pointsAmount);
       const tx = buildCreateLoanTransaction(selectedStakeId, pointsAmount);
 
       // --- Set Sender for Dry Run ---
@@ -161,18 +156,14 @@ export const LoanPanel: React.FC = () => {
       // -----------------------------
 
       // --- Manual Dry Run ---
-      console.log("Performing manual dry run...");
       // Cast suiClient via unknown first due to structural incompatibility
       const txBytes = await tx.build({ client: suiClient as unknown as SuiClient });
       const dryRunResult = await suiClient.dryRunTransactionBlock({
         transactionBlock: txBytes,
       });
 
-      console.log('Dry Run Result:', JSON.stringify(dryRunResult, null, 2));
-
       if (dryRunResult.effects.status.status !== 'success') {
         const errorMsg = dryRunResult.effects.status.error || 'Unknown dry run error';
-        console.error('Dry run failed:', errorMsg);
         setError(`Transaction simulation failed: ${errorMsg}`);
         setTransactionLoading(false);
         return;
@@ -180,18 +171,18 @@ export const LoanPanel: React.FC = () => {
       // --- End Manual Dry Run --- 
 
       // If dry run is successful, proceed to sign and execute
-      console.log("Dry run successful. Proceeding to sign and execute...");
       // Attempt to use tx.serialize() to bypass Transaction object identity issue
-      const result = await signAndExecute({ transaction: tx.serialize() });
-      console.log("Execution result:", result); 
+      /* const result = */ await signAndExecute({ transaction: tx.serialize() });
 
       // Refresh data and reset form on success
       await refreshData();
       setSelectedStakeId('');
       setLoanAmount('');
       setSelectedPercentage(null);
+      setTimeout(() => {
+        toast.success("Loan created successfully! Your stake is now locked as collateral.", { position: 'top-center', autoClose: 5000 });
+      }, 0);
     } catch (error: any) {
-      console.error('Error during loan creation process:', error);
       setError(error.message ? `Error: ${error.message}` : getTransactionErrorMessage(error));
     } finally {
       setTransactionLoading(false);
@@ -204,18 +195,17 @@ export const LoanPanel: React.FC = () => {
     try {
       const tx = buildRepayLoanTransaction(loanId, stakeId);
       // Attempt to use tx.serialize() to bypass Transaction object identity issue
-      const result = await signAndExecute({ transaction: tx.serialize() });
+      /* const result = */ await signAndExecute({ transaction: tx.serialize() });
       await refreshData();
+      setTimeout(() => {
+        toast.success("Loan repaid successfully! Your stake is now unlocked.", { position: 'top-center', autoClose: 5000 });
+      }, 0);
     } catch (error) {
-      console.error('Error repaying loan:', error);
       setError(getTransactionErrorMessage(error));
     } finally {
       setTransactionLoading(false);
     }
   };
-
-  // Debug: log loans from context before rendering
-  console.log('loans from context:', loans);
 
   // Responsive slidesPerView tracking
   useEffect(() => {
@@ -240,16 +230,20 @@ export const LoanPanel: React.FC = () => {
   // --- JSX Rendering ---
   return (
     <div className="bg-background-card rounded-lg shadow-lg">
-      {/* Borrow Section */}
-      <div className="border-b border-gray-700 p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
-          <h2 className="text-xl font-semibold text-white mb-2 md:mb-0">Borrow Against Stake</h2>
-          {eligiblePositions.length > 0 ? (
-            <div className="w-full md:w-1/2 md:ml-4">
+      {/* "Loan Against Stake" Section (Previously Borrow Section) */}
+      <div className="border-b border-gray-700 p-4 md:px-6 md:py-4">
+        {eligiblePositions.length > 0 ? (
+          <div className="flex flex-col md:flex-row md:items-end md:gap-x-2 w-full space-y-2 md:space-y-0">
+            {/* Title */}
+            <div className="flex-shrink-0 self-center md:self-end mb-1 md:mb-0">
+              <h2 className="text-lg md:text-xl font-semibold text-white whitespace-nowrap">Loan Against Stake</h2>
+            </div>
+            {/* Dropdown */}
+            <div className="md:flex-1 min-w-0"> 
               <select
                 value={selectedStakeId}
                 onChange={(e) => setSelectedStakeId(e.target.value)}
-                className="w-full bg-background-input rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary"
+                className="w-full bg-background-input rounded px-2 py-1.5 text-white border border-gray-600 focus:border-primary focus:ring-primary text-sm"
               >
                 <option value="">-- Select a position --</option>
                 {eligiblePositions.map((pos: any) => (
@@ -259,65 +253,64 @@ export const LoanPanel: React.FC = () => {
                 ))}
               </select>
             </div>
-          ) : (
-            <p className="text-gray-400 w-full md:w-auto md:ml-4 mb-0 md:mb-0">
-              You don't have any eligible staked positions to borrow against.
-            </p>
-          )}
-        </div>
-
-        {eligiblePositions.length > 0 && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-gray-400 mb-1">Loan Amount (Alpha Points)</label>
+            {/* Loan Amount Input & USD Estimate */}
+            <div className="md:flex-[1.5] min-w-0">
+              <label htmlFor="loanAmountInput" className="block text-gray-400 mb-1 text-xs md:hidden">Loan Amount (αP)</label>
               <input
+                id="loanAmountInput"
                 type="text"
                 inputMode="numeric"
-                value={parseInt(loanAmount, 10).toLocaleString(undefined, {maximumFractionDigits: 0}) || ''}
+                value={!selectedStakeId ? "<-- Select a position" : (parseInt(loanAmount, 10).toLocaleString(undefined, {maximumFractionDigits: 0}) || '')}
                 onChange={(e) => {
                   const rawValue = e.target.value.replace(/[^0-9]/g, '');
                   handleLoanAmountChange(rawValue);
                 }}
                 placeholder={`Max ${formatPoints(maxLoanAmount.toString())} αP`}
-                className="w-full bg-background-input rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary"
+                className="w-full bg-background-input rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary text-sm"
+                aria-label="Loan Amount (Alpha Points)"
               />
-              {loanAmount && parseInt(loanAmount) > 0 && (
-                <div className="text-xs text-gray-400 mt-1">
+              {/* {loanAmount && parseInt(loanAmount) > 0 && (
+                <div className="text-xs text-gray-400 mt-0.5 text-right md:text-left">
                   ≈ ${(parseInt(loanAmount) * ALPHA_POINT_PRICE_USD_FOR_LOAN).toFixed(2)} USD
                 </div>
-              )}
+              )} */}
             </div>
-
-            <div>
-              <label className="block text-gray-400 mb-2">Quick Select</label>
-              <div className="flex space-x-2">
-                {[10, 25, 50, 75, 100].map((percentage) => (
-                  <button
-                    key={percentage}
-                    onClick={() => handlePercentageSelect(percentage)}
-                    className={`flex-1 py-1 px-2 rounded text-sm transition-colors ${
-                      selectedPercentage === percentage
-                        ? 'bg-primary text-white'
-                        : 'bg-background-input text-gray-300 hover:bg-gray-700'
-                    }`}
-                  >
-                    {percentage}%
-                  </button>
-                ))}
-              </div>
+            {/* Quick Select Buttons */}
+            <div className="flex flex-row gap-1 items-center flex-shrink-0 flex-wrap justify-center md:justify-start">
+              {[10, 25, 50, 75, 100].map((percentage) => (
+                <button
+                  key={percentage}
+                  onClick={() => handlePercentageSelect(percentage)}
+                  className={`py-1 px-1.5 md:px-2 rounded text-xs transition-colors min-w-[32px] md:min-w-[36px] ${
+                    selectedPercentage === percentage
+                      ? 'bg-primary text-white'
+                      : 'bg-background-input text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  {percentage}%
+                </button>
+              ))}
             </div>
-
-            <button
-              onClick={handleCreateLoan}
-              disabled={!selectedStakeId || !loanAmount || parseInt(loanAmount, 10) <= 0 || parseInt(loanAmount, 10) > maxLoanAmount}
-              className="w-full py-2 bg-primary hover:bg-primary-dark text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Create Loan
-            </button>
+            {/* Create Loan Button */}
+            <div className="flex-shrink-0 w-full md:w-auto">
+              <button
+                onClick={handleCreateLoan}
+                disabled={!selectedStakeId || !loanAmount || parseInt(loanAmount, 10) <= 0 || parseInt(loanAmount, 10) > maxLoanAmount}
+                className="w-full md:w-auto py-2 px-3 md:px-4 bg-primary hover:bg-primary-dark text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Create Loan
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 p-2">
+            <h2 className="text-xl font-semibold text-white">Loan Against Stake</h2>
+            <p className="text-gray-400 mb-0">
+              You don't have any eligible staked positions to borrow against.
+            </p>
           </div>
         )}
       </div>
-
       {/* Active Loans Section */}
       <div className="p-6">
         <div className="flex flex-col gap-2">
@@ -379,8 +372,11 @@ export const LoanPanel: React.FC = () => {
               </Swiper>
               {/* Navigation below Swiper, only if needed */}
               {loans.length > slidesPerView && (() => {
-                const numPages = Math.ceil(loans.length / slidesPerView);
-                const currentPage = Math.floor(activeIndex / slidesPerView);
+                const numPages = slidesPerView > 0 && loans.length > 0 ? Math.ceil(loans.length / slidesPerView) : 0;
+                const currentPage = slidesPerView > 0 ? Math.floor(activeIndex / slidesPerView) : 0;
+                
+                if (numPages <= 0) return null; // Don't render if no pages
+
                 return (
                   <div className="flex items-center justify-center gap-1.5 mt-2">
                     <button

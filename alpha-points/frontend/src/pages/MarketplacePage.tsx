@@ -19,6 +19,7 @@ interface CryptoRedemptionCardProps {
   exchangeRateText: string; // e.g., "32.80 αP / SUI"
   pointsAvailable: number;
   onRedeem: (amount: string) => Promise<void>; // Async function for handling redeem
+  tooltip?: string; // Optional tooltip for caution/info
 }
 
 const CryptoRedemptionCard: React.FC<CryptoRedemptionCardProps> = ({
@@ -27,6 +28,7 @@ const CryptoRedemptionCard: React.FC<CryptoRedemptionCardProps> = ({
   exchangeRateText,
   pointsAvailable,
   onRedeem,
+  tooltip,
 }) => {
   const [redeemAmount, setRedeemAmount] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -70,17 +72,44 @@ const CryptoRedemptionCard: React.FC<CryptoRedemptionCardProps> = ({
   };
 
   return (
-    <div className="border border-gray-700 rounded-lg p-4 bg-background-input space-y-3 text-center">
-      <h3 className="text-lg font-semibold text-white flex items-center justify-center">
-        {icon && <span className="mr-2 text-xl">{icon}</span>}
+    <div className="border border-gray-700 rounded-lg p-3 bg-background-input space-y-2 text-center">
+      <h3 className="text-base font-semibold text-white flex items-center justify-center gap-1 relative">
+        {icon && <span className="mr-2 text-lg">{icon}</span>}
         {cryptoName}
+        {tooltip && (
+          <span className="relative group ml-1 flex items-center">
+            {/* Caution Triangle SVG */}
+            <svg
+              className="w-4 h-4 text-yellow-400 inline-block cursor-pointer"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              style={{ color: '#fbbf24' }}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4l8.66 15H3.34L12 4z"
+                fill="#fbbf24"
+                stroke="#b45309"
+              />
+              <circle cx="12" cy="17" r="1" fill="#b45309" />
+              <rect x="11.25" y="9" width="1.5" height="5" rx="0.75" fill="#b45309" />
+            </svg>
+            {/* Tooltip */}
+            <span className="absolute left-1/2 z-20 -translate-x-1/2 bottom-full mb-2 w-64 bg-background-card border border-yellow-500 text-yellow-200 text-xs rounded shadow-lg px-3 py-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-normal text-left">
+              {tooltip}
+            </span>
+          </span>
+        )}
       </h3>
       {error && (
-        <div className="p-2 text-xs bg-red-900/30 border border-red-700 rounded-md text-red-400 break-words text-left">
+        <div className="p-1.5 text-xs bg-red-900/30 border border-red-700 rounded-md text-red-400 break-words text-left">
            {error}
         </div>
       )}
-      <div className="text-sm text-gray-300">
+      <div className="text-xs text-gray-300">
         Rate: {exchangeRateText}
       </div>
       <div className="text-left">
@@ -96,7 +125,7 @@ const CryptoRedemptionCard: React.FC<CryptoRedemptionCardProps> = ({
                 <button
                   key={pct}
                   type="button"
-                  className={`text-xs px-2 py-0.5 rounded border border-gray-600 transition-colors ${
+                  className={`text-xs px-1.5 py-0.5 rounded border border-gray-600 transition-colors ${
                     isSelected
                       ? 'bg-primary text-white'
                       : 'bg-background text-gray-300 hover:bg-primary hover:text-white'
@@ -118,7 +147,7 @@ const CryptoRedemptionCard: React.FC<CryptoRedemptionCardProps> = ({
           value={redeemAmount}
           onChange={(e) => setRedeemAmount(e.target.value.replace(/[^0-9]/g, ''))}
           placeholder={`Available: ${formatPoints(pointsAvailable)} αP`}
-          className="w-full bg-background rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary text-sm"
+          className="w-full bg-background rounded p-1.5 text-white border border-gray-600 focus:border-primary focus:ring-primary text-xs"
           disabled={isLoading}
         />
         {estimatedCryptoReceive > 0 && (
@@ -130,13 +159,13 @@ const CryptoRedemptionCard: React.FC<CryptoRedemptionCardProps> = ({
       <button
         onClick={handleRedeemClick}
         disabled={isLoading || !redeemAmount || parseInt(redeemAmount) <= 0 || parseInt(redeemAmount) > pointsAvailable}
-        className="w-full bg-primary hover:bg-primary-dark text-white py-2 px-3 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium relative"
+        className="w-full bg-primary hover:bg-primary-dark text-white py-1.5 px-2.5 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium relative"
       >
         {isLoading ? (
           <>
             <span className="opacity-0">Redeeming...</span> {/* Keep layout */}
             <span className="absolute inset-0 flex items-center justify-center">
-              <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <svg className="animate-spin h-3.5 w-3.5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
@@ -232,7 +261,7 @@ export const MarketplacePage: React.FC = () => {
                <h2 className="text-xl font-semibold text-white text-center mb-6">Redeem Alpha Points for Crypto</h2>
                
                {/* Cards for each crypto */}
-               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                  {/* SUI Redemption Card */}
                  <CryptoRedemptionCard
                     cryptoName="Sui"
@@ -240,39 +269,40 @@ export const MarketplacePage: React.FC = () => {
                     exchangeRateText={`${alphaPointsPerSui.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} αP / SUI`}
                     pointsAvailable={points.available}
                     onRedeem={handleRedeemSui}
+                    tooltip="During the testnet phase, there are no assurances that the conversion transaction will reward sufficient testnet Sui due to faucet limitations."
                  />
                  
                  {/* Placeholder for Avalanche */}
-                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
-                    <span className="text-2xl mb-2">AVAX</span>
+                 <div className="border border-dashed border-gray-600 rounded-lg p-3 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[160px]">
+                    <span className="text-xl mb-1.5">AVAX</span>
                     <span>Avalanche Coming Soon</span>
                     <span className="text-xs mt-1">Rate: TBD</span>
                  </div>
 
                  {/* Placeholder for ETH */}
-                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
-                    <span className="text-2xl mb-2">ETH</span>
+                 <div className="border border-dashed border-gray-600 rounded-lg p-3 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[160px]">
+                    <span className="text-xl mb-1.5">ETH</span>
                     <span>Ethereum Coming Soon</span>
                     <span className="text-xs mt-1">Rate: TBD</span>
                  </div>
 
                  {/* Placeholder for USDC */}
-                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
-                    <span className="text-2xl mb-2">USDC</span>
+                 <div className="border border-dashed border-gray-600 rounded-lg p-3 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[160px]">
+                    <span className="text-xl mb-1.5">USDC</span>
                     <span>USDC Coming Soon</span>
                     <span className="text-xs mt-1">Rate: TBD</span>
                  </div>
 
                  {/* Placeholder for Solana */}
-                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
-                    <span className="text-2xl mb-2">SOL</span>
+                 <div className="border border-dashed border-gray-600 rounded-lg p-3 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[160px]">
+                    <span className="text-xl mb-1.5">SOL</span>
                     <span>Solana Coming Soon</span>
                     <span className="text-xs mt-1">Rate: TBD</span>
                  </div>
 
                  {/* Placeholder for other cryptos */}
-                 <div className="border border-dashed border-gray-600 rounded-lg p-4 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px]">
-                    <span className="text-2xl mb-2">?</span>
+                 <div className="border border-dashed border-gray-600 rounded-lg p-3 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[160px]">
+                    <span className="text-xl mb-1.5">?</span>
                     <span>More Cryptos Soon</span>
                     <span className="text-xs mt-1">Rate: TBD</span>
                  </div>

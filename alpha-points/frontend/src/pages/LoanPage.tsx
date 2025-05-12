@@ -36,7 +36,6 @@ export const LoanPage: React.FC = () => {
             </p>
           </div>
         </div>
-        
         <div className="border-t border-gray-700 pt-4 text-center text-gray-400 text-sm">
           Note: Your stake will remain locked until the loan is repaid, even if the original lock period has expired.
         </div>
