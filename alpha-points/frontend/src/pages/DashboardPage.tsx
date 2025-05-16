@@ -7,7 +7,7 @@ import { StakedPositionsList } from '../components/StakedPositionsList';
 import { UserBalancesCard } from '../components/UserBalancesCard';
 import { PointsDisplay } from '../components/PointsDisplay';
 import { MainLayout } from '../layouts/MainLayout';
-import { ProjectionChart } from '../components/ProjectionChart';
+import ProjectionChart from '../components/ProjectionChart';
 
 // Define type for projection data to match ProjectionChart.tsx
 interface ProjectionDataPoint {
