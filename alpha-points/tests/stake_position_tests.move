@@ -9,6 +9,8 @@ module alpha_points::stake_position_tests {
 
     use alpha_points::stake_position::{Self, StakePosition, test_set_encumbered};
 
+    public struct Dummy has store {}
+
     const ADMIN_ADDR: address = @0xAD;
     const USER_ADDR: address = @0xA;
     const PRINCIPAL: u64 = 1000;
@@ -27,19 +29,19 @@ module alpha_points::stake_position_tests {
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ctx = ts::ctx(&mut scenario);
-            let stake = stake_position::create_stake<SUI>(
-                USER_ADDR, PRINCIPAL, DURATION_EPOCHS, &clock, ctx
+            let stake = stake_position::create_stake<Dummy>(
+                PRINCIPAL, DURATION_EPOCHS, &clock, ctx
             );
             transfer::public_transfer(stake, USER_ADDR);
         };
         ts::next_tx(&mut scenario, USER_ADDR);
         {
-            let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
-            assert_eq(stake_position::owner(&stake), USER_ADDR);
-            assert_eq(stake_position::principal(&stake), PRINCIPAL);
-            assert_eq(stake_position::duration_epochs(&stake), DURATION_EPOCHS);
-            assert_eq(stake_position::is_encumbered(&stake), false);
-            assert!(stake_position::unlock_epoch(&stake) > 0, 0);
+            let stake = ts::take_from_sender<StakePosition<Dummy>>(&scenario);
+            assert_eq(stake_position::owner_view(&stake), USER_ADDR);
+            assert_eq(stake_position::principal_view(&stake), PRINCIPAL);
+            assert_eq(stake_position::duration_days_view(&stake), DURATION_EPOCHS);
+            assert_eq(stake_position::is_encumbered_view(&stake), false);
+            assert!(stake_position::unlock_time_ms_view(&stake) > 0, 0);
             ts::return_to_sender(&scenario, stake);
         };
         clock::destroy_for_testing(clock);
@@ -52,15 +54,15 @@ module alpha_points::stake_position_tests {
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ctx = ts::ctx(&mut scenario);
-            let stake = stake_position::create_stake<SUI>(
-                USER_ADDR, PRINCIPAL, DURATION_EPOCHS, &clock, ctx
+            let stake = stake_position::create_stake<Dummy>(
+                PRINCIPAL, DURATION_EPOCHS, &clock, ctx
             );
             transfer::public_transfer(stake, USER_ADDR);
         };
         ts::next_tx(&mut scenario, USER_ADDR);
         {
-            let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
-            stake_position::destroy_stake<SUI>(stake);
+            let stake = ts::take_from_sender<StakePosition<Dummy>>(&scenario);
+            stake_position::destroy_stake<Dummy>(stake);
         };
         clock::destroy_for_testing(clock);
         ts::end(scenario);
@@ -72,19 +74,19 @@ module alpha_points::stake_position_tests {
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ctx = ts::ctx(&mut scenario);
-            let stake = stake_position::create_stake<SUI>(
-                USER_ADDR, PRINCIPAL, DURATION_EPOCHS, &clock, ctx
+            let stake = stake_position::create_stake<Dummy>(
+                PRINCIPAL, DURATION_EPOCHS, &clock, ctx
             );
             transfer::public_transfer(stake, USER_ADDR);
         };
         ts::next_tx(&mut scenario, USER_ADDR);
         {
-            let mut stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
-            assert_eq(stake_position::is_encumbered(&stake), false);
-            test_set_encumbered<SUI>(&mut stake, true);
-            assert_eq(stake_position::is_encumbered(&stake), true);
-            test_set_encumbered<SUI>(&mut stake, false);
-            assert_eq(stake_position::is_encumbered(&stake), false);
+            let mut stake = ts::take_from_sender<StakePosition<Dummy>>(&scenario);
+            assert_eq(stake_position::is_encumbered_view(&stake), false);
+            test_set_encumbered<Dummy>(&mut stake, true);
+            assert_eq(stake_position::is_encumbered_view(&stake), true);
+            test_set_encumbered<Dummy>(&mut stake, false);
+            assert_eq(stake_position::is_encumbered_view(&stake), false);
             ts::return_to_sender(&scenario, stake);
         };
         clock::destroy_for_testing(clock);
@@ -97,14 +99,14 @@ module alpha_points::stake_position_tests {
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ctx = ts::ctx(&mut scenario);
-            let stake = stake_position::create_stake<SUI>(
-                USER_ADDR, PRINCIPAL, DURATION_EPOCHS, &clock, ctx
+            let stake = stake_position::create_stake<Dummy>(
+                PRINCIPAL, DURATION_EPOCHS, &clock, ctx
             );
             transfer::public_transfer(stake, USER_ADDR);
         };
         ts::next_tx(&mut scenario, USER_ADDR);
         {
-            let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
+            let stake = ts::take_from_sender<StakePosition<Dummy>>(&scenario);
             assert_eq(stake_position::is_mature(&stake, &clock), false);
             ts::return_to_sender(&scenario, stake);
         };
@@ -114,7 +116,7 @@ module alpha_points::stake_position_tests {
         
         ts::next_tx(&mut scenario, USER_ADDR);
         {
-            let stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
+            let stake = ts::take_from_sender<StakePosition<Dummy>>(&scenario);
             assert_eq(stake_position::is_mature(&stake, &clock), true);
             ts::return_to_sender(&scenario, stake);
         };
@@ -128,20 +130,20 @@ module alpha_points::stake_position_tests {
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
             let ctx = ts::ctx(&mut scenario);
-            let stake = stake_position::create_stake<SUI>(
-                USER_ADDR, PRINCIPAL, DURATION_EPOCHS, &clock, ctx
+            let stake = stake_position::create_stake<Dummy>(
+                PRINCIPAL, DURATION_EPOCHS, &clock, ctx
             );
             transfer::public_transfer(stake, USER_ADDR);
         };
         ts::next_tx(&mut scenario, USER_ADDR);
         {
-            let mut stake = ts::take_from_sender<StakePosition<SUI>>(&scenario);
+            let mut stake = ts::take_from_sender<StakePosition<Dummy>>(&scenario);
             
             // Not mature yet, should not be redeemable
             assert_eq(stake_position::is_redeemable(&stake, &clock), false);
             
             // Set as encumbered
-            test_set_encumbered<SUI>(&mut stake, true);
+            test_set_encumbered<Dummy>(&mut stake, true);
             
             // Advance clock to make stake mature
             clock::increment_for_testing(&mut clock, DURATION_EPOCHS * 86400000 * 2);
@@ -151,7 +153,7 @@ module alpha_points::stake_position_tests {
             assert_eq(stake_position::is_redeemable(&stake, &clock), false);
             
             // Remove encumbrance, should now be redeemable
-            test_set_encumbered<SUI>(&mut stake, false);
+            test_set_encumbered<Dummy>(&mut stake, false);
             assert_eq(stake_position::is_redeemable(&stake, &clock), true);
             
             ts::return_to_sender(&scenario, stake);

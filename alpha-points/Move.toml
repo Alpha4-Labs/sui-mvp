@@ -3,6 +3,7 @@ name    = "alpha_points"
 version = "0.1.1"
 authors = ["Alpha4 Team"]
 edition = "2024.alpha"
+published-at = "0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a"
 
 [addresses]
 alpha_points = "0x0"

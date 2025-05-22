@@ -1,9 +1,10 @@
 /// Module that defines and manages the user's stake representation as a Move object.
 module alpha_points::stake_position {
-    use sui::object::{UID, ID};
-    use sui::tx_context::TxContext;
+    // use sui::object; // Removed as it's a duplicate alias provided by default
+    // use sui::tx_context; // Removed as it's a duplicate alias provided by default
     use sui::event;
-    use sui::clock::{Self, Clock, timestamp_ms};
+    use sui::clock::Clock;
+    use std::u64; // Added for u64::sqrt
 
     // const ENotMature: u64 = 1;
     const EAlreadyClaimed: u64 = 2;
@@ -15,7 +16,7 @@ module alpha_points::stake_position {
     /// Owned object representing a user's stake of asset T.
     /// T is phantom as the actual asset is in escrow.
     public struct StakePosition<phantom T: store> has key, store {
-        id: UID,
+        id: object::UID,
         owner: address,
         // Generic field for the primary staked asset's ID if it's an object (e.g., StakedSui ID)
         // For non-object stakes (like raw SUI before it becomes StakedSui), this might be self ID or a placeholder.
@@ -31,7 +32,7 @@ module alpha_points::stake_position {
 
     // Event for stake creation
     public struct StakeCreated<phantom T: store> has store, copy, drop {
-        stake_id: ID,
+        stake_id: object::ID,
         owner: address,
         amount: u64,
         duration_days: u64,
@@ -41,13 +42,13 @@ module alpha_points::stake_position {
 
     // Event for when a stake is encumbered (used as collateral)
     public struct StakeEncumbered has store, copy, drop {
-        stake_id: ID,
+        stake_id: object::ID,
         owner: address,
     }
 
     // Event for when a stake is unencumbered
     public struct StakeUnencumbered has store, copy, drop {
-        stake_id: ID,
+        stake_id: object::ID,
         owner: address,
     }
 
@@ -68,7 +69,7 @@ module alpha_points::stake_position {
         stake_amount: u64,
         duration_days: u64,
         _clock: &Clock, // Parameter clock unused, prefixed with underscore
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ): StakePosition<T> {
         assert!(duration_days > 0, EInvalidDuration);
         
@@ -208,8 +209,13 @@ module alpha_points::stake_position {
     }
 
     /// Returns the object ID
-    public fun get_id_view<T: store>(stake: &StakePosition<T>): ID {
+    public fun get_id_view<T: store>(stake: &StakePosition<T>): object::ID {
         object::uid_to_inner(&stake.id)
+    }
+
+    /// Borrows an immutable reference from a mutable one
+    public fun borrow_as_immutable<T: store>(stake: &mut StakePosition<T>): &StakePosition<T> {
+        stake
     }
 
     // === Mutators ===
@@ -223,7 +229,7 @@ module alpha_points::stake_position {
 
     public(package) fun set_native_stake_id_mut<T: store>(
         stake: &mut StakePosition<T>,
-        native_id: ID
+        native_id: object::ID
     ) {
         stake.staked_sui_id = object::id_to_address(&native_id);
     }
@@ -231,5 +237,29 @@ module alpha_points::stake_position {
     // Public getter for MS_PER_DAY
     public fun get_ms_per_day(): u64 {
         MS_PER_DAY
+    }
+
+    public fun calculate_weight<T: store>(
+        stake: &StakePosition<T>,
+        current_timestamp_ms: u64,
+        liq_share: u64
+    ): u64 {
+        let principal = stake.amount;
+        let stake_ms = if (current_timestamp_ms >= stake.start_time_ms) {
+            current_timestamp_ms - stake.start_time_ms
+        } else {
+            0
+        };
+        let stake_secs = stake_ms / 1000; // Convert ms to seconds
+
+        let p = u64::sqrt(principal);
+        let t = u64::sqrt(stake_secs);
+
+        let denominator = 1 + liq_share;
+        // Denominator will always be > 0 since liq_share is u64.
+        // If liq_share could be such that 1 + liq_share is 0 (e.g. if it were signed or specific value like u64::MAX making it wrap),
+        // then an assertion `assert!(denominator > 0, ESomeError);` would be good.
+        // For u64, 1 + liq_share is always >= 1.
+        (p * t) / denominator
     }
 }

@@ -9,6 +9,8 @@ module alpha_points::lz_bridge_tests {
     use alpha_points::lz_bridge::{Self, LZConfig, EUntrustedRemote};
     use alpha_points::admin::{Self, Config, GovernCap};
     use alpha_points::ledger::{Self, Ledger};
+    use alpha_points::ledger::SupplyOracle;
+    use alpha_points::stake_position;
 
     const ADMIN_ADDR: address = @0xAD;
     const USER_ADDR: address = @0xA;
@@ -176,7 +178,11 @@ module alpha_points::lz_bridge_tests {
             let mut ledger = ts::take_shared<Ledger>(&scenario);
             
             let ctx = ts::ctx(&mut scenario);
-            ledger::test_earn(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx);
+            let mut mint_stats = ledger::get_or_create_mint_stats(ctx);
+            let epoch = 0;
+            let mut clock = sui::clock::create_for_testing(ctx);
+            let mut supply_oracle = ledger::mock_supply_oracle(ctx);
+            ledger::test_earn(&mut ledger, &govern_cap, USER_ADDR, POINTS_AMOUNT, ctx, &mut mint_stats, epoch, &option::none<stake_position::StakePosition<u8>>(), 0, &clock, &mut supply_oracle);
             
             ts::return_to_sender(&scenario, govern_cap);
             ts::return_shared(ledger);
