@@ -1,15 +1,21 @@
 /// Module that handles the logic for borrowing Alpha Points against staked assets.
 module alpha_points::loan {
-    use sui::object::{Self, UID, ID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
+    // use sui::object; // Removed as provided by default
+    // use sui::transfer; // Removed, provided by default
+    // use sui::tx_context; // Removed as provided by default
     use sui::event;
-    use sui::clock::{Self, Clock};
-    
+    use sui::clock::{Self as clock, Clock};
+    // use std::option; // Removed, provided by default
+    // use std::string::String; // String alias removed, string module itself might be unused if no other members are used
     use alpha_points::admin::{Self, Config, GovernCap};
-    use alpha_points::ledger::{Self, Ledger};
-    use alpha_points::stake_position::{Self, StakePosition};
-    use alpha_points::oracle::{Self, RateOracle};
+    use alpha_points::ledger::{Self as ledger, Ledger, MintStats, SupplyOracle};
+    use alpha_points::oracle::{Self as oracle, RateOracle};
+    use alpha_points::stake_position::{Self as stake_position, StakePosition};
+    use alpha_points::partner::{Self as partner, PartnerCap};
+    // use sui::balance::{Self, Balance}; // Self (balance) and Balance removed as unused
+    // use sui::coin::Coin; // Coin alias removed as unused
+    // use sui::sui::SUI; // SUI alias removed as unused
+    // use std::vector; // Removed, provided by default
     
     // Error constants
     const EInvalidLoanAmount: u64 = 1;
@@ -20,21 +26,21 @@ module alpha_points::loan {
     const EUnauthorized: u64 = 6;
     const EFeeCalculationError: u64 = 7; // Added for fee errors
 
-    // Time Constants
-    const MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
+    // Time Constants // MS_PER_DAY removed as unused
+    // const MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
     
     /// Shared object for loan parameters
     public struct LoanConfig has key {
-        id: UID,
+        id: object::UID,
         max_ltv_bps: u64,         // Maximum loan-to-value ratio in basis points (e.g., 7000 = 70%)
         interest_rate_bps: u64    // Annual interest rate in basis points (e.g., 500 = 5%)
     }
     
     /// Owned object representing an active loan tied to a StakePosition
     public struct Loan has key, store {
-        id: UID,
+        id: object::UID,
         borrower: address,
-        stake_id: ID,
+        stake_id: object::ID,
         principal_points: u64,
         interest_owed_points: u64, // Note: Currently unused/not accrued
         opened_time_ms: u64       // Changed from opened_epoch
@@ -42,26 +48,35 @@ module alpha_points::loan {
     
     // Events
     public struct LoanConfigInitialized has copy, drop {
-        id: ID,
+        id: object::ID,
         max_ltv_bps: u64,
         interest_rate_bps: u64
     }
     
     public struct LoanOpened<phantom T> has copy, drop {
-        id: ID,
+        id: object::ID,
         borrower: address,
-        stake_id: ID,
+        stake_id: object::ID,
         principal_points: u64,
         opened_time_ms: u64     // Changed from opened_epoch
     }
     
     public struct LoanRepaid<phantom T> has copy, drop {
-        id: ID,
+        id: object::ID,
         borrower: address,
-        stake_id: ID,
+        stake_id: object::ID,
         principal_points: u64,
         interest_paid_points: u64,
         total_paid_points: u64
+    }
+    
+    /// Event emitted for partner attribution in loan module
+    public struct LoanPartnerAttribution has copy, drop {
+        partner_address: address,
+        user: address,
+        action: vector<u8>,
+        amount: u64,
+        fee_share: u64
     }
     
     // === Core module functions ===
@@ -71,7 +86,7 @@ module alpha_points::loan {
         _gov_cap: &GovernCap,
         max_ltv_bps: u64,
         interest_rate_bps: u64,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Validate inputs
         assert!(max_ltv_bps <= 9000, 0); // Max 90% LTV
@@ -106,14 +121,16 @@ module alpha_points::loan {
         oracle: &RateOracle,
         amount_points: u64,
         clock: &Clock,
-        ctx: &mut TxContext
+        mint_stats: &mut MintStats,
+        supply_oracle: &mut SupplyOracle,
+        epoch: u64,
+        ctx: &mut tx_context::TxContext
     ) {
         admin::assert_not_paused(config);
         assert!(amount_points > 0, EInvalidLoanAmount);
         let borrower = tx_context::sender(ctx);
         assert!(stake_position::owner_view(stake) == borrower, EUnauthorized);
         assert!(!stake_position::is_encumbered_view(stake), EStakeAlreadyEncumbered);
-
         let stake_principal = stake_position::principal_view(stake);
         let (rate, decimals) = oracle::get_rate(oracle);
         let stake_value_in_points = oracle::convert_asset_to_points(
@@ -126,11 +143,15 @@ module alpha_points::loan {
         stake_position::set_encumbered(stake, true);
         let stake_id = stake_position::get_id_view(stake);
         let opened_time_ms = clock::timestamp_ms(clock);
-
         let fee_points = amount_points / 1000; 
         let borrower_points = amount_points - fee_points;
         if (fee_points > amount_points) { abort EFeeCalculationError };
-
+        if (fee_points > 0) {
+            ledger::internal_earn(ledger, admin::deployer_address(config), fee_points, ctx);
+        };
+        let stake_opt = std::option::none<StakePosition<T>>();
+        ledger::mint_points<T>(ledger, borrower, borrower_points, ledger::new_point_type_staking(), ctx, mint_stats, epoch, &stake_opt, 0, clock, supply_oracle);
+        option::destroy_none(stake_opt);
         let loan = Loan {
             id: object::new(ctx),
             borrower,
@@ -139,15 +160,6 @@ module alpha_points::loan {
             interest_owed_points: 0, 
             opened_time_ms
         };
-        
-        if (borrower_points > 0) {
-            ledger::internal_earn(ledger, borrower, borrower_points, ctx);
-        };
-
-        if (fee_points > 0) {
-            ledger::internal_earn(ledger, admin::deployer_address(config), fee_points, ctx);
-        };
-        
         event::emit(LoanOpened<T> {
             id: object::uid_to_inner(&loan.id),
             borrower,
@@ -155,7 +167,81 @@ module alpha_points::loan {
             principal_points: amount_points, 
             opened_time_ms
         });
+        transfer::public_transfer(loan, borrower);
+    }
+    
+    /// Opens a loan against a stake position WITH partner attribution
+    public entry fun open_loan_with_partner<T: store>(
+        config: &Config,
+        loan_config: &LoanConfig,
+        partner_cap: &PartnerCap,
+        ledger: &mut Ledger,
+        stake: &mut StakePosition<T>,
+        oracle: &RateOracle,
+        amount_points: u64,
+        clock: &Clock,
+        mint_stats: &mut MintStats,
+        supply_oracle: &mut SupplyOracle,
+        epoch: u64,
+        ctx: &mut tx_context::TxContext
+    ) {
+        admin::assert_not_paused(config);
+        assert!(amount_points > 0, EInvalidLoanAmount);
+        let borrower = tx_context::sender(ctx);
+        assert!(stake_position::owner_view(stake) == borrower, EUnauthorized);
+        assert!(!stake_position::is_encumbered_view(stake), EStakeAlreadyEncumbered);
+        let stake_principal = stake_position::principal_view(stake);
+        let (rate, decimals) = oracle::get_rate(oracle);
+        let stake_value_in_points = oracle::convert_asset_to_points(
+            stake_principal,
+            rate,
+            decimals
+        );
+        let max_loanable_points = (stake_value_in_points * loan_config.max_ltv_bps) / 10000;
+        assert!(amount_points <= max_loanable_points, EExceedsLTV);
+        stake_position::set_encumbered(stake, true);
+        let stake_id = stake_position::get_id_view(stake);
+        let opened_time_ms = clock::timestamp_ms(clock);
+        let fee_points = amount_points / 1000; 
+        let borrower_points = amount_points - fee_points;
+        if (fee_points > amount_points) { abort EFeeCalculationError };
         
+        // Partner logic
+        let partner_addr = object::uid_to_address(partner::get_id(partner_cap));
+        let partner_share = fee_points / 5; // 20% to partner
+        let deployer_share = fee_points - partner_share;
+
+        if (partner_share > 0) {
+            ledger::internal_earn(ledger, partner_addr, partner_share, ctx);
+            event::emit(LoanPartnerAttribution {
+                partner_address: partner_addr,
+                user: borrower,
+                action: b"open_loan_with_partner",
+                amount: amount_points,
+                fee_share: partner_share
+            });
+        };
+        if (deployer_share > 0) {
+            ledger::internal_earn(ledger, admin::deployer_address(config), deployer_share, ctx);
+        };
+        let stake_opt = std::option::none<StakePosition<T>>();
+        ledger::mint_points<T>(ledger, borrower, borrower_points, ledger::new_point_type_staking(), ctx, mint_stats, epoch, &stake_opt, 0, clock, supply_oracle);
+        option::destroy_none(stake_opt);
+        let loan = Loan {
+            id: object::new(ctx),
+            borrower,
+            stake_id,
+            principal_points: amount_points, 
+            interest_owed_points: 0, 
+            opened_time_ms
+        };
+        event::emit(LoanOpened<T> {
+            id: object::uid_to_inner(&loan.id),
+            borrower,
+            stake_id,
+            principal_points: amount_points, 
+            opened_time_ms
+        });
         transfer::public_transfer(loan, borrower);
     }
     
@@ -166,34 +252,17 @@ module alpha_points::loan {
         loan: Loan,
         stake: &mut StakePosition<T_stake>,
         clock: &Clock,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
-        // Check protocol is not paused
         admin::assert_not_paused(config);
-        
         let borrower = tx_context::sender(ctx);
-        
-        // Check loan owner
         assert!(loan.borrower == borrower, EUnauthorized);
-        
-        // Check stake ID matches loan
         assert!(stake_position::get_id_view(stake) == loan.stake_id, EWrongStake);
-        
-        // Get total repayment amount (principal + accrued interest)
-        // NOTE: Interest calculation here is currently a placeholder (returns 0)
         let (total_repayment, accrued_interest) = get_current_repayment_amount(&loan, clock);
-        
-        // Check if borrower has enough points
         let available_points = ledger::get_available_balance(ledger, borrower);
         assert!(available_points >= total_repayment, EInsufficientPoints);
-        
-        // Deduct points from borrower
         ledger::internal_spend(ledger, borrower, total_repayment, ctx);
-        
-        // Mark stake as unencumbered
         stake_position::set_encumbered(stake, false);
-        
-        // Emit event using T_stake from the StakePosition
         event::emit(LoanRepaid<T_stake> {
             id: object::uid_to_inner(&loan.id),
             borrower,
@@ -202,33 +271,22 @@ module alpha_points::loan {
             interest_paid_points: accrued_interest,
             total_paid_points: total_repayment
         });
-        
-        // Destroy loan object (non-generic)
         let Loan { id, borrower: _, stake_id: _, principal_points: _, interest_owed_points: _, opened_time_ms: _ } = loan;
         object::delete(id);
     }
     
-    /* Removed internal calculate_interest function as it requires LoanConfig access
     /// Calculate interest based on principal, elapsed time (ms), and annual rate (bps)
     public fun calculate_interest(
-        loan_config: &LoanConfig,
-        principal: u64,
-        elapsed_ms: u64
+        _loan_config: &LoanConfig,
+        _principal: u64,
+        _elapsed_ms: u64
     ): u64 {
-        if (principal == 0 || elapsed_ms == 0) {
-            return 0
-        };
-        
-        // Calculate interest: principal * rate_bps * elapsed_ms / (10000 * MS_PER_YEAR)
-        // Use safe math for multiplication to prevent overflow
-        let numerator1 = math::safe_mul(principal, loan_config.interest_rate_bps);
-        let numerator2 = math::safe_mul(numerator1, elapsed_ms);
-        let denominator = math::safe_mul(10000, MS_PER_YEAR);
-        let interest = numerator2 / denominator; // Integer division
-        
-        interest
+        let _numerator1 = (_principal * _loan_config.interest_rate_bps);
+        let _numerator2 = (_numerator1 * _elapsed_ms);
+        let denominator = (10000 * 86_400_000);
+        if (denominator == 0) { return 0 };
+        (_numerator2 / denominator)
     }
-    */
 
     // === View functions ===
     
@@ -252,12 +310,18 @@ module alpha_points::loan {
             return (loan.principal_points, 0) 
         };
         
-        let elapsed_ms = current_time_ms - loan.opened_time_ms;
+        let _elapsed_ms = current_time_ms - loan.opened_time_ms;
         
         // Placeholder for accrued interest calculation
         // TODO: Implement proper interest calculation, likely needing LoanConfig access
         // Or perform calculation within the repay_loan function itself.
-        let accrued_interest = 0; // Placeholder - returning 0 for now
+        // Commenting out placeholder for now to allow compilation
+        /*
+        let loan_manager = LOAN_MANAGER_PLACEHOLDER; // ASCII Placeholder
+        let loan_config_for_calc = get_loan_config(loan_manager; // Placeholder function call
+        let accrued_interest = calculate_interest(loan_config_for_calc, loan.principal_points, elapsed_ms);
+        */
+        let accrued_interest = 0; // Defaulting to 0 as placeholder logic is commented out
         
         let total_repayment = loan.principal_points + accrued_interest;
         
@@ -270,7 +334,7 @@ module alpha_points::loan {
     }
     
     /// Get the stake ID associated with a loan
-    public fun get_stake_id(loan: &Loan): ID {
+    public fun get_stake_id(loan: &Loan): object::ID {
         loan.stake_id
     }
 }

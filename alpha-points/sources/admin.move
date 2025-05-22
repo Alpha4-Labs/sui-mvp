@@ -1,8 +1,8 @@
 /// Module that manages protocol configuration, capabilities, and global pause state.
 module alpha_points::admin {
-    use sui::object::{Self, UID, ID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
+    // use sui::object; // Removed duplicate alias
+    // use sui::transfer; // Removed duplicate alias
+    // use sui::tx_context; // Removed duplicate alias
     use sui::event;
     // use sui::clock::{Self, Clock}; // Clock might become unused
     
@@ -23,38 +23,35 @@ module alpha_points::admin {
     
     /// Singleton capability for protocol owner actions
     public struct GovernCap has key, store {
-        id: UID,
+        id: object::UID,
         auth_key: address
     }
     
     /// Capability to update oracles
     public struct OracleCap has key, store {
-        id: UID,
+        id: object::UID,
         auth_key: address
     }
     
     /// Capability that grants administrative rights.
     /// Held by the deployer.
     public struct AdminCap has key, store {
-        id: UID
+        id: object::UID
     }
     
     /// Configuration object holding protocol parameters.
     public struct Config has key {
-        id: UID,
-        admin_cap_id: ID,
-        is_paused: bool,
-        points_rate_per_sui_per_epoch: u64,
-        deployer_address: address,
-        forfeiture_grace_period_ms: u64,
-        target_validator_address: address
+        id: object::UID,
+        deployer: address, // Address of the deployer/protocol
+        paused: bool, // Protocol pause state
+        points_rate: u64, // Points per SUI per epoch (e.g., 100 means 100 points for 1 SUI staked for 1 epoch)
+        target_validator: address, // Target validator address for native SUI staking
+        admin_cap_id: object::ID, // ID of the AdminCap, stored for convenience/events
+        default_liq_share_for_weight_curve: u64, // Default liq_share for weight curve calculation
+        forfeiture_grace_period_ms: u64
     }
     
     // Events
-    public struct PauseStateChanged has copy, drop {
-        paused: bool
-    }
-    
     public struct GovernCapTransferred has copy, drop {
         from: address,
         to: address
@@ -63,10 +60,6 @@ module alpha_points::admin {
     public struct OracleCapTransferred has copy, drop {
         from: address,
         to: address
-    }
-    
-    public struct PointsRateChanged has copy, drop {
-        new_rate: u64 // Points per SUI per epoch
     }
     
     public struct ProtocolPaused has copy, drop {}
@@ -87,15 +80,33 @@ module alpha_points::admin {
     // === Test-only functions ===
     #[test_only]
     /// Initialize the admin module for testing
-    public fun init_for_testing(ctx: &mut TxContext) {
-        init(ctx);
+    public fun init_for_testing(ctx: &mut tx_context::TxContext) {
+        let sender = tx_context::sender(ctx);
+        let admin_cap = AdminCap { id: object::new(ctx) };
+        let admin_cap_id = object::id(&admin_cap); // Store the ID
+
+        transfer::transfer(
+            Config {
+                id: object::new(ctx),
+                deployer: sender,
+                paused: false,
+                points_rate: 100, // Example: 100 points per SUI per epoch
+                target_validator: @0x0, // Placeholder, set via update_target_validator
+                admin_cap_id: admin_cap_id, // Store the AdminCap ID
+                default_liq_share_for_weight_curve: 0, // Initialize with 0 (no dampening)
+                forfeiture_grace_period_ms: 14 * 24 * 60 * 60 * 1000
+            },
+            sender
+        );
+        transfer::transfer(admin_cap, sender);
+        transfer::transfer(GovernCap { id: object::new(ctx) }, sender);
     }
     
     // === Core module functions ===
     
     /// Creates GovernCap, OracleCap, Config, and initializes other modules.
     /// Transfers caps to deployer, shares Config and other shared objects.
-    fun init(ctx: &mut TxContext) {
+    fun init(ctx: &mut tx_context::TxContext) {
         let sender = tx_context::sender(ctx);
         
         // Create and transfer governance capability
@@ -112,20 +123,21 @@ module alpha_points::admin {
         transfer::transfer(oracle_cap, sender);
         
         let admin_cap = AdminCap { id: object::new(ctx) };
-        let admin_cap_id = object::id(&admin_cap); // Renamed from admin_cap_actual_id for clarity
+        let admin_cap_id_val = object::id(&admin_cap); // Renamed from admin_cap_actual_id for clarity
         transfer::public_transfer(admin_cap, sender); 
         
         let config = Config {
             id: object::new(ctx),
-            admin_cap_id, // Use the renamed variable
-            is_paused: false,
-            points_rate_per_sui_per_epoch: 100, 
-            deployer_address: sender,
+            admin_cap_id: admin_cap_id_val, // Use the renamed variable
+            deployer: sender, // Corrected field name
+            paused: false, // Corrected field name
+            points_rate: 100,  // Corrected field name
             forfeiture_grace_period_ms: 14 * 24 * 60 * 60 * 1000,
-            target_validator_address: @0x0 
-        }; // Removed invalid characters and corrected structure
+            target_validator: @0x0, // Corrected field name
+            default_liq_share_for_weight_curve: 0 // Initialize to 0
+        }; 
         
-        transfer::share_object(config); // Ensure config is shared
+        transfer::share_object(config); 
     }
     
     /// Updates config.paused. Emits PauseStateChanged.
@@ -134,13 +146,13 @@ module alpha_points::admin {
         config: &mut Config, 
         admin_cap: &AdminCap, 
         new_pause_state: bool, 
-        _ctx: &TxContext
+        _ctx: &tx_context::TxContext
     ) {
         assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
-        config.is_paused = new_pause_state;
+        config.paused = new_pause_state; // Corrected field name
         
         // Emit event
-        if (config.is_paused) {
+        if (config.paused) { // Corrected field name
             event::emit(ProtocolPaused {});
         } else {
             event::emit(ProtocolUnpaused {});
@@ -153,11 +165,11 @@ module alpha_points::admin {
         config: &mut Config,
         admin_cap: &AdminCap,
         new_rate: u64, // New points per SUI per epoch
-        _ctx: &TxContext // Context might be needed later
+        _ctx: &tx_context::TxContext // Context might be needed later
     ) {
         assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
         assert!(new_rate > 0, EZeroPointsRate);
-        config.points_rate_per_sui_per_epoch = new_rate;
+        config.points_rate = new_rate; // Corrected field name
         event::emit(PointsRateUpdated { new_rate });
     }
     
@@ -167,10 +179,10 @@ module alpha_points::admin {
         config: &mut Config,
         admin_cap: &AdminCap,
         new_period_ms: u64,
-        _ctx: &TxContext
+        _ctx: &tx_context::TxContext
     ) {
         assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
-        config.forfeiture_grace_period_ms = new_period_ms;
+        config.forfeiture_grace_period_ms = new_period_ms; // Corrected field name
         event::emit(ForfeitureGracePeriodUpdated { new_period_ms });
     }
     
@@ -180,11 +192,11 @@ module alpha_points::admin {
         config: &mut Config,
         admin_cap: &AdminCap,
         new_validator: address,
-        _ctx: &TxContext
+        _ctx: &tx_context::TxContext
     ) {
         assert!(object::id(admin_cap) == config.admin_cap_id, EInvalidCaller);
-        let old_validator = config.target_validator_address;
-        config.target_validator_address = new_validator;
+        let old_validator = config.target_validator; // Corrected field name
+        config.target_validator = new_validator; // Corrected field name
         event::emit(TargetValidatorChanged { old_validator, new_validator });
     }
     
@@ -193,7 +205,7 @@ module alpha_points::admin {
         _gov_cap: &GovernCap, 
         cap: GovernCap, 
         to: address, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         let from = tx_context::sender(ctx);
         
@@ -209,7 +221,7 @@ module alpha_points::admin {
         _gov_cap: &GovernCap, 
         cap: OracleCap, 
         to: address, 
-        ctx: &TxContext
+        ctx: &tx_context::TxContext
     ) {
         let from = tx_context::sender(ctx);
         
@@ -222,27 +234,27 @@ module alpha_points::admin {
     
     /// Returns whether the protocol is paused
     public fun is_paused(config: &Config): bool {
-        config.is_paused
+        config.paused // Corrected field name
     }
     
     /// Aborts if config.paused is true. Used by other modules.
     public fun assert_not_paused(config: &Config) {
-        assert!(!config.is_paused, EPaused);
+        assert!(!config.paused, EPaused); // Corrected field name
     }
 
     /// Returns the configured points earning rate per SUI per epoch.
     public fun get_points_rate(config: &Config): u64 {
-        config.points_rate_per_sui_per_epoch
+        config.points_rate // Corrected field name
     }
 
     /// Get the deployer address stored in the config.
     public fun deployer_address(config: &Config): address {
-        config.deployer_address
+        config.deployer // Corrected field name
     }
 
     /// Get the forfeiture grace period stored in the config.
     public fun forfeiture_grace_period(config: &Config): u64 {
-        config.forfeiture_grace_period_ms
+        config.forfeiture_grace_period_ms // Corrected field name
     }
 
     /// Returns true if the provided AdminCap matches the one in the Config.
@@ -251,19 +263,42 @@ module alpha_points::admin {
     }
 
     /// Returns the ID of the AdminCap associated with this config.
-    public fun admin_cap_id(config: &Config): ID {
+    public fun admin_cap_id(config: &Config): object::ID {
         config.admin_cap_id
     }
 
     /// Returns the configured target validator address for native staking.
     public fun get_target_validator(config: &Config): address {
-        config.target_validator_address
+        config.target_validator // Corrected field name
+    }
+
+    /// Placeholder for governor authorization check.
+    /// Assumes GovernCap.auth_key should match config.deployer_address.
+    fun assert_is_governor(gov_cap: &GovernCap, config: &Config) {
+        assert!(gov_cap.auth_key == config.deployer, EInvalidCaller); // Corrected field name
+    }
+
+    /// Allows the GovernCap holder to set the default liq_share for weight curve calculation.
+    public entry fun set_default_liq_share(
+        gov_cap: &GovernCap,
+        config: &mut Config,
+        new_share_value: u64,
+        _ctx: &tx_context::TxContext // Added context for entry function consistency
+    ) {
+        assert_is_governor(gov_cap, config);
+        config.default_liq_share_for_weight_curve = new_share_value;
+        // Consider adding an event here if tracking changes to this value is important
+    }
+
+    /// Returns the default liq_share for weight curve calculation.
+    public fun get_default_liq_share(config: &Config): u64 {
+        config.default_liq_share_for_weight_curve
     }
 
     #[test_only]
     /// Helper function for creating GovernCap in tests - now creates a "fake" cap
     /// with a different auth_key than the admin
-    public(package) fun create_test_govern_cap(ctx: &mut TxContext): GovernCap {
+    public(package) fun create_test_govern_cap(ctx: &mut tx_context::TxContext): GovernCap {
         let sender = tx_context::sender(ctx);
         GovernCap { 
             id: object::new(ctx),
@@ -280,7 +315,7 @@ module alpha_points::admin {
 
     #[test_only]
     /// Helper function for creating OracleCap in tests - also creates a "fake" cap
-    public(package) fun create_test_oracle_cap(ctx: &mut TxContext): OracleCap {
+    public(package) fun create_test_oracle_cap(ctx: &mut tx_context::TxContext): OracleCap {
         OracleCap { 
             id: object::new(ctx),
             auth_key: @0x1234 // Use a different address than admin
@@ -296,7 +331,7 @@ module alpha_points::admin {
 
     #[test_only]
     /// Helper function for creating AdminCap in tests
-    public(package) fun create_test_admin_cap(ctx: &mut TxContext): AdminCap {
+    public(package) fun create_test_admin_cap(ctx: &mut tx_context::TxContext): AdminCap {
         AdminCap { id: object::new(ctx) }
     }
 

@@ -1,13 +1,13 @@
 /// Module for LayerZero (or other bridge) integration to send/receive
 /// Alpha Points equivalent cross-chain.
 module alpha_points::lz_bridge {
-    use sui::object;
-    use sui::transfer;
-    use sui::tx_context;
+    // use sui::object; // Removed, provided by default
+    // use sui::transfer; // Removed, provided by default
+    // use sui::tx_context; // Removed, provided by default
     use sui::event;
     use sui::vec_map::{Self, VecMap};
     use sui::bcs;
-    use std::vector;
+    // use std::vector; // Removed, provided by default
     
     use alpha_points::admin::{Self, Config, GovernCap};
     use alpha_points::ledger::{Self, Ledger};
@@ -20,6 +20,7 @@ module alpha_points::lz_bridge {
     const EUnauthorizedEndpoint: u64 = 5;
     
     /// Trusted remote contract configuration
+    #[allow(unused_field)]
     public struct TrustedRemote has store, copy, drop {
         chain_id: u64,           // LayerZero chain ID
         remote_address: vector<u8>  // Remote contract address (bytes)
@@ -116,7 +117,7 @@ module alpha_points::lz_bridge {
     // === Core module functions ===
     
     /// Initializes the bridge configuration
-    public entry fun init_lz_config(
+    public fun init_lz_config(
         _gov_cap: &GovernCap,
         lz_endpoint: address,
         ctx: &mut tx_context::TxContext
@@ -142,7 +143,7 @@ module alpha_points::lz_bridge {
     }
     
     /// Enables or disables the bridge
-    public entry fun set_bridge_enabled(
+    public fun set_bridge_enabled(
         _gov_cap: &GovernCap,
         lz_config: &mut LZConfig,
         enabled: bool,
@@ -155,7 +156,7 @@ module alpha_points::lz_bridge {
     }
     
     /// Sets a trusted remote for a given chain ID
-    public entry fun set_trusted_remote(
+    public fun set_trusted_remote(
         _gov_cap: &GovernCap,
         lz_config: &mut LZConfig,
         chain_id: u64,
@@ -176,7 +177,7 @@ module alpha_points::lz_bridge {
     }
     
     /// Sends points to another chain
-    public entry fun send_bridge_packet(
+    public fun send_bridge_packet(
         config: &Config,
         lz_config: &LZConfig,
         ledger: &mut Ledger,
@@ -236,7 +237,7 @@ module alpha_points::lz_bridge {
         source_chain_id: u64,
         source_address: vector<u8>,
         payload: vector<u8>,
-        ctx: &tx_context::TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Check protocol is not paused
         admin::assert_not_paused(config);

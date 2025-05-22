@@ -1,10 +1,10 @@
 /// Module that holds the underlying staked assets (Coin<T>) securely.
 module alpha_points::escrow {
-    use sui::object;
+    // use sui::object; // Removed as it is a duplicate alias provided by default
     use sui::coin;
     use sui::balance;
-    use sui::transfer;
-    use sui::tx_context;
+    // use sui::transfer; // Removed as it is a duplicate alias provided by default
+    // use sui::tx_context; // Removed as it is a duplicate alias provided by default
     use sui::event;
     
     use alpha_points::admin::GovernCap;
@@ -132,5 +132,10 @@ module alpha_points::escrow {
     /// Returns the total value in the vault
     public fun total_value<T>(vault: &EscrowVault<T>): u64 {
         balance::value(&vault.balance)
+    }
+
+    /// Returns a reference to the EscrowVault's UID.
+    public fun vault_uid<T>(vault: &EscrowVault<T>): &object::UID {
+        &vault.id
     }
 }

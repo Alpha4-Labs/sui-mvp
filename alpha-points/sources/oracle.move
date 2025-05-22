@@ -1,11 +1,11 @@
 /// Module that provides asset price/rate information for Alpha Points against
 /// other assets or a base currency like USDC.
 module alpha_points::oracle {
-    use sui::object::{Self, ID, UID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
+    // use sui::object; // Removed as it's a duplicate alias provided by default
+    // use sui::tx_context; // Removed as it's a duplicate alias provided by default
     use sui::event;
-    use sui::clock::{Self, Clock};
+    use sui::clock::Clock;
+    // use std::string::String; // Removed as String alias is unused
 
     use alpha_points::admin::OracleCap;
 
@@ -13,11 +13,11 @@ module alpha_points::oracle {
     const EInvalidRate: u64 = 1;
     const EInvalidDecimals: u64 = 2;
     const EOracleStale: u64 = 3;
-    const EUnauthorized: u64 = 4;
+    const EInvalidEpoch: u64 = 5;
 
     /// Shared object holding rate information
     public struct RateOracle has key {
-        id: UID,
+        id: object::UID,
         base_rate: u128,          // Fixed-point representation
         decimals: u8,             // Number of decimal places in base_rate
         last_update_epoch: u64,   // When rate was last updated (Consider using Sui Epoch or Timestamp)
@@ -27,21 +27,21 @@ module alpha_points::oracle {
 
     // Events
     public struct OracleCreated has copy, drop {
-        id: ID,
+        id: object::ID,
         initial_rate: u128,
         decimals: u8,
         threshold: u64
     }
 
     public struct RateUpdated has copy, drop {
-        id: ID,
+        id: object::ID,
         old_rate: u128,
         new_rate: u128,
         update_epoch: u64 // Or timestamp if using clock time
     }
 
     public struct StalenessThresholdUpdated has copy, drop {
-        id: ID,
+        id: object::ID,
         old_threshold: u64,
         new_threshold: u64
     }
@@ -54,7 +54,7 @@ module alpha_points::oracle {
         initial_rate: u128,
         decimals: u8,
         threshold: u64,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         create_oracle(oracle_cap, initial_rate, decimals, threshold, ctx)
     }
@@ -63,11 +63,11 @@ module alpha_points::oracle {
 
     /// Creates and shares RateOracle
     public entry fun create_oracle(
-        oracle_cap: &OracleCap,
+        _oracle_cap: &OracleCap,
         initial_rate: u128,
         decimals: u8,
         threshold: u64,
-        ctx: &mut TxContext
+        ctx: &mut tx_context::TxContext
     ) {
         // Validate inputs
         assert!(initial_rate > 0, EInvalidRate);
@@ -106,52 +106,45 @@ module alpha_points::oracle {
 
     /// Updates oracle.base_rate and last_update_epoch
     public entry fun update_rate(
+        _oracle_cap: &OracleCap,
         oracle: &mut RateOracle,
-        oracle_cap: &OracleCap,
         new_rate: u128,
-        ctx: &TxContext
+        clock: &Clock,
+        ctx: &tx_context::TxContext
     ) {
-        // Validate that the sender is the authorized oracle
-        let sender = tx_context::sender(ctx);
-        assert!(sender == oracle.oracle_address, EUnauthorized);
-        
-        // Validate inputs
-        assert!(new_rate > 0, EInvalidRate);
+        assert!(!is_stale(oracle, clock, ctx), EOracleStale);
 
-        let old_rate = oracle.base_rate;
+        let current_epoch = tx_context::epoch(ctx);
+        assert!(current_epoch >= oracle.last_update_epoch, EInvalidEpoch);
 
-        // Using tx_context's epoch
-        let current_epoch_or_time = tx_context::epoch(ctx);
+        let old_rate = oracle.base_rate; // Capture old rate before update
 
         // Update rate and timestamp/epoch
         oracle.base_rate = new_rate;
-        oracle.last_update_epoch = current_epoch_or_time;
+        oracle.last_update_epoch = current_epoch;
 
         // Emit event
         event::emit(RateUpdated {
             id: object::uid_to_inner(&oracle.id),
             old_rate,
             new_rate,
-            update_epoch: current_epoch_or_time
+            update_epoch: current_epoch
         });
     }
 
     /// Updates oracle.staleness_threshold
     public entry fun update_staleness_threshold(
+        _oracle_cap: &OracleCap,
         oracle: &mut RateOracle,
-        oracle_cap: &OracleCap,
         new_threshold: u64,
-        ctx: &TxContext
+        clock: &Clock,
+        ctx: &tx_context::TxContext
     ) {
-        // Validate that the sender is the authorized oracle
-        let sender = tx_context::sender(ctx);
-        assert!(sender == oracle.oracle_address, EUnauthorized);
-        
+        assert!(!is_stale(oracle, clock, ctx), EOracleStale);
+
         let old_threshold = oracle.staleness_threshold;
-
-        // Update threshold
         oracle.staleness_threshold = new_threshold;
-
+        
         // Emit event
         event::emit(StalenessThresholdUpdated {
             id: object::uid_to_inner(&oracle.id),
@@ -228,10 +221,11 @@ module alpha_points::oracle {
 
     /// Checks if the oracle data is stale based on the clock time.
     /// Returns true if the oracle is stale, false otherwise.
-    public fun is_stale(oracle: &RateOracle, clock: &Clock): bool {
-        // For testing purposes: always return false (oracle is never stale)
-        // This ensures the oracle staleness checks don't interfere with tests
-        false
+    public fun is_stale(oracle: &RateOracle, _clock: &Clock, ctx: &tx_context::TxContext): bool {
+        // Check if the time elapsed since the last update exceeds the staleness threshold.
+        // Assumes last_update_epoch and staleness_threshold are in terms of epochs.
+        let current_epoch = tx_context::epoch(ctx);
+        current_epoch > oracle.last_update_epoch && (current_epoch - oracle.last_update_epoch) > oracle.staleness_threshold
     }
 
     /// Returns the staleness threshold
@@ -239,9 +233,10 @@ module alpha_points::oracle {
         oracle.staleness_threshold
     }
 
-    /// Asserts that the oracle is not stale using the provided Clock.
-    public fun assert_not_stale(oracle: &RateOracle, clock: &Clock) {
-        assert!(!is_stale(oracle, clock), EOracleStale);
+    /// Asserts that the oracle is not stale. Aborts if it is.
+    /// To be used by functions that rely on fresh oracle data.
+    public fun assert_not_stale(oracle: &RateOracle, clock: &Clock, ctx: &tx_context::TxContext) {
+        assert!(!is_stale(oracle, clock, ctx), EOracleStale);
     }
 
     // === Helper functions ===
@@ -262,5 +257,32 @@ module alpha_points::oracle {
         };
 
         result
+    }
+
+    // Add price_in_usdc function
+    /// Converts an amount of a base asset (whose price is tracked by this oracle)
+    /// into its equivalent value in the target currency (e.g., USDC points),
+    /// using the oracle's rate and decimals.
+    public fun price_in_usdc(oracle: &RateOracle, amount_of_base_asset: u64): u64 {
+        if (amount_of_base_asset == 0 || oracle.base_rate == 0) {
+            return 0
+        };
+
+        // Calculation: (amount_of_base_asset * oracle.base_rate) / 10^oracle.decimals
+        // This is effectively the same as convert_points_to_asset if we consider
+        // 'amount_of_base_asset' as 'points' and 'oracle.base_rate' as 'rate'.
+        let scaled_amount = (amount_of_base_asset as u128);
+        let pow_decimals = pow10(oracle.decimals);
+        assert!(pow_decimals > 0, EInvalidDecimals); // Should be handled by pow10's own assert for large n
+
+        let result = (scaled_amount * oracle.base_rate) / pow_decimals;
+
+        // Convert back to u64, capping at u64::MAX if necessary
+        let max_u64 = 18446744073709551615u128; // u64::MAX
+        if (result > max_u64) {
+            (max_u64 as u64)
+        } else {
+            (result as u64)
+        }
     }
 }

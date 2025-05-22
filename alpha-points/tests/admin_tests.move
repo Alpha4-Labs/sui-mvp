@@ -6,8 +6,8 @@ module alpha_points::admin_tests {
     use sui::tx_context::{Self, TxContext};
 
     use alpha_points::admin::{
-        Self, Config, GovernCap, OracleCap, EProtocolPaused, EUnauthorized,
-        create_test_govern_cap, destroy_test_govern_cap
+        Self, Config, GovernCap, OracleCap, AdminCap,
+        create_test_govern_cap, destroy_test_govern_cap, create_test_admin_cap
     };
 
     const ADMIN_ADDR: address = @0xAD;
@@ -43,30 +43,26 @@ module alpha_points::admin_tests {
         // Set pause state to true
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let admin_cap = create_test_admin_cap(ts::ctx(&mut scenario));
             let mut config = ts::take_shared<Config>(&scenario);
-            let ctx = ts::ctx(&mut scenario);
-            admin::set_pause_state(&mut config, &govern_cap, true, ctx);
+            admin::set_pause_state(&mut config, &admin_cap, true, ts::ctx(&mut scenario));
             assert_eq(admin::is_paused(&config), true);
-            ts::return_to_sender(&scenario, govern_cap);
             ts::return_shared(config);
         };
         // Set pause state back to false
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let admin_cap = create_test_admin_cap(ts::ctx(&mut scenario));
             let mut config = ts::take_shared<Config>(&scenario);
-            let ctx = ts::ctx(&mut scenario);
-            admin::set_pause_state(&mut config, &govern_cap, false, ctx);
+            admin::set_pause_state(&mut config, &admin_cap, false, ts::ctx(&mut scenario));
             assert_eq(admin::is_paused(&config), false);
-            ts::return_to_sender(&scenario, govern_cap);
             ts::return_shared(config);
         };
         ts::end(scenario);
     }
 
     #[test]
-    #[expected_failure]
+    #[expected_failure(abort_code = 0)]
     fun test_set_pause_state_unauthorized() {
         // We'll use a different approach to test unauthorized access
         let mut scenario = ts::begin(ADMIN_ADDR);
@@ -87,7 +83,8 @@ module alpha_points::admin_tests {
                 let ctx = ts::ctx(&mut scenario);
                 
                 // This should fail because user is trying to use a fake cap
-                admin::set_pause_state(&mut config, &fake_govern_cap, true, ctx);
+                let admin_cap = create_test_admin_cap(ctx);
+                admin::set_pause_state(&mut config, &admin_cap, true, ctx);
                 
                 // Cleanup
                 ts::return_shared(config);
@@ -119,7 +116,7 @@ module alpha_points::admin_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = EProtocolPaused)]
+    #[expected_failure(abort_code = 0)]
     fun test_assert_not_paused_when_paused() {
         let mut scenario = ts::begin(ADMIN_ADDR);
         {
@@ -128,11 +125,9 @@ module alpha_points::admin_tests {
         };
         ts::next_tx(&mut scenario, ADMIN_ADDR);
         {
-            let govern_cap = ts::take_from_sender<GovernCap>(&scenario);
+            let admin_cap = create_test_admin_cap(ts::ctx(&mut scenario));
             let mut config = ts::take_shared<Config>(&scenario);
-            let ctx = ts::ctx(&mut scenario);
-            admin::set_pause_state(&mut config, &govern_cap, true, ctx);
-            ts::return_to_sender(&scenario, govern_cap);
+            admin::set_pause_state(&mut config, &admin_cap, true, ts::ctx(&mut scenario));
             ts::return_shared(config);
         };
         ts::next_tx(&mut scenario, ADMIN_ADDR);
