@@ -12,6 +12,7 @@ module alpha_points::loan {
     use alpha_points::oracle::{Self as oracle, RateOracle};
     use alpha_points::stake_position::{Self as stake_position, StakePosition};
     use alpha_points::partner::{Self as partner, PartnerCap};
+    use sui::object::{new as object_new}; // Changed import: ID and UID will be fully qualified
     // use sui::balance::{Self, Balance}; // Self (balance) and Balance removed as unused
     // use sui::coin::Coin; // Coin alias removed as unused
     // use sui::sui::SUI; // SUI alias removed as unused
@@ -80,6 +81,29 @@ module alpha_points::loan {
     }
     
     // === Core module functions ===
+    
+    /// Creates a new Loan object. Intended for use within the alpha_points package.
+    public(package) fun create_loan(
+        borrower: address,
+        stake_id: object::ID,
+        principal_points: u64,
+        opened_time_ms: u64,
+        ctx: &mut tx_context::TxContext
+    ): Loan {
+        Loan {
+            id: object_new(ctx),
+            borrower,
+            stake_id,
+            principal_points,
+            interest_owed_points: 0, // Default new loans to 0 interest owed
+            opened_time_ms
+        }
+    }
+
+    /// Public getter for the Loan object's UID.
+    public fun get_loan_uid(loan: &Loan): &object::UID {
+        &loan.id
+    }
     
     /// Creates and shares LoanConfig
     public entry fun init_loan_config(

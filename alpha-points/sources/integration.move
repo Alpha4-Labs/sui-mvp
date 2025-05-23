@@ -19,6 +19,8 @@ module alpha_points::integration {
     use alpha_points::oracle::{Self, RateOracle};
     use alpha_points::staking_manager::{Self, StakingManager};
     use alpha_points::partner::{Self, PartnerCap};
+    use alpha_points::loan;
+    use sui::object::id_from_address;
     // use alpha_points::types::{Self, CollateralType, PointTypeConstants, ErrorCodeConstants}; // FIXME: Temporarily commented out due to unresolved types
     // use sui::table; // Removed table alias
     // use alpha_points::ledger::get_daily_wallet_cap; // Removed as unused alias
@@ -28,6 +30,13 @@ module alpha_points::integration {
     const EAlreadyClaimedOrTooSoon: u64 = 0; // FIXME: ErrorCodeConstants undefined
     const ERepaymentAmountError: u64 = 0; // FIXME: ErrorCodeConstants undefined
     const EFeeCalculationError: u64 = 0; // FIXME: ErrorCodeConstants undefined
+    const ENotOwner: u64 = 1; // Example, ensure this is defined or use an existing one
+    const ENotRedeemable: u64 = 2; // Example, ensure this is defined or use an existing one
+    const EInvalidStakeIdType: u64 = 3; // Example for type mismatch
+    const EStakeEncumbered: u64 = 4; // New error: Stake is encumbered by a loan
+    #[allow(unused_const)]
+    const ELoanProcessingError: u64 = 5; // Error during loan object creation/processing for liquid unstake
+    const EStakeNotMatureForLoan: u64 = 6; // Stake is not mature enough for this type of loan/unstake
     
     // Constants
     // const STAKE_EXPIRY_DAYS: u64 = 14; // Removed as unused
@@ -133,6 +142,16 @@ module alpha_points::integration {
         native_stake_id: ID
     }
     
+    /// Event emitted when a user's native SUI stake is converted to Alpha Points
+    /// and the SUI withdrawal ticket is stored by the protocol.
+    public struct StakeConvertedToPoints has store, copy, drop {
+        user: address,
+        original_staked_sui_id: ID, // ID of the StakedSui object that was unstaked
+        sui_amount_unstaked: u64,   // The principal amount of SUI that was unstaked
+        points_minted: u64,         // The amount of Alpha Points minted to the user
+        stake_position_id: ID,      // ID of the destroyed StakePosition NFT
+    }
+    
     /// Event emitted when staked assets are deposited into the protocol
     public struct StakeDeposited<phantom T> has copy, drop {
         staker: address,
@@ -163,6 +182,18 @@ module alpha_points::integration {
         fee_share: u64
     }
     
+    /// Event emitted when a user initiates a liquid unstake, receiving points as a loan against their stake.
+    public struct LiquidUnstakeAsLoanInitiated has store, copy, drop {
+        user: address,
+        stake_position_id: ID,      // ID of the StakePosition NFT being used as collateral
+        native_sui_stake_id: ID,    // ID of the underlying StakedSui object
+        sui_value_for_loan: u64,    // The SUI principal value backing the loan
+        points_loaned: u64,         // The amount of Alpha Points loaned to the user
+        loan_fee_points: u64,       // Fee taken for opening this loan (if any)
+        loan_object_id: ID,         // ID of the Loan object created (held by protocol admin)
+        opened_time_ms: u64,
+    }
+
     /// Event emitted when user claims accrued points from a stake
     public entry fun redeem_points<T: store>(
         config: &Config,
@@ -598,51 +629,85 @@ module alpha_points::integration {
 
     public entry fun request_unstake_native_sui(
         manager: &mut StakingManager,
-        _config: &Config, // Prefixed with underscore
+        config: &Config,
         sui_system_state_obj: &mut SuiSystemState,
-        stake_id: ID,
+        stake_position_to_unstake: StakePosition<StakedSui>,
+        clock: &Clock,
+        ledger: &mut Ledger,
+        mint_stats: &mut MintStats,
+        supply_oracle: &mut SupplyOracle,
         ctx: &mut TxContext
     ) {
-        // TODO: Add any necessary pre-checks using config or manager state if needed
-        // For example, check if the stake_id is valid or belongs to the caller if that logic exists
+        admin::assert_not_paused(config);
+        let user = tx_context::sender(ctx);
 
-        // Call the function without assigning its result
+        // 1. Verify ownership
+        assert!(stake_position::owner_view(&stake_position_to_unstake) == user, ENotOwner);
+
+        // 1.b. Verify not encumbered by an existing loan
+        assert!(!stake_position::is_encumbered_view(&stake_position_to_unstake), EStakeEncumbered);
+
+        // 2. Verify redeemability (mature and not encumbered by its own terms for redemption)
+        assert!(stake_position::is_redeemable(&stake_position_to_unstake, clock), ENotRedeemable);
+
+        // 3. Get native StakedSui ID and principal amount
+        let native_staked_sui_address = stake_position::native_stake_id_view(&stake_position_to_unstake);
+        let native_staked_sui_id = id_from_address(native_staked_sui_address);
+        assert!(native_staked_sui_address != @0x0, EInvalidStakeIdType);
+        let principal_sui_unstaked = stake_position::principal_view(&stake_position_to_unstake);
+
+        // 4. Call staking_manager to initiate withdrawal, capture the returned Balance<SUI>
         staking_manager::request_native_stake_withdrawal(
             manager,
-            sui_system_state_obj, 
-            stake_id, 
-            ctx
-        );
-
-        // let event_data = unstake_event_data(stake_id, puntos_constants::NATIVE_SUI_TYPE_NAME_ASCII());
-        // puntos_event_bus::emit_puntos_event(config.event_bus_id(), event_data, ctx);
-    }
-
-    // TODO: The logic for completing unstake needs to be revised based on how 
-    // the StakedSui object (that is ready for withdrawal) is obtained after request_native_stake_withdrawal.
-    // Commenting out for now to resolve the immediate build error.
-    /*
-    public entry fun complete_unstake_native_sui(
-        manager: &mut StakingManager,
-        config: &Config, // Assuming Config is needed
-        sui_system_state_obj: &mut SuiSystemState,
-        withdrawal_ticket: ???, // This needs to be the StakedSui object ready for withdrawal
-        original_stake_id: ID,
-        ctx: &mut TxContext
-    ): Coin<SUI> {
-        let withdrawn_coin = staking_manager::complete_native_stake_withdrawal(
-            manager,
             sui_system_state_obj,
-            withdrawal_ticket, // This needs to be the StakedSui object
-            original_stake_id,
+            native_staked_sui_id,
             ctx
         );
 
-        // let event_data = complete_unstake_event_data(original_stake_id, coin::value(&withdrawn_coin), puntos_constants::NATIVE_SUI_TYPE_NAME_ASCII());
-        // puntos_event_bus::emit_puntos_event(config.event_bus_id(), event_data, ctx);
-        withdrawn_coin
+        // 6. Mint Alpha Points to the user, equivalent to the principal SUI unstaked.
+        // We use the principal_sui_unstaked as the amount of points to mint.
+        // This assumes 1 SUI unstaked = 1 Alpha Point for this specific action.
+        // We'll use a generic stake_opt_none as this minting is not tied to an active stake position's APY.
+        let points_to_mint = principal_sui_unstaked; // Or a scaled value if desired
+        let current_epoch = tx_context::epoch(ctx);
+        let liq_share_value = admin::get_default_liq_share(config); // Or 0 if these points don't contribute to liq share
+        let stake_opt_none = option::none<StakePosition<StakedSui>>(); // Generic, as we are destroying the position
+
+        if (points_to_mint > 0) { // Only mint if there's an amount
+            ledger::mint_points<StakedSui>( // Using StakedSui as T, can be generic if point_type dictates behavior
+                ledger,
+                user,
+                points_to_mint,
+                ledger::new_point_type_generic_reward(), // Using a generic reward type, or create a new one
+                ctx,
+                mint_stats,
+                current_epoch,
+                &stake_opt_none, // Not tied to a specific ongoing stake's APY curve
+                liq_share_value,
+                clock,
+                supply_oracle
+            );
+        };
+        option::destroy_none(stake_opt_none);
+
+        // 7. Get StakePosition ID before destroying for event
+        let stake_position_object_id = stake_position::get_id_view(&stake_position_to_unstake);
+
+        // 8. Destroy the StakePosition NFT
+        stake_position::destroy_stake(stake_position_to_unstake);
+
+        // 9. Emit an event indicating the conversion
+        event::emit(StakeConvertedToPoints {
+            user: user,
+            original_staked_sui_id: native_staked_sui_id,
+            sui_amount_unstaked: principal_sui_unstaked,
+            points_minted: points_to_mint,
+            stake_position_id: stake_position_object_id,
+        });
+
+        // Note: The old WithdrawalTicketIssued event is no longer relevant here as the user
+        // does not receive the ticket directly.
     }
-    */
 
     public fun view_accrued_points_for_stake<T: key + store>(
         stake_position_obj: &StakePosition<T>,
@@ -798,4 +863,148 @@ module alpha_points::integration {
     }
 
     // === Test-only functions ===
+
+    /// Allows a user to get an instant Alpha Points loan against their maturing/matured native SUI stake.
+    /// The SUI stake is then unstaked by the protocol, and the Loan object is held by the protocol admin.
+    /// The user's StakePosition NFT is encumbered and later destroyed by an admin action
+    /// once the SUI is claimed by the protocol.
+    #[allow(unused_const)]
+    public entry fun liquid_unstake_as_loan_native_sui(
+        config: &Config,
+        _loan_config: &loan::LoanConfig, // Changed to _loan_config, LTV/fees TBD
+        ledger: &mut Ledger,
+        stake_position: &mut StakePosition<StakedSui>,
+        // oracle: &RateOracle, // Not strictly needed if points loaned = SUI principal directly
+        clock: &Clock,
+        mint_stats: &mut MintStats,
+        supply_oracle: &mut SupplyOracle,
+        staking_manager_obj: &mut StakingManager, // Renamed from manager to avoid conflict
+        sui_system_state_obj: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        admin::assert_not_paused(config);
+        let user = tx_context::sender(ctx);
+
+        // 1. Verify ownership of the StakePosition
+        assert!(stake_position::owner_view(stake_position) == user, ENotOwner);
+
+        // 2. Verify StakePosition is not already encumbered by another loan
+        assert!(!stake_position::is_encumbered_view(stake_position), EStakeEncumbered);
+
+        // 3. Verify StakePosition is redeemable (mature for unstaking)
+        // This is crucial as the protocol will immediately start the unstaking process.
+        assert!(stake_position::is_redeemable(stake_position, clock), EStakeNotMatureForLoan);
+
+        // 4. Determine Loan Amount (Points)
+        // For this flow, loan points = SUI principal of the stake (100% LTV)
+        let sui_principal_for_loan = stake_position::principal_view(stake_position);
+        let points_to_loan_gross = sui_principal_for_loan; // Assuming 1 SUI = 1 Point for this loan principal
+
+        // 5. Apply Loan Origination Fee (e.g., from loan.move logic: 0.1%)
+        // This logic mirrors the fee structure in loan::open_loan.
+        // If LoanConfig has specific fees for this type of loan, that could be used.
+        // For now, let's assume a similar fee structure to regular loans if loan_config.interest_rate_bps or a similar field implies it.
+        // However, loan_config.interest_rate_bps is for interest, not origination.
+        // Let's use a hardcoded/configurable origination fee specific to this action or assume 0.1% like loan.move.
+        // For simplicity, taking 0.1% of the points_to_loan_gross as fee.
+        let loan_origination_fee_points = points_to_loan_gross / 1000; // 0.1% fee
+        let points_to_user_net = points_to_loan_gross - loan_origination_fee_points;
+
+        assert!(loan_origination_fee_points <= points_to_loan_gross, EFeeCalculationError); // Ensure fee isn't > gross
+
+        // 6. Mint net points to user & fee to deployer
+        let current_epoch = tx_context::epoch(ctx);
+        let deployer_address = admin::deployer_address(config);
+        let liq_share_for_loan_points = admin::get_default_liq_share(config); // Or a specific one for loan points
+
+        if (points_to_user_net > 0) {
+            let stake_opt_none = option::none<StakePosition<StakedSui>>();
+            ledger::mint_points<StakedSui>(
+                ledger,
+                user,
+                points_to_user_net,
+                ledger::new_point_type_loan_proceeds(), // New point type for clarity
+                ctx,
+                mint_stats,
+                current_epoch,
+                &stake_opt_none,
+                liq_share_for_loan_points, // Or 0 if loan points don't contribute to weight
+                clock,
+                supply_oracle
+            );
+            option::destroy_none(stake_opt_none);
+        };
+        if (loan_origination_fee_points > 0) {
+            // ledger::internal_earn or a similar mechanism to credit fees
+            // For now, assuming fees are also minted to deployer or a fee collector address
+            let stake_opt_none_fee = option::none<StakePosition<StakedSui>>();
+             ledger::mint_points<StakedSui>( // Or a dedicated fee collection point type/mechanism
+                ledger,
+                deployer_address, // Fee goes to deployer
+                loan_origination_fee_points,
+                ledger::new_point_type_fee_revenue(), // New point type for fee revenue
+                ctx,
+                mint_stats, // MintStats might need adjustment for admin/deployer
+                current_epoch,
+                &stake_opt_none_fee,
+                0, // No weight for fee points
+                clock,
+                supply_oracle
+            );
+            option::destroy_none(stake_opt_none_fee);
+        };
+
+        // 7. Create Loan Object (from loan.move struct)
+        let stake_pos_id = stake_position::get_id_view(stake_position);
+        let loan_opened_time_ms = sui::clock::timestamp_ms(clock);
+        let loan_object = loan::create_loan(
+            user, 
+            stake_pos_id, 
+            points_to_loan_gross, 
+            loan_opened_time_ms, 
+            ctx
+        );
+        let loan_uid = loan::get_loan_uid(&loan_object);
+        let loan_object_id_for_event = object::uid_to_inner(loan_uid);
+
+        // Transfer Loan object to THE USER
+        transfer::public_transfer(loan_object, user);
+
+        // 8. Encumber the StakePosition NFT
+        stake_position::set_encumbered(stake_position, true);
+
+        // 9. Initiate SUI Unstaking (Protocol side)
+        let native_staked_sui_address = stake_position::native_stake_id_view(stake_position);
+        let native_staked_sui_id = id_from_address(native_staked_sui_address);
+        assert!(native_staked_sui_address != @0x0, EInvalidStakeIdType);
+
+        // Call staking_manager to initiate withdrawal from the system.
+        // This consumes the StakedSui from StakingManager and the user receives
+        // the modified StakedSui (cooldown) object from the Sui system.
+        staking_manager::request_native_stake_withdrawal(
+            staking_manager_obj,
+            sui_system_state_obj,
+            native_staked_sui_id,
+            ctx
+        );
+
+        // NOTE: pending_withdrawals_manager is NOT used here. The user receives the StakedSui (cooldown) object.
+
+        // 10. Emit Event
+        event::emit(LiquidUnstakeAsLoanInitiated {
+            user: user,
+            stake_position_id: stake_pos_id,
+            native_sui_stake_id: native_staked_sui_id,
+            sui_value_for_loan: sui_principal_for_loan,
+            points_loaned: points_to_user_net, // Net points given to user
+            loan_fee_points: loan_origination_fee_points,
+            loan_object_id: loan_object_id_for_event, // Use the fetched ID
+            opened_time_ms: loan_opened_time_ms,
+        });
+
+        // StakePosition NFT is NOT destroyed here. It's held by user but encumbered.
+    }
+
+    // Removed admin_claim_sui_and_settle_loan function as it's not viable
+    // if the user receives the StakedSui (cooldown) object.
 }
