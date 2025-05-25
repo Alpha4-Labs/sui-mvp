@@ -46,7 +46,7 @@ const METRIC_TOOLTIPS: Record<string, string> = {
 
 // --- Main Component ---
 const ProjectionChart: React.FC = () => {
-  const { points, loans, stakePositions } = useAlphaContext();
+  useAlphaContext();
   const [windowSize, setWindowSize] = useState(30);
   const [metricToggles, setMetricToggles] = useState<Record<string, boolean>>({
     suiPrice: true,

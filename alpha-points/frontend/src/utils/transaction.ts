@@ -89,14 +89,13 @@ export const buildUnstakeTransaction = (
   const tx = new Transaction();
   
   tx.moveCall({
-    target: `${PACKAGE_ID}::integration::redeem_stake`,
-    typeArguments: [SUI_TYPE], // NOTE: Verify if this should be StakedSui or something else after refactor
+    target: `${PACKAGE_ID}::integration::request_unstake_native_sui`,
     arguments: [
-      tx.object(SHARED_OBJECTS.config),
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.object(SHARED_OBJECTS.escrowVault),
-      tx.object(stakeId),
-      tx.object(CLOCK_ID)
+      tx.object(SHARED_OBJECTS.stakingManager), // Arg0 (likely StakingManager based on newer code struct)
+      tx.object(SHARED_OBJECTS.config),         // Arg1 (likely Config based on newer code struct)
+      tx.object(SUI_SYSTEM_STATE_ID),           // Arg2 (SuiSystemState)
+      tx.object(stakeId)                        // Arg3 (StakePosition ID)
+      // CLOCK_ID removed to match 4-argument structure of deployed contract
     ]
   });
   

@@ -1,6 +1,6 @@
 // === MainLayout.tsx (Corrected Icon Access v2) ===
 import React, { ReactNode, useState, useEffect, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, NavLink, Outlet } from 'react-router-dom';
 // Import necessary items from dapp-kit: ConnectButton, useCurrentAccount
 import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext'; // Import useAlphaContext
@@ -25,6 +25,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     { name: 'Marketplace', path: '/marketplace' },
     { name: 'Generation', path: '/generation' },
     { name: 'Loans', path: '/loans' },
+    // { name: 'Partner Onboarding', path: '/partner-onboarding' }, // Removed from main nav
   ];
 
   // Click outside to close dropdown - MOVED INSIDE THE COMPONENT
@@ -53,7 +54,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             {/* Desktop Navigation */}
             <nav className="hidden md:flex ml-10 space-x-1">
               {navLinks.map((link) => (
-                <Link
+                <NavLink
                   key={link.path}
                   to={link.path}
                   className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
@@ -63,7 +64,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                   }`}
                 >
                   {link.name}
-                </Link>
+                </NavLink>
               ))}
             </nav>
           </div>
@@ -119,7 +120,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
        <nav className="md:hidden bg-background-card border-t border-gray-800 py-1 px-2 fixed bottom-0 left-0 right-0 z-50 shadow-lg">
          <div className="flex justify-around">
              {navLinks.map((link) => (
-                 <Link
+                 <NavLink
                      key={link.path}
                      to={link.path}
                      className={`flex flex-col items-center px-2 py-1 text-center text-xs rounded-md ${
@@ -129,24 +130,25 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                      }`}
                  >
                      <span>{link.name}</span>
-                 </Link>
+                 </NavLink>
              ))}
          </div>
        </nav>
 
       {/* Main Content Area */}
       <main className="container mx-auto px-4 pt-4 pb-0 box-border flex-grow">
-        {children}
+        <Outlet />
       </main>
 
       {/* Footer */}
       <footer className="bg-background-card py-2 px-4 text-center text-xs text-gray-500 border-t border-gray-800 flex-shrink-0 w-full">
         <div className="w-full flex flex-col items-center">
-          <div className="flex flex-wrap justify-center items-center space-x-3 md:space-x-4 w-full overflow-x-auto whitespace-nowrap">
+          <div className="flex flex-wrap justify-center items-center space-x-3 md:space-x-4 w-full overflow-x-auto whitespace-nowrap mb-1">
             <a href="https://alpha4.io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">Main Site</a><span className="text-gray-600">•</span>
             <a href="https://discord.gg/VuF5NmC9Dg" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">Discord</a><span className="text-gray-600">•</span>
             <a href="https://www.linkedin.com/company/alpha4-io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">LinkedIn</a><span className="text-gray-600">•</span>
-            <a href="https://x.com/alpha4_io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">X</a>
+            <a href="https://x.com/alpha4_io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition-colors">X</a><span className="text-gray-600">•</span>
+            <Link to="/partner-onboarding" className="text-gray-400 hover:text-white transition-colors">Partner Onboarding</Link>
           </div>
           <div className="w-full truncate text-gray-500 text-xs px-2 mt-1" title="Testnet demo for experimental purposes only. Features shown may not reflect final product and are subject to change without notice. Alpha Points MVP © 2025">
             Testnet demo for experimental purposes only. Features shown may not reflect final product and are subject to change without notice. Alpha Points MVP © 2025

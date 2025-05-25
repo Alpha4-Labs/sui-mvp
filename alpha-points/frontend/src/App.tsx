@@ -4,6 +4,7 @@ import { createNetworkConfig, SuiClientProvider, WalletProvider } from '@mysten/
 import { getFullnodeUrl } from '@mysten/sui/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ZkLoginCallback } from './components/ZkLoginCallback';
+import { MainLayout } from './layouts/MainLayout';
 
 // Import your pages
 import { WelcomePage } from './pages/WelcomePage';
@@ -12,6 +13,7 @@ import { MarketplacePage } from './pages/MarketplacePage';
 import { GenerationPage } from './pages/GenerationPage';
 import { LoanPage } from './pages/LoanPage';
 import { AlphaProvider } from './context/AlphaContext';
+import { PartnerOnboardingPage } from './pages/PartnerOnboardingPage';
 
 // Create a client for React Query
 const queryClient = new QueryClient();
@@ -27,17 +29,20 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
-        <WalletProvider autoConnect>
+        <WalletProvider autoConnect={false}>
           <AlphaProvider>
             <BrowserRouter>
               <Routes>
-                <Route path="/" element={<WelcomePage />} />
-                <Route path="/callback" element={<ZkLoginCallback />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/marketplace" element={<MarketplacePage />} />
-                <Route path="/generation" element={<GenerationPage />} />
-                <Route path="/loans" element={<LoanPage />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route element={<MainLayout />}>
+                  <Route path="/" element={<WelcomePage />} />
+                  <Route path="/callback" element={<ZkLoginCallback />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/marketplace" element={<MarketplacePage />} />
+                  <Route path="/generation" element={<GenerationPage />} />
+                  <Route path="/loans" element={<LoanPage />} />
+                  <Route path="/partner-onboarding" element={<PartnerOnboardingPage />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Route>
               </Routes>
             </BrowserRouter>
           </AlphaProvider>

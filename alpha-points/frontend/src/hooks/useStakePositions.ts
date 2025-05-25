@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useSuiClient } from '@mysten/dapp-kit';
+import { 
+    useSuiClient, 
+    useCurrentAccount, 
+    useCurrentWallet, 
+    useSignAndExecuteTransaction
+} from '@mysten/dapp-kit';
+import { Transaction } from '@mysten/sui/transactions';
+import { SUI_CLOCK_OBJECT_ID, SUI_SYSTEM_STATE_OBJECT_ID } from '@mysten/sui/utils';
 
 import { StakePosition, DurationOption } from '../types';
 import { PACKAGE_ID } from '../config/contract';
@@ -23,6 +30,9 @@ const DEFAULT_DURATIONS_FOR_APY_LOOKUP: DurationOption[] = [
  */
 export const useStakePositions = () => {
   const client = useSuiClient();
+  const currentAccount = useCurrentAccount();
+  const { isConnected } = useCurrentWallet();
+  const { mutate: signAndExecute } = useSignAndExecuteTransaction();
 
   // State management
   const [loading, setLoading] = useState(true);
@@ -44,9 +54,8 @@ export const useStakePositions = () => {
     try {
       const currentTimeMs = Date.now(); 
 
-      // console.log(`Fetching stake positions for ${userAddress} with type ${NATIVE_STAKED_SUI_TYPE_ARG}`);
       const response = await client.getOwnedObjects({
-        owner: userAddress, // Use provided userAddress
+        owner: userAddress, 
         filter: {
           StructType: `${PACKAGE_ID}::stake_position::StakePosition<${NATIVE_STAKED_SUI_TYPE_ARG}>`,
         },
@@ -54,8 +63,6 @@ export const useStakePositions = () => {
           showContent: true,
         },
       });
-
-      // console.log('Fetched stake positions, count:', response.data.length);
 
       const stakePositions = response.data
         .map(obj => {
@@ -65,16 +72,14 @@ export const useStakePositions = () => {
             const moveStructFields = content.fields as Record<string, any>;
             if (!moveStructFields) return null;
 
-            // Read fields directly from the StakePosition NFT
-            const principalStr = moveStructFields.amount || '0'; // 'amount' field from Move struct
+            const principalStr = moveStructFields.amount || '0'; 
             const unlockTimeMsStr = moveStructFields.unlock_time_ms || '0';
             const startTimeMsStr = moveStructFields.start_time_ms || '0';
-            // duration_days is not a direct field, it's derived. We'll use start/unlock times.
-            const stakedSuiObjectId = moveStructFields.staked_sui_id || null; // Get the StakedSui object ID
+            const stakedSuiObjectId = moveStructFields.staked_sui_id || null; 
 
             const startTimeMs = parseInt(startTimeMsStr, 10);
             const unlockTimeMs = parseInt(unlockTimeMsStr, 10);
-            const principal = BigInt(principalStr).toString(); // Keep as string for consistency
+            const principal = BigInt(principalStr).toString(); 
 
             if (isNaN(startTimeMs) || isNaN(unlockTimeMs)) {
               console.warn(`Invalid time/duration/unlock data for StakePosition ${obj.data?.objectId}`);
@@ -84,9 +89,8 @@ export const useStakePositions = () => {
             const durationMs = unlockTimeMs - startTimeMs;
             const durationDays = durationMs > 0 ? Math.floor(durationMs / (24 * 60 * 60 * 1000)) : 0;
 
-            // Find APY from the durations config
             const matchedDurationOption = DEFAULT_DURATIONS_FOR_APY_LOOKUP.find(d => d.days === durationDays);
-            const apy = matchedDurationOption ? matchedDurationOption.apy : 0; // Default to 0 if no match
+            const apy = matchedDurationOption ? matchedDurationOption.apy : 0; 
 
             let maturityPercentage = 0;
             if (durationMs > 0) {
@@ -102,24 +106,19 @@ export const useStakePositions = () => {
               id: obj.data?.objectId || '',
               owner: typeof moveStructFields.owner === 'string' ? moveStructFields.owner : userAddress,
               principal: principal, 
-              amount: principal, // Map 'amount' from Move to both principal and amount for TS type
+              amount: principal, 
               startTimeMs: String(startTimeMsStr),
               unlockTimeMs: String(unlockTimeMsStr),
-              durationDays: String(durationDays), // Calculated duration
-              apy: apy, // Set the APY
+              durationDays: String(durationDays), 
+              apy: apy, 
               encumbered: typeof moveStructFields.encumbered === 'boolean' ? moveStructFields.encumbered : false,
               maturityPercentage,
               calculatedUnlockDate: calculatedUnlockDateISO,
               lastClaimEpoch: typeof moveStructFields.last_claim_epoch === 'string' ? moveStructFields.last_claim_epoch : '0',
-              assetType: NATIVE_STAKED_SUI_TYPE_ARG, // Reflect the actual type argument
-              // Fields like startEpoch, unlockEpoch, durationEpochs are not on StakePosition<StakedSui>
-              // and were likely from an older design. They should be removed or re-evaluated if needed.
-              // For now, providing defaults or null based on the type definition.
-              startEpoch: typeof moveStructFields.start_epoch === 'string' ? moveStructFields.start_epoch : '0', // Or derive from startTimeMs if meaningful
-              unlockEpoch: typeof moveStructFields.unlock_epoch === 'string' ? moveStructFields.unlock_epoch : '0', // Or derive from unlockTimeMs
-              durationEpochs: '0', // This was specific to epoch-based staking
-              // Add staked_sui_id to the processed data if needed by UI, though not directly in StakePosition type yet
-              // nativeStakeObjectId: stakedSuiObjectId 
+              assetType: NATIVE_STAKED_SUI_TYPE_ARG, 
+              startEpoch: typeof moveStructFields.start_epoch === 'string' ? moveStructFields.start_epoch : '0', 
+              unlockEpoch: typeof moveStructFields.unlock_epoch === 'string' ? moveStructFields.unlock_epoch : '0', 
+              durationEpochs: '0', 
             };
             return positionData;
           }
@@ -136,7 +135,73 @@ export const useStakePositions = () => {
     }
   }, [client]);
 
-  return { positions, loading, error, refetch: fetchPositions };
+  const liquidUnstakeAsLoanNativeSui = async (
+    stakePositionId: string,
+    configObjectId: string,
+    loanConfigObjectId: string,
+    ledgerObjectId: string,
+    mintStatsObjectId: string,
+    supplyOracleObjectId: string,
+    stakingManagerObjectId: string
+  ) => {
+    if (!isConnected || !currentAccount) {
+      console.error('Wallet not connected or account not available');
+      alert('Wallet not connected. Please connect your wallet to proceed.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const txb = new Transaction();
+
+      txb.moveCall({
+        target: `${PACKAGE_ID}::integration::liquid_unstake_as_loan_native_sui`,
+        arguments: [
+          txb.object(configObjectId),
+          txb.object(loanConfigObjectId),
+          txb.object(ledgerObjectId),
+          txb.object(stakePositionId),
+          txb.object(SUI_CLOCK_OBJECT_ID),
+          txb.object(mintStatsObjectId),
+          txb.object(supplyOracleObjectId),
+          txb.object(stakingManagerObjectId),
+          txb.object(SUI_SYSTEM_STATE_OBJECT_ID),
+        ],
+      });
+
+      signAndExecute(
+        { 
+            transaction: txb,
+        },
+        {
+          onSuccess: (result: { digest: string; effects?: string }) => {
+            console.log('Liquid Unstake as Loan successful:, digest:', result.digest, 'effects (BCS encoded):', result.effects);
+            alert('Liquid Unstake as Loan initiated successfully! You have received Alpha Points and a Loan NFT. Your SUI stake is now in cooldown and will be available in your wallet later.');
+            if (currentAccount?.address) {
+              fetchPositions(currentAccount.address); 
+            }
+            setLoading(false);
+          },
+          onError: (e: Error) => {
+            console.error('Liquid Unstake as Loan failed:', e);
+            setError(e.message || 'Failed to process liquid unstake as loan.');
+            alert(`Error during liquid unstake: ${e.message || 'Unknown error'}`);
+            setLoading(false);
+          }
+        }
+      );
+
+    } catch (e: any) {
+      console.error('Error constructing transaction for liquid unstake:', e);
+      setError(e.message || 'Failed to construct transaction.');
+      alert(`Error preparing transaction: ${e.message || 'Unknown error'}`);
+      setLoading(false);
+    }
+  };
+
+  return { positions, loading, error, refetch: fetchPositions, liquidUnstakeAsLoanNativeSui };
 };
 
 // --- IMPORTANT ---

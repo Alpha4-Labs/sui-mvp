@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { MainLayout } from '../layouts/MainLayout';
 
 // Define a generation method interface
 interface GenerationMethod {
@@ -18,62 +17,65 @@ export const GenerationPage: React.FC = () => {
   // Generation methods data
   const generationMethods: GenerationMethod[] = [
     {
-      id: 'stake-alpha',
-      name: 'Stake ALPHA Tokens',
-      description: 'Earn Alpha Points by staking ALPHA tokens in the protocol.',
-      icon: 'α',
+      id: 'stake-sui',
+      name: 'Stake SUI',
+      description: 'Earn Alpha Points by staking SUI tokens in the protocol.',
+      icon: '🟦',
       status: 'active',
       details: (
         <div className="p-4 bg-background rounded-lg">
-          <h3 className="text-lg font-medium text-white mb-3">Staking Details</h3>
+          <h3 className="text-lg font-medium text-white mb-3">SUI Staking Details</h3>
           <p className="text-gray-300 mb-3">
-            Stake your ALPHA tokens to earn Alpha Points over time. The longer you stake, the better the rate.
+            Stake your SUI tokens to earn Alpha Points over time. The longer you stake, the better the rate.
           </p>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">7-Day Stake</div>
               <div className="text-white font-medium">5% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{500 .toLocaleString()} Points/day per {1000 .toLocaleString()} ALPHA</div>
+              <div className="text-green-400 text-sm mt-1">+{500 .toLocaleString()} αP/day per {1} SUI</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">30-Day Stake</div>
               <div className="text-white font-medium">10% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{650 .toLocaleString()} Points/day per {1000 .toLocaleString()} ALPHA</div>
+              <div className="text-green-400 text-sm mt-1">+{650 .toLocaleString()} αP/day per {1} SUI</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">90-Day Stake</div>
               <div className="text-white font-medium">15% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{800 .toLocaleString()} Points/day per {1000 .toLocaleString()} ALPHA</div>
+              <div className="text-green-400 text-sm mt-1">+{800 .toLocaleString()} αP/day per {1} SUI</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">365-Day Stake</div>
               <div className="text-white font-medium">25% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{1200 .toLocaleString()} Points/day per {1000 .toLocaleString()} ALPHA</div>
+              <div className="text-green-400 text-sm mt-1">+{1200 .toLocaleString()} αP/day per {1} SUI</div>
             </div>
           </div>
           <div className="text-center">
-            <Link to="/dashboard">
+            <a href="/dashboard">
               <button className="bg-primary hover:bg-primary-dark text-white py-2 px-6 rounded transition-colors">
-                Go to Staking
+                Go to SUI Staking
               </button>
-            </Link>
+            </a>
           </div>
         </div>
       ),
     },
     {
       id: 'partner-pool',
-      name: 'Partner Pool: Stargate USDT',
-      description: 'Earn Alpha Points by providing liquidity to partner protocols.',
+      name: 'Partner Pool',
+      description: 'Earn Alpha Points by participating in partner-managed DeFi pools or protocols.',
       icon: '🌉',
       status: 'inactive',
       details: (
         <div className="p-4 bg-background rounded-lg">
           <div className="text-center text-gray-400 py-6">
-            <div className="text-4xl mb-2">🔜</div>
-            <h3 className="text-lg font-medium text-white mb-2">Partner Pool Coming Soon</h3>
+            <div className="text-4xl mb-2">🌉</div>
+            <h3 className="text-lg font-medium text-white mb-2">Partner Pool Opportunities</h3>
             <p>
-              Partner integrations will allow you to earn Alpha Points by participating in other DeFi protocols.
+              Alpha Points can be earned by providing liquidity or participating in DeFi pools managed by our ecosystem partners. For example, a partner may offer bonus Alpha Points for staking USDT, ETH, or other assets in their protocol. These opportunities are created, managed, and distributed by partners, and may have unique requirements or reward structures.
+            </p>
+            <p className="mt-2 text-xs text-gray-500">
+              Check back regularly for new partner pool campaigns and special events.
             </p>
           </div>
         </div>
@@ -81,21 +83,84 @@ export const GenerationPage: React.FC = () => {
     },
     {
       id: 'ecosystem-activity',
-      name: 'Ecosystem Activity: Beta Testing',
-      description: 'Earn points by participating in Alpha ecosystem activities.',
+      name: 'Ecosystem Activity',
+      description: 'Earn points by participating in activities, quests, or beta programs run by Alpha4 partners.',
       icon: '🧪',
       status: 'inactive',
       details: (
         <div className="p-4 bg-background rounded-lg">
           <div className="text-center text-gray-400 py-6">
-            <div className="text-4xl mb-2">👨‍💻</div>
-            <h3 className="text-lg font-medium text-white mb-2">Beta Testing Program</h3>
+            <div className="text-4xl mb-2">🧪</div>
+            <h3 className="text-lg font-medium text-white mb-2">Partner-Managed Activities & Quests</h3>
             <p className="mb-3">
-              Our beta testing program will allow active community members to earn Alpha Points through participation.
+              Partners may offer Alpha Points for completing ecosystem quests, participating in beta tests, or engaging in community campaigns. For example, you might earn points for testing a new dApp, joining a governance vote, or completing a learning module. Each activity is managed by the respective partner and may have its own rules and rewards.
             </p>
-            <button className="bg-gray-700 text-gray-300 py-2 px-6 rounded cursor-not-allowed opacity-70">
-              Join Waitlist (Coming Soon)
-            </button>
+            <p className="mt-2 text-xs text-gray-500">
+              Explore the Alpha4 ecosystem for new ways to earn points through partner-led initiatives.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'airdrop-campaign',
+      name: 'Airdrop Campaign',
+      description: 'Earn Alpha Points by participating in special airdrop events organized by Alpha4 or partners.',
+      icon: '🎁',
+      status: 'inactive',
+      details: (
+        <div className="p-4 bg-background rounded-lg">
+          <div className="text-center text-gray-400 py-6">
+            <div className="text-4xl mb-2">🎁</div>
+            <h3 className="text-lg font-medium text-white mb-2">Airdrop Opportunities</h3>
+            <p>
+              Alpha4 and its partners may periodically distribute Alpha Points through airdrop campaigns. For example, you might receive points for holding certain tokens, completing on-chain actions, or being an early adopter of a new protocol. Each airdrop will have its own eligibility criteria and distribution rules, managed by the organizing team.
+            </p>
+            <p className="mt-2 text-xs text-gray-500">
+              Watch for announcements about upcoming airdrop events and how to qualify.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'staking-lp-tokens',
+      name: 'Stake LP Tokens',
+      description: 'Earn Alpha Points by staking liquidity provider (LP) tokens in supported partner pools.',
+      icon: '💧',
+      status: 'inactive',
+      details: (
+        <div className="p-4 bg-background rounded-lg">
+          <div className="text-center text-gray-400 py-6">
+            <div className="text-4xl mb-2">💧</div>
+            <h3 className="text-lg font-medium text-white mb-2">LP Staking Rewards</h3>
+            <p>
+              Partners may offer Alpha Points for staking LP tokens from popular DEXs or DeFi protocols. For example, you could earn points by providing liquidity to a SUI/USDT pool and then staking your LP tokens in a partner vault. Each program is managed by the respective partner and may have unique reward rates or lockup periods.
+            </p>
+            <p className="mt-2 text-xs text-gray-500">
+              Explore available LP staking programs from Alpha4 partners for more ways to earn.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'referral-program',
+      name: 'Referral Program',
+      description: 'Invite friends and earn Alpha Points for each successful referral, as managed by Alpha4 or partners.',
+      icon: '🤝',
+      status: 'inactive',
+      details: (
+        <div className="p-4 bg-background rounded-lg">
+          <div className="text-center text-gray-400 py-6">
+            <div className="text-4xl mb-2">🤝</div>
+            <h3 className="text-lg font-medium text-white mb-2">Referral Rewards</h3>
+            <p>
+              Alpha4 and its partners may run referral programs where you can earn Alpha Points by inviting new users. For example, you might receive points when a referred friend signs up, completes a transaction, or stakes assets. Each referral campaign will have its own rules and reward structure, managed by the organizing team.
+            </p>
+            <p className="mt-2 text-xs text-gray-500">
+              Share your referral link and help grow the Alpha4 ecosystem to earn more points.
+            </p>
           </div>
         </div>
       ),
@@ -103,7 +168,7 @@ export const GenerationPage: React.FC = () => {
   ];
 
   return (
-    <MainLayout>
+    <>
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-white mb-2">Earn Alpha Points</h1>
         <p className="text-gray-400">Explore ways to generate points across the ecosystem.</p>
@@ -152,6 +217,6 @@ export const GenerationPage: React.FC = () => {
       <div className="text-center text-gray-400">
         More generation methods coming soon!
       </div>
-    </MainLayout>
+    </>
   );
 };

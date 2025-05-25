@@ -482,7 +482,7 @@ export const StakeCard: React.FC = () => {
 
   // --- JSX Rendering --- 
   return (
-    <div className="bg-background-card rounded-lg pt-6 pr-6 pl-6 pb-8 shadow-lg">
+    <div className="bg-background-card rounded-lg shadow-lg p-6">
       {/* Container for Title and Error Message */}
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-xl font-semibold text-white flex-shrink-0 m-0">Manage Stake</h2>

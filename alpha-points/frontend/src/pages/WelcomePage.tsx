@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { 
   useWallets,
-  useConnectWallet
+  useConnectWallet,
+  useDisconnectWallet
 } from '@mysten/dapp-kit';
 import { useZkLogin } from '../hooks/useZkLogin';
 import { useAlphaContext } from '../context/AlphaContext';
@@ -10,7 +11,7 @@ import alphaPointsLogo from '../assets/alpha4-logo.svg'; // Verify this path
 
 export const WelcomePage: React.FC = () => {
   const alphaContext = useAlphaContext();
-  const { login, loading: zkLoginLoading, isAuthenticated: zkLoginIsAuthenticated } = useZkLogin();
+  useZkLogin();
   const navigate = useNavigate();
   
   // Get all available wallets
@@ -18,14 +19,25 @@ export const WelcomePage: React.FC = () => {
   
   // Get the connect function from useConnectWallet
   const { mutate: connectWallet } = useConnectWallet();
+  const { mutate: disconnectWallet } = useDisconnectWallet();
 
   // Redirect to dashboard if already connected (via AlphaContext)
   useEffect(() => {
+    if (alphaContext.authLoading) return; 
+
     if (alphaContext.isConnected) {
       console.log("WelcomePage: Already connected (checked via AlphaContext), navigating to /dashboard.");
       navigate('/dashboard');
     }
-  }, [alphaContext.isConnected, navigate]);
+  }, [alphaContext.isConnected, alphaContext.authLoading, navigate]);
+
+  if (alphaContext.authLoading && !alphaContext.isConnected) { // Show loading only if not yet connected, otherwise it might flash if already connected and just loading data
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
+            <p>Loading...</p> {/* Or a spinner component */}
+        </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
@@ -58,7 +70,23 @@ export const WelcomePage: React.FC = () => {
                 {wallets.map((wallet) => (
                   <button
                     key={wallet.name}
-                    onClick={() => connectWallet({ wallet })}
+                    onClick={async () => {
+                      console.log('Attempting to disconnect wallet first:', wallet.name);
+                      try {
+                        await disconnectWallet();
+                        console.log('Disconnect call completed.');
+                      } catch (disconnectError) {
+                        console.error('Error during pre-emptive disconnect:', disconnectError);
+                      }
+
+                      console.log('Attempting to connect to wallet:', wallet.name, wallet);
+                      try {
+                        await connectWallet({ wallet });
+                        console.log('connectWallet call completed (this does not mean success, check wallet prompt/errors).'); 
+                      } catch (err) {
+                        console.error('Error explicitly caught from connectWallet call:', err);
+                      }
+                    }}
                     className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white py-3 px-6 rounded-lg transition-colors flex items-center justify-center font-medium"
                   >
                     {wallet.icon && (

@@ -2,25 +2,20 @@ import { bcs } from '@mysten/sui/bcs';
 
 // --- Contract Configuration ---
 
-// Latest Package ID from deployment 85Nb36...
-export const PACKAGE_ID = '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a';
+// Latest Package ID from deployment
+export const PACKAGE_ID = '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf';
 
-// Shared object IDs - Updated with latest deployment fallbacks
-// !! IMPORTANT: Verify loanConfig, oracle, and escrowVault fallbacks match your latest initialization results !!
+// Shared object IDs - Updated with latest deployment
 export const SHARED_OBJECTS = {
-  // Latest Config ID from deployment 85Nb36...
-  config: '0xf180290c291c7c9628e90e04484ec9e5688802273997e9a05df5431798342f05',
-  // Latest Ledger ID from deployment 85Nb36...
-  ledger: '0x46d8bcb53f05d758b4b77924095a8358da5b7005a9b3e08a4e970ef617690335',
-  // StakingManager ID from deployment 85Nb36...
-  stakingManager: '0xf4f96a8211465553dd477e0471f4a57dc5ec3f1810d457e90d9bf9f9539262eb',
-  // IDs to be updated after separate initialization if not part of main package init
-  // Default to environment variable, or an empty string if the env var is not set.
-  escrowVault: import.meta.env.VITE_ESCROW_ID || '', 
-  loanConfig: import.meta.env.VITE_LOAN_ID || '', 
-  oracle: import.meta.env.VITE_ORACLE_ID || '',   
-  // You might need to add/update other shared objects like StakingManager if used globally
-  // stakingManager: '0x4948056098666ae9d5fc052ce7d59ef175baa7d43521d259b1bd9aadab23b712', // Example if needed
+  config: '0x1a5dee16d572830a43e86cad2562be36c6b7350600cff1dcb4496fafaa203ef9',
+  ledger: '0xc6e43029177ccc41afe2c4836fae1843492e8477cd95f7d2465e27d7722bc31d',
+  stakingManager: '0xa16cefcddf869a44b74a859b2f77b0d00d48cf0cb57b804802a750e8283dbee2',
+  escrowVault: '', // TODO: Update after initialization
+  loanConfig: '',  // TODO: Update after initialization
+  oracle: '',      // TODO: Update after initialization
+  mintStats: 'PLACEHOLDER_MINT_STATS_ID',
+  supplyOracle: 'PLACEHOLDER_SUPPLY_ORACLE_ID',
+  partnerRegistry: '', // TODO: Update after initialization
 };
 
 // Sui coin type

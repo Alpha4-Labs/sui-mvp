@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
+import { toast } from 'react-toastify';
 import { useAlphaContext } from '../context/AlphaContext';
 import { buildUnstakeTransaction } from '../utils/transaction';
 import {
@@ -68,49 +69,36 @@ export const StakedPositionsList: React.FC = () => {
   const handleUnstake = async (stakeId: string, principal: string) => {
     setErrorMessage(null);
     setSuccessMessage(null);
-    setUnstakeInProgress(stakeId); // Mark this specific position as loading
-    setTransactionLoading(true); // Mark global transaction loading
+    setUnstakeInProgress(stakeId);
+    setTransactionLoading(true);
 
     try {
-      // console.log(`Attempting to unstake position ${stakeId}`);
-      
-      // Build transaction with the updated Transaction API
       const transaction = buildUnstakeTransaction(stakeId);
-      // console.log('Unstake transaction built:', transaction);
-
-      // Execute the transaction with the updated hook API
-      const result = await signAndExecute({ transaction: transaction.serialize() });
+      const result = await signAndExecute({ transaction });
       
-      // console.log('Unstake transaction result:', result);
-
-      // Verify success
       if (!result || typeof result !== 'object' || !('digest' in result)) {
         throw new Error('Transaction returned an unexpected response format');
       }
       
       const txDigest = result.digest;
-      
-      // Check for failure using the utility function
       const responseError = getTransactionResponseError(result);
       if (responseError) {
         throw new Error(responseError);
       }
 
-      // Success path
-      setSuccessMessage(`Successfully unstaked ${formatSui(principal)} SUI! Digest: ${
-        txDigest.substring(0, 10)}...`);
+      toast.success(`Successfully unstaked ${formatSui(principal)} SUI! Digest: ${txDigest.substring(0, 10)}...`);
       
-      // Wait a moment before refreshing to allow the network to process
       setTimeout(() => {
         refreshData();
       }, 2000);
 
     } catch (err: any) {
       console.error('Error unstaking position:', err);
-      setErrorMessage(getTransactionErrorMessage(err));
+      const friendlyErrorMessage = getTransactionErrorMessage(err);
+      toast.error(friendlyErrorMessage);
     } finally {
-      setTransactionLoading(false); // Clear global loading
-      setUnstakeInProgress(null); // Clear loading for this specific button
+      setTransactionLoading(false);
+      setUnstakeInProgress(null);
     }
   };
 
@@ -157,7 +145,7 @@ export const StakedPositionsList: React.FC = () => {
 
   // --- Full JSX ---
   return (
-    <div className="bg-background-card rounded-lg p-6 pb-8 min-h-[220px] shadow-lg relative max-h-[80vh] overflow-y-auto overflow-x-hidden">
+    <div className="bg-background-card rounded-lg p-6 shadow-lg relative overflow-y-auto overflow-x-hidden">
       <h2 className="text-xl font-semibold text-white mb-4">Your Staked Positions</h2>
 
       {/* Status Messages */}
