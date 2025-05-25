@@ -125,7 +125,13 @@ export function useProjectionChartData(windowSize: number): UseProjectionChartDa
         });
         balance = balance + agg.earned - agg.spent + agg.locked - agg.unlocked;
       }
-
+      // Patch: set today's alphaPointBalance to points.available (wallet value)
+      if (chart.length > 0) {
+        const todayIdx = chart.findIndex(d => d.day === 0);
+        if (todayIdx !== -1) {
+          chart[todayIdx].alphaPointBalance = points.available;
+        }
+      }
       setData(chart);
       if (eventError) setError('Failed to fetch full event history, showing partial data.');
     } catch (err: any) {

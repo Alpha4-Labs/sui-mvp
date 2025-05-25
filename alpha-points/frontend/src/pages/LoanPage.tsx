@@ -1,10 +1,9 @@
 import React from 'react';
-import { MainLayout } from '../layouts/MainLayout';
 import { LoanPanel } from '../components/LoanPanel';
 
 export const LoanPage: React.FC = () => {
   return (
-    <MainLayout>
+    <>
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-white mb-2">Alpha Points Loans</h1>
         <p className="text-gray-400">Borrow Alpha Points against your staked assets.</p>
@@ -42,6 +41,6 @@ export const LoanPage: React.FC = () => {
       </div>
       
       <LoanPanel />
-    </MainLayout>
+    </>
   );
 };

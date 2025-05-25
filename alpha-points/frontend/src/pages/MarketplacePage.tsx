@@ -210,7 +210,7 @@ export const MarketplacePage: React.FC = () => {
   };
 
   return (
-    <MainLayout>
+     <>
        <div className="text-center mb-8">
          <h1 className="text-3xl font-bold text-white mb-2">Marketplace</h1>
          <p className="text-gray-400">Spend your Alpha Points.</p>
@@ -319,22 +319,65 @@ export const MarketplacePage: React.FC = () => {
            {/* Alpha Perks Tab */}
            {tab === 'perks' && (
               <div>
-                  <h2 className="text-xl font-semibold text-white text-center mb-6">Alpha Perks</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Perks data */}
-                    {[ 
-                      { name: 'Trading Fee Discount', cost: '5,000 αP', image: '🔄', comingSoon: true },
-                      { name: 'Early Access Features', cost: '10,000 αP', image: '🔑', comingSoon: true },
-                      { name: 'NFT Whitelist Spot', cost: '25,000 αP', image: '🎨', comingSoon: true },
-                      { name: 'Governance Voting Power', cost: '50,000 αP', image: '🗳️', comingSoon: true },
+                    {[
+                      {
+                        name: 'Trading Fee Discount',
+                        cost: '500,000 αP',
+                        image: '🔄',
+                        description: 'Reduce your trading fees on Alpha4 partner platforms for a set period.'
+                      },
+                      {
+                        name: 'Early Access Features',
+                        cost: '1,000,000 αP',
+                        image: '🔑',
+                        description: 'Unlock beta features and new dApps before public release.'
+                      },
+                      {
+                        name: 'NFT Whitelist Spot',
+                        cost: '2,500,000 αP',
+                        image: '🎨',
+                        description: 'Secure a guaranteed spot in upcoming NFT mints from Alpha4 partners.'
+                      },
+                      {
+                        name: 'Governance Voting Power',
+                        cost: '5,000,000 αP',
+                        image: '🗳️',
+                        description: 'Boost your influence in Alpha4 and partner protocol governance votes.'
+                      },
+                      {
+                        name: 'Partner Airdrop Access',
+                        cost: '1,500,000 αP',
+                        image: '🎁',
+                        description: 'Qualify for exclusive airdrops from Alpha4 ecosystem partners.'
+                      },
+                      {
+                        name: 'Premium Support',
+                        cost: '800,000 αP',
+                        image: '💬',
+                        description: 'Get priority support and faster response times from the Alpha4 team.'
+                      },
+                      {
+                        name: 'Merchandise Voucher',
+                        cost: '2,000,000 αP',
+                        image: '👕',
+                        description: 'Redeem for limited edition Alpha4 or partner merchandise.'
+                      },
+                      {
+                        name: 'Event Pass',
+                        cost: '3,000,000 αP',
+                        image: '🎟️',
+                        description: 'Gain access to exclusive online or in-person Alpha4 events.'
+                      },
                     ].map((perk, index) => (
-                      <div key={index} className="border border-gray-700 rounded-lg p-4 flex items-center bg-background-input opacity-70 cursor-not-allowed">
+                      <div key={index} className="border border-gray-700 rounded-lg p-4 flex items-center bg-background-input opacity-90 cursor-not-allowed">
                         <div className="w-12 h-12 flex items-center justify-center bg-background rounded-full mr-4 text-2xl">{perk.image}</div>
-                        <div>
-                          <h3 className="text-white font-medium">{perk.name}</h3>
+                        <div className="flex-1">
+                          <h3 className="text-white font-medium flex items-center gap-1">{perk.name}</h3>
                           <div className="flex justify-between items-center mt-1">
                             <span className="text-secondary text-sm">{perk.cost}</span>
-                            {perk.comingSoon && <span className="text-xs bg-gray-600 text-gray-300 px-2 py-0.5 rounded">Coming Soon</span>}
+                            <span className="text-xs text-gray-400 ml-2 text-right">{perk.description}</span>
                           </div>
                         </div>
                       </div>
@@ -348,6 +391,6 @@ export const MarketplacePage: React.FC = () => {
            )}
          </div>
        </div>
-    </MainLayout>
+    </>
   );
 };

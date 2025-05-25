@@ -23,12 +23,30 @@ module alpha_points::ledger {
     /// Enum to categorize different types of points being minted or tracked.
     public enum PointType has drop {
         Staking, // Points earned from staking
+        GenericReward, // Points from generic rewards / promotions
+        LoanProceeds, // Points minted as part of loan disbursal
+        FeeRevenue, // Points minted representing protocol fee revenue
         // Add other types as needed, e.g., Referral, Bonus
     }
 
     /// Public constructor for PointType::Staking variant.
     public fun new_point_type_staking(): PointType {
         PointType::Staking
+    }
+
+    /// Public constructor for PointType::GenericReward variant.
+    public fun new_point_type_generic_reward(): PointType {
+        PointType::GenericReward
+    }
+
+    /// Public constructor for PointType::LoanProceeds variant.
+    public fun new_point_type_loan_proceeds(): PointType {
+        PointType::LoanProceeds
+    }
+
+    /// Public constructor for PointType::FeeRevenue variant.
+    public fun new_point_type_fee_revenue(): PointType {
+        PointType::FeeRevenue
     }
 
     /// User's point balance details with available and locked amounts

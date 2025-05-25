@@ -10,8 +10,8 @@ module alpha_points::staking_manager {
     };
     use sui_system::staking_pool::{StakedSui, staked_sui_amount};
     use sui::event;
-    // use sui::coin::Coin; // Commented out unused import
-    // use sui::sui::SUI;   // Commented out unused import
+    // use sui::balance::Balance; // Not used directly
+    // use sui::sui::SUI; // Not used directly
 
     // Error Constants
     const EStakeNotFound: u64 = 0;

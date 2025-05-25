@@ -12,6 +12,7 @@ interface AlphaContextType {
   isConnected: boolean;
   address: string | undefined;
   provider: string | null;
+  authLoading: boolean;
   
   // Core Data
   suiBalance: string;
@@ -49,6 +50,7 @@ const defaultContext: AlphaContextType = {
   isConnected: false,
   address: undefined,
   provider: null,
+  authLoading: true,
   suiBalance: '0',
   points: { available: 0, locked: 0, total: 0 },
   stakePositions: [],
@@ -117,6 +119,7 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // SUI Balance state
   const [suiBalance, setSuiBalance] = useState<string>('0');
   const [loadingSuiBalance, setLoadingSuiBalance] = useState(false);
+  const [authLoadingState, setAuthLoadingState] = useState(true);
 
   // Transaction loading state
   const [transactionLoading, setTransactionLoading] = useState(false);
@@ -149,6 +152,7 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Combined refresh function for all data
   const refreshData = useCallback(async () => {
     const activeAddress = zkLogin.address || currentAccount?.address;
+    
     if (activeAddress) {
       await Promise.all([
         fetchSuiBalance(activeAddress),
@@ -164,7 +168,8 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         refetchLoans(undefined),
       ]);
     }
-    setVersion(v => v + 1); // Force context consumers to re-render
+    setVersion(v => v + 1);
+    setAuthLoadingState(false);
   }, [
     fetchSuiBalance,
     refetchPoints, 
@@ -174,15 +179,11 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     zkLogin.address
   ]);
 
-  // Auto-refresh when account changes (either from wallet or zkLogin)
+  // Auto-refresh when account changes (either from wallet or zkLogin) or on initial mount
   useEffect(() => {
-    const activeAddress = zkLogin.address || currentAccount?.address;
-    if (zkLogin.isAuthenticated || currentAccount?.address) {
-      refreshData();
-    } else {
-      refreshData(); // This will call refetches with undefined address
-    }
-  }, [currentAccount?.address, zkLogin.address, zkLogin.isAuthenticated, refreshData]);
+    setAuthLoadingState(true);
+    refreshData();
+  }, [currentAccount?.address, zkLogin.address, refreshData]);
 
   // Unified logout function
   const logout = useCallback(() => {
@@ -200,6 +201,7 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     isConnected: zkLogin.isAuthenticated || !!currentAccount,
     address: zkLogin.address || currentAccount?.address,
     provider: zkLogin.isAuthenticated ? zkLogin.provider : (currentAccount ? 'dapp-kit' : null),
+    authLoading: authLoadingState,
     suiBalance,
     points,
     stakePositions,

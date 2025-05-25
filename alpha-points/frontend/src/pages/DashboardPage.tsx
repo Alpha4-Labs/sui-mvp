@@ -41,11 +41,11 @@ export const DashboardPage: React.FC = () => {
 
   // Redirect to welcome page if not connected
   useEffect(() => {
+    if (alphaContext.authLoading) return;
     if (!alphaContext.isConnected) {
-      console.log("DashboardPage: Not connected (checked via AlphaContext), navigating to /welcome.");
-      navigate('/');
+      navigate('/'); 
     }
-  }, [alphaContext.isConnected, navigate]);
+  }, [alphaContext.isConnected, alphaContext.authLoading, navigate]);
 
   // Initialize data
   useEffect(() => {
@@ -101,39 +101,27 @@ export const DashboardPage: React.FC = () => {
   };
 
   return (
-    <MainLayout>
-      {/* Top Row: UserBalancesCard, StakeCard, StakedPositionsList (Carousel) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {/* Column 1: SUI Balance Card stacked above Points Display */}
-        <div className="space-y-6 lg:col-span-1">
+    <div className="container mx-auto p-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        {/* Column 1: SUI Balance + Alpha Points Balance */}
+        <div className="flex flex-col gap-6">
           <UserBalancesCard />
           <PointsDisplay />
         </div>
-
-        {/* Column 2: Stake Management Card */}
-        <div className="lg:col-span-1">
+        {/* Column 2: Manage Stake */}
+        <div>
           <StakeCard />
         </div>
-
-        {/* Column 3: Staked Positions Carousel */}
-        <div className="lg:col-span-1">
+        {/* Column 3: Staked Positions */}
+        <div>
           <StakedPositionsList />
         </div>
       </div>
-
-      {/* Projection Chart (remains below the three cards) */}
-      <div className="mb-0">
-        <ProjectionChart 
-          projectionData={projectionData}
-          assetPriceData={assetPriceData}
-          sources={sources}
-          sourceToggles={sourceToggles}
-          assetToggles={assetToggles}
-          onSourceToggle={handleSourceToggle}
-          onAssetToggle={handleAssetToggle}
-        />
+      {/* Chart: spans all columns */}
+      <div className="mt-6">
+        <ProjectionChart />
       </div>
-    </MainLayout>
+    </div>
   );
 };
 
