@@ -40,14 +40,10 @@ export function usePartnerOnboarding() {
       // 2. Call the create_partner_cap_with_collateral function
       tx.moveCall({
         target: `${PACKAGE_ID}::partner::create_partner_cap_with_collateral`,
-        typeArguments: [SUI_TYPE_ARG],
         arguments: [
-          tx.object(SHARED_OBJECTS.config),
-          tx.object(SHARED_OBJECTS.partnerRegistry),
-          tx.object(SHARED_OBJECTS.oracle),
           collateralCoin,
+          tx.object(SHARED_OBJECTS.oracle),
           tx.pure.string(partnerName),
-          tx.object(SUI_CLOCK_OBJECT_ID),
         ],
       });
 
