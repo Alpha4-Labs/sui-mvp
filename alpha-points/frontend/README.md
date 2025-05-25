@@ -1,54 +1,61 @@
-# React + TypeScript + Vite
+# Alpha Points Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is the frontend dApp for the Alpha Points protocol, built with React, TypeScript, and Vite. It allows users and partners to interact with the Alpha Points Move smart contracts on Sui, including onboarding as a partner, minting points, and more.
 
-Currently, two official plugins are available:
+## Features
+- Partner onboarding with SUI collateral
+- Alpha Points minting and management
+- Integration with Sui Move modules and Mysten Sui SDK
+- Wallet connection via @mysten/dapp-kit
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Getting Started
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+### 1. Clone the Repository
+```bash
+git clone <repo-url>
+cd alpha-points/frontend
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
+### 2. Install Dependencies
+```bash
+npm install
 ```
+
+### 3. Environment Variables
+Create a `.env` file in the `frontend/` directory with the following variables (replace with your deployed object IDs):
+
+```
+VITE_CONFIG_ID=0x...
+VITE_LEDGER_ID=0x...
+VITE_STAKING_MANAGER_ID=0x...
+VITE_ESCROW_VAULT_ID=0x...
+VITE_LOAN_CONFIG_ID=0x...
+VITE_ORACLE_ID=0x...
+VITE_MINT_STATS_ID=0x...
+VITE_SUPPLY_ORACLE_ID=0x...
+VITE_PARTNER_REGISTRY_ID=0x...
+```
+
+### 4. Run the App
+```bash
+npm run dev
+```
+
+The app will be available at `http://localhost:5173` by default.
+
+## Partner Onboarding Flow
+- Navigate to the **Partner Onboarding** page.
+- Connect your Sui wallet.
+- Enter your partner name and the amount of SUI to lock as collateral.
+- Submit the form to create your PartnerCap NFT and receive your daily Alpha Points minting quota.
+
+## Integration
+- Uses the [Mysten Sui SDK](https://sdk.mystenlabs.com/typescript/bcs) for transaction building and BCS serialization.
+- Interacts with Move modules in the `/sources` directory of this repo.
+
+## Development
+- Built with React, TypeScript, Vite, and Tailwind CSS.
+- Uses [@mysten/dapp-kit](https://github.com/MystenLabs/sui/tree/main/sdk/dapp-kit) for wallet and transaction management.
+
+---
+For backend/Move contract details, see the `/sources/README.md`.
