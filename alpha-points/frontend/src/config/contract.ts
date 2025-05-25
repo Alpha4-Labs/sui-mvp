@@ -7,15 +7,15 @@ export const PACKAGE_ID = '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86
 
 // Shared object IDs - Updated with latest deployment
 export const SHARED_OBJECTS = {
-  config: '0x1a5dee16d572830a43e86cad2562be36c6b7350600cff1dcb4496fafaa203ef9',
-  ledger: '0xc6e43029177ccc41afe2c4836fae1843492e8477cd95f7d2465e27d7722bc31d',
-  stakingManager: '0xa16cefcddf869a44b74a859b2f77b0d00d48cf0cb57b804802a750e8283dbee2',
-  escrowVault: '', // TODO: Update after initialization
-  loanConfig: '',  // TODO: Update after initialization
-  oracle: '',      // TODO: Update after initialization
-  mintStats: 'PLACEHOLDER_MINT_STATS_ID',
-  supplyOracle: 'PLACEHOLDER_SUPPLY_ORACLE_ID',
-  partnerRegistry: '', // TODO: Update after initialization
+  config: import.meta.env.VITE_CONFIG_ID,
+  ledger: import.meta.env.VITE_LEDGER_ID,
+  stakingManager: import.meta.env.VITE_STAKING_MANAGER_ID,
+  escrowVault: import.meta.env.VITE_ESCROW_VAULT_ID,
+  loanConfig: import.meta.env.VITE_LOAN_CONFIG_ID,
+  oracle: import.meta.env.VITE_ORACLE_ID,
+  mintStats: import.meta.env.VITE_MINT_STATS_ID,
+  supplyOracle: import.meta.env.VITE_SUPPLY_ORACLE_ID,
+  partnerRegistry: import.meta.env.VITE_PARTNER_REGISTRY_ID,
 };
 
 // Sui coin type
