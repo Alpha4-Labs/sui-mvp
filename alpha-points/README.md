@@ -84,13 +84,8 @@ Implemented as pure Move math inside the `ledger` module for deterministic resul
 1. **α-0 Core Ledger**: Basic points accounting
 2. **α-1 Stake + Escrow**: Full staking and redemption flows
 3. **α-2 Loan Module**: Early-exit capability via loans
-4. **α-3 LZ Bridge**: Cross-chain functionality (optional)
-5. **α-4 Partner Extensions**: SDK integrations using the stable API
+5. **α-3 Partner Extensions**: SDK integrations using the stable API
 
 ## Development and Testing
 
 See the `tests` directory for unit tests covering all module functionalities.
-
-## License
-
-[Add license information here]
