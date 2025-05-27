@@ -8,7 +8,7 @@ module alpha_points::loan {
     // use std::option; // Removed, provided by default
     // use std::string::String; // String alias removed, string module itself might be unused if no other members are used
     use alpha_points::admin::{Self, Config, GovernCap};
-    use alpha_points::ledger::{Self as ledger, Ledger, MintStats, SupplyOracle};
+    use alpha_points::ledger::{Self as ledger, Ledger};
     use alpha_points::oracle::{Self as oracle, RateOracle};
     use alpha_points::stake_position::{Self as stake_position, StakePosition};
     use alpha_points::partner::{Self as partner, PartnerCap};
@@ -142,12 +142,9 @@ module alpha_points::loan {
         loan_config: &LoanConfig,
         ledger: &mut Ledger,
         stake: &mut StakePosition<T>,
-        oracle: &RateOracle,
+        rate_oracle_param: &RateOracle,
         amount_points: u64,
         clock: &Clock,
-        mint_stats: &mut MintStats,
-        supply_oracle: &mut SupplyOracle,
-        epoch: u64,
         ctx: &mut tx_context::TxContext
     ) {
         admin::assert_not_paused(config);
@@ -156,7 +153,7 @@ module alpha_points::loan {
         assert!(stake_position::owner_view(stake) == borrower, EUnauthorized);
         assert!(!stake_position::is_encumbered_view(stake), EStakeAlreadyEncumbered);
         let stake_principal = stake_position::principal_view(stake);
-        let (rate, decimals) = oracle::get_rate(oracle);
+        let (rate, decimals) = oracle::get_rate(rate_oracle_param);
         let stake_value_in_points = oracle::convert_asset_to_points(
             stake_principal,
             rate,
@@ -174,7 +171,7 @@ module alpha_points::loan {
             ledger::internal_earn(ledger, admin::deployer_address(config), fee_points, ctx);
         };
         let stake_opt = std::option::none<StakePosition<T>>();
-        ledger::mint_points<T>(ledger, borrower, borrower_points, ledger::new_point_type_staking(), ctx, mint_stats, epoch, &stake_opt, 0, clock, supply_oracle);
+        ledger::mint_points<T>(ledger, borrower, borrower_points, ledger::new_point_type_staking(), ctx, &stake_opt, 0, clock);
         option::destroy_none(stake_opt);
         let loan = Loan {
             id: object::new(ctx),
@@ -204,9 +201,6 @@ module alpha_points::loan {
         oracle: &RateOracle,
         amount_points: u64,
         clock: &Clock,
-        mint_stats: &mut MintStats,
-        supply_oracle: &mut SupplyOracle,
-        epoch: u64,
         ctx: &mut tx_context::TxContext
     ) {
         admin::assert_not_paused(config);
@@ -229,12 +223,9 @@ module alpha_points::loan {
         let fee_points = amount_points / 1000; 
         let borrower_points = amount_points - fee_points;
         if (fee_points > amount_points) { abort EFeeCalculationError };
-        
-        // Partner logic
         let partner_addr = object::uid_to_address(partner::get_id(partner_cap));
         let partner_share = fee_points / 5; // 20% to partner
         let deployer_share = fee_points - partner_share;
-
         if (partner_share > 0) {
             ledger::internal_earn(ledger, partner_addr, partner_share, ctx);
             event::emit(LoanPartnerAttribution {
@@ -249,7 +240,7 @@ module alpha_points::loan {
             ledger::internal_earn(ledger, admin::deployer_address(config), deployer_share, ctx);
         };
         let stake_opt = std::option::none<StakePosition<T>>();
-        ledger::mint_points<T>(ledger, borrower, borrower_points, ledger::new_point_type_staking(), ctx, mint_stats, epoch, &stake_opt, 0, clock, supply_oracle);
+        ledger::mint_points<T>(ledger, borrower, borrower_points, ledger::new_point_type_staking(), ctx, &stake_opt, 0, clock);
         option::destroy_none(stake_opt);
         let loan = Loan {
             id: object::new(ctx),
@@ -270,29 +261,32 @@ module alpha_points::loan {
     }
     
     /// Repays a loan and releases the stake
-    public entry fun repay_loan<T_stake: store>(
+    public entry fun repay_loan<T: store>(
         config: &Config,
         ledger: &mut Ledger,
         loan: Loan,
-        stake: &mut StakePosition<T_stake>,
-        clock: &Clock,
+        stake: &mut StakePosition<T>,
+        points_to_repay: u64, // This is the amount of points the user is sending for repayment
         ctx: &mut tx_context::TxContext
     ) {
         admin::assert_not_paused(config);
         let borrower = tx_context::sender(ctx);
         assert!(loan.borrower == borrower, EUnauthorized);
         assert!(stake_position::get_id_view(stake) == loan.stake_id, EWrongStake);
-        let (total_repayment, accrued_interest) = get_current_repayment_amount(&loan, clock);
-        let available_points = ledger::get_available_balance(ledger, borrower);
-        assert!(available_points >= total_repayment, EInsufficientPoints);
+        // For now, assume interest is 0 or handled externally if accrued.
+        let total_repayment = loan.principal_points; 
+
+        assert!(points_to_repay >= total_repayment, EInsufficientPoints);
+
         ledger::internal_spend(ledger, borrower, total_repayment, ctx);
+
         stake_position::set_encumbered(stake, false);
-        event::emit(LoanRepaid<T_stake> {
+        event::emit(LoanRepaid<T> {
             id: object::uid_to_inner(&loan.id),
             borrower,
             stake_id: loan.stake_id,
             principal_points: loan.principal_points,
-            interest_paid_points: accrued_interest,
+            interest_paid_points: 0,
             total_paid_points: total_repayment
         });
         let Loan { id, borrower: _, stake_id: _, principal_points: _, interest_owed_points: _, opened_time_ms: _ } = loan;

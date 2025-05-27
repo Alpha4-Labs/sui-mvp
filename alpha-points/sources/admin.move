@@ -16,10 +16,11 @@ module alpha_points::admin {
     // Error constants
     // const EProtocolPaused: u64 = 1; // May become unused
     // const EUnauthorized: u64 = 2; // May become unused
-    const EInvalidCaller: u64 = 1; // Used
-    const EPaused: u64 = 2; // Used
+    const EInvalidCaller: u64 = 0;
+    const EPaused: u64 = 2;
     // Removed: const ENotPaused: u64 = 3;
-    const EZeroPointsRate: u64 = 4; // Used
+    const EZeroPointsRate: u64 = 1;
+    const EAdminOnly: u64 = 3;
     
     /// Singleton capability for protocol owner actions
     public struct GovernCap has key, store {
@@ -39,6 +40,11 @@ module alpha_points::admin {
         id: object::UID
     }
     
+    /// Capability that allows bypassing partner cap rules for testing
+    public struct TestnetBypassCap has key, store {
+        id: object::UID
+    }
+    
     /// Configuration object holding protocol parameters.
     public struct Config has key {
         id: object::UID,
@@ -48,7 +54,8 @@ module alpha_points::admin {
         target_validator: address, // Target validator address for native SUI staking
         admin_cap_id: object::ID, // ID of the AdminCap, stored for convenience/events
         default_liq_share_for_weight_curve: u64, // Default liq_share for weight curve calculation
-        forfeiture_grace_period_ms: u64
+        forfeiture_grace_period_ms: u64,
+        testnet_bypass_enabled: bool // New field to control testnet bypass
     }
     
     // Events
@@ -62,8 +69,14 @@ module alpha_points::admin {
         to: address
     }
     
-    public struct ProtocolPaused has copy, drop {}
-    public struct ProtocolUnpaused has copy, drop {}
+    public struct ProtocolPaused has copy, drop {
+        dummy_field: bool,
+    }
+    
+    public struct ProtocolUnpaused has copy, drop {
+        dummy_field: bool,
+    }
+    
     public struct PointsRateUpdated has copy, drop {
         new_rate: u64
     }
@@ -94,7 +107,8 @@ module alpha_points::admin {
                 target_validator: @0x0, // Placeholder, set via update_target_validator
                 admin_cap_id: admin_cap_id, // Store the AdminCap ID
                 default_liq_share_for_weight_curve: 0, // Initialize with 0 (no dampening)
-                forfeiture_grace_period_ms: 14 * 24 * 60 * 60 * 1000
+                forfeiture_grace_period_ms: 14 * 24 * 60 * 60 * 1000,
+                testnet_bypass_enabled: true // Enable by default for testnet
             },
             sender
         );
@@ -134,9 +148,15 @@ module alpha_points::admin {
             points_rate: 100,  // Corrected field name
             forfeiture_grace_period_ms: 14 * 24 * 60 * 60 * 1000,
             target_validator: @0x0, // Corrected field name
-            default_liq_share_for_weight_curve: 0 // Initialize to 0
+            default_liq_share_for_weight_curve: 0, // Initialize to 0
+            testnet_bypass_enabled: true // Enable by default for testnet
         }; 
         
+        // Create testnet bypass cap
+        let testnet_bypass = TestnetBypassCap { id: object::new(ctx) };
+
+        // Transfer capabilities
+        transfer::public_transfer(testnet_bypass, sender);
         transfer::share_object(config); 
     }
     
@@ -153,9 +173,9 @@ module alpha_points::admin {
         
         // Emit event
         if (config.paused) { // Corrected field name
-            event::emit(ProtocolPaused {});
+            event::emit(ProtocolPaused { dummy_field: false });
         } else {
-            event::emit(ProtocolUnpaused {});
+            event::emit(ProtocolUnpaused { dummy_field: false });
         }
     }
     
@@ -340,5 +360,21 @@ module alpha_points::admin {
     public(package) fun destroy_test_admin_cap(cap: AdminCap) {
         let AdminCap { id } = cap;
         object::delete(id);
+    }
+
+    /// Returns true if testnet bypass is enabled
+    public fun is_testnet_bypass_enabled(config: &Config): bool {
+        config.testnet_bypass_enabled
+    }
+
+    /// Toggles testnet bypass
+    public entry fun toggle_testnet_bypass(
+        admin_cap: &AdminCap,
+        config: &mut Config,
+        enabled: bool,
+        _ctx: &mut tx_context::TxContext
+    ) {
+        assert!(is_admin(admin_cap, config), EAdminOnly);
+        config.testnet_bypass_enabled = enabled;
     }
 }
