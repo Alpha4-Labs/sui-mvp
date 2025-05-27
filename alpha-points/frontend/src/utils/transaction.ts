@@ -68,9 +68,9 @@ export const buildRegisterStakeTransaction = (
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(SHARED_OBJECTS.stakingManager),
       tx.object(CLOCK_ID),
-      tx.object(stakedSuiObjectId),  // Pass the StakedSui object ID as an object argument
-      tx.pure(bcs.U64.serialize(durationDays).toBytes()),
-      tx.pure(bcs.option(bcs.Address).serialize(null).toBytes()) // Referrer (Option<address>)
+      tx.object(stakedSuiObjectId),
+      tx.pure.u64(durationDays),
+      tx.pure.option('address', null)
     ]
   });
   
@@ -91,11 +91,12 @@ export const buildUnstakeTransaction = (
   tx.moveCall({
     target: `${PACKAGE_ID}::integration::request_unstake_native_sui`,
     arguments: [
-      tx.object(SHARED_OBJECTS.stakingManager), // Arg0 (likely StakingManager based on newer code struct)
-      tx.object(SHARED_OBJECTS.config),         // Arg1 (likely Config based on newer code struct)
-      tx.object(SUI_SYSTEM_STATE_ID),           // Arg2 (SuiSystemState)
-      tx.object(stakeId)                        // Arg3 (StakePosition ID)
-      // CLOCK_ID removed to match 4-argument structure of deployed contract
+      tx.object(SHARED_OBJECTS.stakingManager), // Arg0
+      tx.object(SHARED_OBJECTS.config),         // Arg1
+      tx.object(SUI_SYSTEM_STATE_ID),           // Arg2
+      tx.object(stakeId),                       // Arg3
+      tx.object(CLOCK_ID),                      // Arg4 - Added Clock
+      tx.object(SHARED_OBJECTS.ledger)          // Arg5 - Added Ledger
     ]
   });
   
@@ -111,23 +112,19 @@ export const buildUnstakeTransaction = (
 export const buildRedeemPointsTransaction = (
   pointsAmount: string
 ) => {
-  const amountBigInt = BigInt(pointsAmount);
   const tx = new Transaction();
-  const serializedAmountBytes = bcs.U64.serialize(amountBigInt).toBytes();
-
   tx.moveCall({
     target: `${PACKAGE_ID}::integration::redeem_points`,
-    typeArguments: [SUI_TYPE], // NOTE: Verify this type argument
+    typeArguments: [SUI_TYPE],
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(SHARED_OBJECTS.escrowVault),
       tx.object(SHARED_OBJECTS.oracle),
-      tx.pure(serializedAmountBytes),
+      tx.pure.u64(BigInt(pointsAmount)),
       tx.object(CLOCK_ID)
     ]
   });
-  
   return tx;
 };
 
@@ -142,31 +139,17 @@ export const buildCreateLoanTransaction = (
   stakeId: string,
   pointsAmount: number
 ) => {
-  if (
-    typeof pointsAmount !== 'number' ||
-    !Number.isInteger(pointsAmount) ||
-    pointsAmount < 0
-  ) {
-    throw new Error(`Invalid pointsAmount for BCS serialization: must be a non-negative integer. Received type: ${typeof pointsAmount}, value: ${pointsAmount}`);
-  }
-
   const tx = new Transaction();
-  // Convert the JavaScript number to a BigInt before serializing for u64.
-  const pointsAmountAsBigInt = BigInt(pointsAmount);
-  const serializedPointsAmountBytes = bcs.U64.serialize(pointsAmountAsBigInt).toBytes();
-
   tx.moveCall({
     target: `${PACKAGE_ID}::loan::open_loan`,
-    // The type argument T for open_loan<T> is the type of the asset STAKED,
-    // which is 0x3::staking_pool::StakedSui for native SUI stakes.
-    typeArguments: ['0x3::staking_pool::StakedSui'], 
+    typeArguments: ['0x3::staking_pool::StakedSui'],
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.loanConfig),
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(stakeId),
       tx.object(SHARED_OBJECTS.oracle),
-      tx.pure(serializedPointsAmountBytes),
+      tx.pure.u64(pointsAmount),
       tx.object(CLOCK_ID)
     ]
   });
@@ -178,24 +161,25 @@ export const buildCreateLoanTransaction = (
  * 
  * @param loanId Object ID of the loan
  * @param stakeId Object ID of the stake position used as collateral
+ * @param pointsToRepay Amount of points to repay for the loan principal
  * @returns Transaction object ready for execution
  */
 export const buildRepayLoanTransaction = (
   loanId: string,
-  stakeId: string
+  stakeId: string,
+  pointsToRepay: string | bigint
 ) => {
   const tx = new Transaction();
   
   tx.moveCall({
     target: `${PACKAGE_ID}::loan::repay_loan`,
-    // Corrected type argument: T should be the type of the staked asset (e.g., StakedSui)
     typeArguments: ['0x3::staking_pool::StakedSui'],
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(loanId),
       tx.object(stakeId),
-      tx.object(CLOCK_ID)
+      tx.pure.u64(BigInt(pointsToRepay))
     ]
   });
   
