@@ -4,9 +4,18 @@ import { useAlphaPoints } from '../hooks/useAlphaPoints';
 import { useStakePositions } from '../hooks/useStakePositions';
 import { useLoans } from '../hooks/useLoans';
 import { useZkLogin } from '../hooks/useZkLogin';
+import { useAllUserStakes, GenericStakedSui } from '../hooks/useAllUserStakes';
 import { Loan, StakePosition, PointBalance, DurationOption } from '../types';
 
-// Define the shape of the context value using specific types
+// Define OrphanedStake type - principalAmount and timestamp are now always optional
+export interface OrphanedStake {
+  stakedSuiObjectId: string;
+  durationDays: number; // This will be set from selectedDuration when an orphan is identified
+  principalAmount?: string; // Will be undefined for generically found StakedSui initially
+  timestamp?: number; // Can be added when identified
+}
+
+// Define the shape of the context value
 interface AlphaContextType {
   // Connection & Account
   isConnected: boolean;
@@ -17,20 +26,25 @@ interface AlphaContextType {
   // Core Data
   suiBalance: string;
   points: PointBalance;
-  stakePositions: StakePosition[];
+  stakePositions: StakePosition[]; // Stakes registered with *our* protocol
   loans: Loan[];
+  orphanedStakes: OrphanedStake[]; // StakedSui objects owned by user but NOT in stakePositions
+  suiClient: any;
   
   // Loading States
   loading: {
     suiBalance: boolean;
     points: boolean;
     positions: boolean;
+    allUserStakes: boolean; // New loading state for the generic stake fetch
     loans: boolean;
     transaction: boolean;
+    // orphanedStakes loading is now tied to allUserStakes and positions loading
   };
   error: {
     points: string | null;
     positions: string | null;
+    allUserStakes: string | null; // New error state
     loans: string | null;
   };
 
@@ -43,6 +57,7 @@ interface AlphaContextType {
   refreshData: () => void;
   setTransactionLoading: (loading: boolean) => void;
   logout: () => void;
+  removeOrphanedStake: (stakedSuiObjectId: string) => void; // Keeps its utility for signaling UI change
 }
 
 // Create context with a proper initial value that matches the type
@@ -55,16 +70,20 @@ const defaultContext: AlphaContextType = {
   points: { available: 0, locked: 0, total: 0 },
   stakePositions: [],
   loans: [],
+  orphanedStakes: [],
+  suiClient: {},
   loading: {
     suiBalance: false,
     points: false,
     positions: false,
+    allUserStakes: true, // Default to true initially
     loans: false,
     transaction: false,
   },
   error: {
     points: null,
     positions: null,
+    allUserStakes: null, // Added missing allUserStakes error state
     loans: null,
   },
   durations: [],
@@ -73,12 +92,14 @@ const defaultContext: AlphaContextType = {
   refreshData: () => {},
   setTransactionLoading: () => {},
   logout: () => {},
+  removeOrphanedStake: () => {},
 };
 
-// Create context with proper initial value
 const AlphaContext = createContext<AlphaContextType>(defaultContext);
 
-// Default staking durations
+// REMOVE LocalStorage Key for Orphaned Stakes
+// const ORPHANED_STAKES_LS_KEY = 'alphaPoints_orphanedStakes';
+
 const DEFAULT_DURATIONS: DurationOption[] = [
   { days: 7, label: '7 days', apy: 5.0 },
   { days: 14, label: '14 days', apy: 7.5 },
@@ -94,44 +115,63 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const { mutate: disconnectWalletDappKit } = useDisconnectWallet();
   const suiClient = useSuiClient();
 
-  // Use the data fetching hooks with proper typing
-  const { 
-    points, 
-    loading: loadingPoints, 
-    error: errorPoints, 
-    refetch: refetchPoints 
-  } = useAlphaPoints();
+  const { points, loading: loadingPoints, error: errorPoints, refetch: refetchPoints } = useAlphaPoints();
+  const { positions: stakePositions, loading: loadingPositions, error: errorPositions, refetch: refetchPositions } = useStakePositions();
+  const { loans, loading: loadingLoans, error: errorLoans, refetch: refetchLoans } = useLoans();
   
+  // Use the new hook
+  const activeAddress = zkLogin.address || currentAccount?.address;
   const { 
-    positions: stakePositions, 
-    loading: loadingPositions, 
-    error: errorPositions, 
-    refetch: refetchPositions 
-  } = useStakePositions();
-  
-  const { 
-    loans, 
-    loading: loadingLoans, 
-    error: errorLoans, 
-    refetch: refetchLoans 
-  } = useLoans();
+    allStakedSuiObjects, 
+    loading: loadingAllUserStakes, 
+    error: errorAllUserStakes, 
+    refetch: refetchAllUserStakes 
+  } = useAllUserStakes(activeAddress);
 
-  // SUI Balance state
   const [suiBalance, setSuiBalance] = useState<string>('0');
   const [loadingSuiBalance, setLoadingSuiBalance] = useState(false);
   const [authLoadingState, setAuthLoadingState] = useState(true);
-
-  // Transaction loading state
   const [transactionLoading, setTransactionLoading] = useState(false);
-  
-  // Staking duration options
   const [durations] = useState<DurationOption[]>(DEFAULT_DURATIONS);
-  const [selectedDuration, setSelectedDuration] = useState<DurationOption>(DEFAULT_DURATIONS[2]); // Default to 30 days
-
-  // Version state to force context consumers to re-render on data refresh
+  const [selectedDuration, setSelectedDuration] = useState<DurationOption>(DEFAULT_DURATIONS[2]);
   const [version, setVersion] = useState(0);
 
-  // Data fetching functions
+  // State for derived orphanedStakes - no longer directly set by add/remove, but calculated
+  const [orphanedStakes, setOrphanedStakes] = useState<OrphanedStake[]>([]);
+
+  // --- Calculate Orphaned Stakes --- 
+  useEffect(() => {
+    // Only calculate if both sources of data are not loading
+    if (!loadingAllUserStakes && !loadingPositions) {
+      const registeredStakeIds = new Set(stakePositions.map(p => p.id));
+      
+      const newOrphanedStakes = allStakedSuiObjects
+        .filter(genericStake => !registeredStakeIds.has(genericStake.id))
+        .map(genericStake => ({
+          stakedSuiObjectId: genericStake.id,
+          durationDays: selectedDuration.days, // Default to currently selected duration
+          // principalAmount: undefined, // Explicitly undefined for now
+          timestamp: Date.now(), // Mark when it was identified as an orphan
+        }));
+      setOrphanedStakes(newOrphanedStakes);
+    }
+    // Add selectedDuration to dependencies, so if user changes default duration, orphaned stakes get that new default
+  }, [allStakedSuiObjects, stakePositions, loadingAllUserStakes, loadingPositions, selectedDuration]);
+
+  // REMOVE addOrphanedStake and its localStorage logic
+  // const addOrphanedStake = useCallback(...);
+
+  // removeOrphanedStake will now primarily signal a UI update via setVersion
+  // The actual removal from the list happens via the useEffect above when stakePositions updates
+  const removeOrphanedStake = useCallback((_stakedSuiObjectId: string) => {
+    // The item will be naturally removed from orphanedStakes when 
+    // allStakedSuiObjects is still the same, but stakePositions gets updated (after refreshData)
+    // to include this _stakedSuiObjectId. The useEffect will then filter it out.
+    // We still call setVersion to ensure consumers re-render and re-evaluate.
+    setVersion(v => v + 1);
+    // No direct manipulation of orphanedStakes state or localStorage here anymore.
+  }, []); // Empty deps as it only calls setVersion
+
   const fetchSuiBalance = useCallback(async (addr: string | undefined) => {
     if (!addr) {
       setSuiBalance('0');
@@ -149,43 +189,38 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [suiClient]);
 
-  // Combined refresh function for all data
   const refreshData = useCallback(async () => {
-    const activeAddress = zkLogin.address || currentAccount?.address;
-    
-    if (activeAddress) {
+    const currentActiveAddress = zkLogin.address || currentAccount?.address;
+    if (currentActiveAddress) {
       await Promise.all([
-        fetchSuiBalance(activeAddress),
-        refetchPoints(activeAddress),
-        refetchPositions(activeAddress),
-        refetchLoans(activeAddress),
+        fetchSuiBalance(currentActiveAddress),
+        refetchPoints(currentActiveAddress),
+        refetchPositions(currentActiveAddress), // Fetches stakes registered with our protocol
+        refetchAllUserStakes(currentActiveAddress), // Fetches ALL StakedSui objects user owns
+        refetchLoans(currentActiveAddress),
       ]);
     } else {
+      // Clear data if no user
       await Promise.all([
         fetchSuiBalance(undefined),
         refetchPoints(undefined),
         refetchPositions(undefined),
+        refetchAllUserStakes(undefined),
         refetchLoans(undefined),
       ]);
     }
     setVersion(v => v + 1);
     setAuthLoadingState(false);
   }, [
-    fetchSuiBalance,
-    refetchPoints, 
-    refetchPositions, 
-    refetchLoans, 
-    currentAccount?.address, 
-    zkLogin.address
+    fetchSuiBalance, refetchPoints, refetchPositions, refetchAllUserStakes, refetchLoans, 
+    currentAccount?.address, zkLogin.address
   ]);
 
-  // Auto-refresh when account changes (either from wallet or zkLogin) or on initial mount
   useEffect(() => {
     setAuthLoadingState(true);
     refreshData();
-  }, [currentAccount?.address, zkLogin.address, refreshData]);
+  }, [currentAccount?.address, zkLogin.address]); // Removed refreshData from deps, it's stable
 
-  // Unified logout function
   const logout = useCallback(() => {
     if (zkLogin.isAuthenticated) {
       zkLogin.logout();
@@ -196,26 +231,29 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // Data clearing should be handled by the refreshData effect when addresses become null
   }, [zkLogin, currentAccount, disconnectWalletDappKit]);
 
-  // Construct the context value
   const value: AlphaContextType & { version: number } = {
     isConnected: zkLogin.isAuthenticated || !!currentAccount,
-    address: zkLogin.address || currentAccount?.address,
+    address: activeAddress,
     provider: zkLogin.isAuthenticated ? zkLogin.provider : (currentAccount ? 'dapp-kit' : null),
     authLoading: authLoadingState,
     suiBalance,
     points,
     stakePositions,
     loans,
+    orphanedStakes, // This is now the derived list
+    suiClient,
     loading: {
       suiBalance: loadingSuiBalance,
       points: loadingPoints,
       positions: loadingPositions,
+      allUserStakes: loadingAllUserStakes, // new loading state
       loans: loadingLoans,
       transaction: transactionLoading,
     },
     error: {
       points: errorPoints,
       positions: errorPositions,
+      allUserStakes: errorAllUserStakes, // new error state
       loans: errorLoans,
     },
     durations,
@@ -224,13 +262,13 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     refreshData,
     setTransactionLoading,
     logout,
+    removeOrphanedStake,
     version,
   };
 
   return <AlphaContext.Provider value={value}>{children}</AlphaContext.Provider>;
 };
 
-// Custom hook to consume the context
 export const useAlphaContext = (): AlphaContextType => {
   const context = useContext(AlphaContext);
   

@@ -98,7 +98,7 @@ export const StakeCard: React.FC = () => {
     isConnected: alphaIsConnected,
     provider: alphaProvider,
     suiBalance,
-    loading: { suiBalance: isLoadingBalance }
+    loading: { suiBalance: isLoadingBalance },
   } = useAlphaContext();
 
   const suiClient = useSuiClient();
@@ -319,7 +319,6 @@ export const StakeCard: React.FC = () => {
       console.error('Error during Tx1 preparation/execution:', error);
       setError(getTransactionErrorMessage(error));
       setStakingStage('failed');
-      return;
     }
 
     if (!newStakedSuiId) {
@@ -463,7 +462,9 @@ export const StakeCard: React.FC = () => {
       console.error('Error during Tx2:', error);
       setError(getTransactionErrorMessage(error));
       setStakingStage('failed');
-    } 
+    } finally {
+      setTransactionLoading(false);
+    }
   };
 
   // --- Button Label Logic ---

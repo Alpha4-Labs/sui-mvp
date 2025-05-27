@@ -12,7 +12,7 @@ This is the frontend dApp for the Alpha Points protocol, built with React, TypeS
 
 ### 1. Clone the Repository
 ```bash
-git clone <repo-url>
+git clone https://github.com/Alpha4-Labs/sui-mvp.git
 cd alpha-points/frontend
 ```
 

@@ -151,7 +151,14 @@ export const PointsDisplay: React.FC = () => {
   }, [currentEpoch, stakePositions, loading.positions]);
 
   const handleClaim = async () => {
+    console.log("SHARED_OBJECTS for claim:", SHARED_OBJECTS);
+    console.log("CLOCK_ID for claim:", CLOCK_ID);
     if (!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || !stakePositions || stakePositions.length === 0) {
+      console.warn("Claim prerequisites not met:", {
+        currentAccount,
+        totalClaimablePoints,
+        stakePositions
+      });
       return;
     }
 
@@ -161,7 +168,10 @@ export const PointsDisplay: React.FC = () => {
       let claimsAdded = 0;
 
       for (const pos of stakePositions as StakePosition[]) {
-        if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined' || typeof pos.assetType === 'undefined') continue;
+        if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined' || typeof pos.assetType === 'undefined') {
+          console.warn("Skipping position due to missing data:", pos);
+          continue;
+        }
         
         const lastClaimEpochBigInt = BigInt(pos.lastClaimEpoch);
         if (currentEpoch && currentEpoch > lastClaimEpochBigInt) {
@@ -177,14 +187,20 @@ export const PointsDisplay: React.FC = () => {
                 const pointsPerEpoch = denominator > 0n ? numerator / denominator : 0n;
                 const epochsPassed = currentEpoch - lastClaimEpochBigInt;
                 if (pointsPerEpoch * epochsPassed > 0n) {
+                    console.log(`Adding claim for position: ${pos.id}, assetType: ${pos.assetType || SUI_TYPE}`);
+                    console.log("Config ID:", SHARED_OBJECTS.config);
+                    console.log("Ledger ID:", SHARED_OBJECTS.ledger);
+                    console.log("Position ID:", pos.id);
+                    console.log("Clock ID:", CLOCK_ID);
+                    
                     tx.moveCall({
                         target: `${PACKAGE_ID}::integration::claim_accrued_points`,
                         typeArguments: [pos.assetType || SUI_TYPE],
                         arguments: [
-                            tx.object(SHARED_OBJECTS.config),
-                            tx.object(pos.id),
-                            tx.object(SHARED_OBJECTS.ledger),
-                            tx.object(CLOCK_ID),
+                            tx.object(SHARED_OBJECTS.config), 
+                            tx.object(SHARED_OBJECTS.ledger), 
+                            tx.object(pos.id),                
+                            tx.object(CLOCK_ID) // clock argument itself             
                         ],
                     });
                     claimsAdded++;
@@ -194,11 +210,13 @@ export const PointsDisplay: React.FC = () => {
       }
 
       if (claimsAdded === 0) {
+        console.warn("No claims were added to the transaction.");
         setTransactionLoading(false);
         return;
       }
       
-      await signAndExecute({ transaction: tx.serialize() }, { onSuccess: () => refreshData() });
+      console.log("Executing transaction with claimsAdded:", claimsAdded);
+      await signAndExecute({ transaction: tx }, { onSuccess: () => refreshData() });
     } catch (error) {
       console.error('Error claiming points:', error);
     } finally {

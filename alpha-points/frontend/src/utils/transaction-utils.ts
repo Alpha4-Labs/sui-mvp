@@ -9,9 +9,9 @@ export {
   
   // Use explicit type export
   export type { SignAndExecuteInput } from './transaction-adapter';
-  
   export {
-    buildStakeTransaction,
+    buildRequestAddStakeTransaction,
+    buildRegisterStakeTransaction,
     buildUnstakeTransaction,
     buildRedeemPointsTransaction,
     buildCreateLoanTransaction,

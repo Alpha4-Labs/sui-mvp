@@ -198,7 +198,7 @@ export const MarketplacePage: React.FC = () => {
     try {
       const ptbJson = buildRedeemPointsTransaction(amountToRedeem);
       const executionInput = adaptPtbJsonForSignAndExecute(ptbJson);
-      await signAndExecute(executionInput);
+      signAndExecute({ transaction: executionInput.transaction }); 
       refreshData(); // Refresh data after successful execution
     } catch (error) {
       console.error('Error redeeming points for SUI:', error);

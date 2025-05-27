@@ -33,7 +33,7 @@ function App() {
           <AlphaProvider>
             <BrowserRouter>
               <Routes>
-                <Route element={<MainLayout />}>
+                <Route element={<MainLayout children={undefined} />}>
                   <Route path="/" element={<WelcomePage />} />
                   <Route path="/callback" element={<ZkLoginCallback />} />
                   <Route path="/dashboard" element={<DashboardPage />} />
