@@ -143,14 +143,18 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   useEffect(() => {
     // Only calculate if both sources of data are not loading
     if (!loadingAllUserStakes && !loadingPositions) {
-      const registeredStakeIds = new Set(stakePositions.map(p => p.id));
+      const registeredOriginalStakeIds = new Set(
+        stakePositions
+          .map(p => p.stakedSuiObjectId) // Use the ID of the original StakedSui object
+          .filter((id): id is string => id !== null) // Filter out nulls and type guard
+      );
       
       const newOrphanedStakes = allStakedSuiObjects
-        .filter(genericStake => !registeredStakeIds.has(genericStake.id))
+        .filter(genericStake => !registeredOriginalStakeIds.has(genericStake.id))
         .map(genericStake => ({
           stakedSuiObjectId: genericStake.id,
           durationDays: selectedDuration.days, // Default to currently selected duration
-          // principalAmount: undefined, // Explicitly undefined for now
+          principalAmount: genericStake.principalAmount, // Use principalAmount from genericStake
           timestamp: Date.now(), // Mark when it was identified as an orphan
         }));
       setOrphanedStakes(newOrphanedStakes);

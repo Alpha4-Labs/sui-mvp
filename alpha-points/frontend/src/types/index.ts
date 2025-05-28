@@ -13,6 +13,7 @@ export interface StakePosition {
   id: string;
   owner: string;
   principal: string;
+  stakedSuiObjectId: string | null;
   startEpoch?: string;
   unlockEpoch?: string;
   durationEpochs?: string;
