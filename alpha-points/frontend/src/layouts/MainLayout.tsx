@@ -1,6 +1,6 @@
 // === MainLayout.tsx (Corrected Icon Access v2) ===
 import React, { ReactNode, useState, useEffect, useRef } from 'react';
-import { Link, useLocation, NavLink, Outlet } from 'react-router-dom';
+import { Link, useLocation, NavLink, Outlet, useNavigate } from 'react-router-dom';
 // Import necessary items from dapp-kit: ConnectButton, useCurrentAccount
 import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext'; // Import useAlphaContext
@@ -16,6 +16,7 @@ interface MainLayoutProps {
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const location = useLocation();
+  const navigate = useNavigate(); // Initialize navigate
   const alphaContext = useAlphaContext(); // Use AlphaContext
   const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -110,7 +111,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 )}
               </div>
             ) : (
-              <ConnectButton className="!bg-primary !hover:bg-primary-dark !text-white !py-2 !px-4 !rounded-lg !text-sm" />
+              // Custom button to navigate to WelcomePage if not connected
+              <button
+                onClick={() => {
+                  if (location.pathname !== '/') {
+                    navigate('/');
+                  }
+                  // If already on WelcomePage, dapp-kit's ConnectButton might typically open its modal.
+                  // Here, we are simplifying: if on welcome page and click this, it does nothing extra beyond what WelcomePage offers.
+                  // The primary goal is to get to WelcomePage if disconnected and elsewhere.
+                }}
+                className="!bg-primary !hover:bg-primary-dark !text-white !py-2 !px-4 !rounded-lg !text-sm"
+              >
+                Connect Wallet
+              </button>
             )}
           </div>
         </div>
