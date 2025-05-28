@@ -26,7 +26,7 @@ export const WelcomePage: React.FC = () => {
     if (alphaContext.authLoading) return; 
 
     if (alphaContext.isConnected) {
-      console.log("WelcomePage: Already connected (checked via AlphaContext), navigating to /dashboard.");
+      //console.log("WelcomePage: Already connected (checked via AlphaContext), navigating to /dashboard.");
       navigate('/dashboard');
     }
   }, [alphaContext.isConnected, alphaContext.authLoading, navigate]);
@@ -71,20 +71,20 @@ export const WelcomePage: React.FC = () => {
                   <button
                     key={wallet.name}
                     onClick={async () => {
-                      console.log('Attempting to disconnect wallet first:', wallet.name);
+                      //console.log('Attempting to disconnect wallet first:', wallet.name);
                       try {
                         await disconnectWallet();
                         console.log('Disconnect call completed.');
                       } catch (disconnectError) {
-                        console.error('Error during pre-emptive disconnect:', disconnectError);
+                        //console.error('Error during pre-emptive disconnect:', disconnectError);
                       }
 
                       console.log('Attempting to connect to wallet:', wallet.name, wallet);
                       try {
                         await connectWallet({ wallet });
-                        console.log('connectWallet call completed (this does not mean success, check wallet prompt/errors).'); 
+                        //console.log('connectWallet call completed (this does not mean success, check wallet prompt/errors).'); 
                       } catch (err) {
-                        console.error('Error explicitly caught from connectWallet call:', err);
+                        //console.error('Error explicitly caught from connectWallet call:', err);
                       }
                     }}
                     className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white py-3 px-6 rounded-lg transition-colors flex items-center justify-center font-medium"
@@ -115,7 +115,7 @@ export const WelcomePage: React.FC = () => {
       </div>
 
       <footer className="absolute bottom-0 left-0 right-0 p-4 text-center text-gray-600 text-xs">
-        Alpha Points MVP © 2025 - Testnet Demo
+        Alpha4 MVP © 2025 - Testnet
       </footer>
     </div>
   );
