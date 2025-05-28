@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { calculateAlphaPointsPerDayPerSui } from '../utils/format';
 
 // Define a generation method interface
 interface GenerationMethod {
@@ -32,22 +33,22 @@ export const GenerationPage: React.FC = () => {
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">7-Day Stake</div>
               <div className="text-white font-medium">5% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{500 .toLocaleString()} αP/day per {1} SUI</div>
+              <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(5).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">30-Day Stake</div>
               <div className="text-white font-medium">10% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{650 .toLocaleString()} αP/day per {1} SUI</div>
+              <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(10).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">90-Day Stake</div>
               <div className="text-white font-medium">15% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{800 .toLocaleString()} αP/day per {1} SUI</div>
+              <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(15).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
             </div>
             <div className="bg-background-card p-3 rounded-lg">
               <div className="text-gray-400 mb-1">365-Day Stake</div>
               <div className="text-white font-medium">25% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{1200 .toLocaleString()} αP/day per {1} SUI</div>
+              <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(25).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
             </div>
           </div>
           <div className="text-center">

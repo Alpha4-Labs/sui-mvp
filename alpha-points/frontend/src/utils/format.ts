@@ -108,3 +108,20 @@ export const formatSui = (amount: string | number, decimals = 2): string => {
     
     return `${days} day${days > 1 ? 's' : ''}`;
   };
+
+  /**
+   * Calculates the estimated Alpha Points earned per day for each SUI staked,
+   * based on the on-chain APY to Points formula.
+   * @param apyPercentage The annual percentage yield (e.g., 5 for 5% APY).
+   * @returns The estimated Alpha Points per day per 1 SUI.
+   */
+  export function calculateAlphaPointsPerDayPerSui(apyPercentage: number): number {
+    if (apyPercentage < 0) return 0;
+    const APY_BPS_FACTOR = 100; // To convert percentage to basis points
+    const APY_POINT_SCALING_FACTOR = 25; // From Move code
+    const EPOCHS_PER_YEAR = 365; // From Move code (assuming 1 epoch = 1 day for this rate)
+
+    const apyBps = apyPercentage * APY_BPS_FACTOR;
+    const points = (apyBps * APY_POINT_SCALING_FACTOR) / EPOCHS_PER_YEAR;
+    return points;
+  }

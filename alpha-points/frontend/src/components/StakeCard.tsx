@@ -10,7 +10,7 @@ import {
   getTransactionResponseError,
   getCreatedObjects
 } from '../utils/transaction-adapter';
-import { formatSui } from '../utils/format';
+import { formatSui, calculateAlphaPointsPerDayPerSui } from '../utils/format';
 import { Transaction } from '@mysten/sui/transactions';
 import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import {
@@ -610,18 +610,19 @@ export const StakeCard: React.FC = () => {
                 {(() => {
                   const amountNum = parseFloat(amount);
                   if (!isNaN(amountNum) && amountNum > 0) {
-                    const ALPHA_POINTS_PER_SUI_PER_EPOCH = 68;
-                    const EPOCHS_PER_DAY = 1; // Assuming 1 epoch per day for this estimation
+                    // Use the new utility function here
+                    const pointsPerDayPerSui = calculateAlphaPointsPerDayPerSui(selectedDuration.apy);
+                    const EPOCHS_PER_DAY = 1; // Assuming 1 epoch per day for this estimation, consistent with pointsPerDayPerSui
                     const durationDays = selectedDuration.days;
 
                     const totalEpochs = durationDays * EPOCHS_PER_DAY;
-                    const totalAlphaPointsRewards = amountNum * ALPHA_POINTS_PER_SUI_PER_EPOCH * totalEpochs;
-                    const alphaPointsPerEpoch = amountNum * ALPHA_POINTS_PER_SUI_PER_EPOCH;
+                    const totalAlphaPointsRewards = amountNum * pointsPerDayPerSui * totalEpochs; // totalEpochs is essentially durationDays
+                    const alphaPointsPerEpoch = amountNum * pointsPerDayPerSui; // This is now points per day
 
                     const formattedTotalAlphaPoints = totalAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
                     const formattedAlphaPointsPerEpoch = alphaPointsPerEpoch.toLocaleString(undefined, {maximumFractionDigits: 0});
 
-                    return `~${formattedTotalAlphaPoints} αP (${formattedAlphaPointsPerEpoch} αP/epoch)`;
+                    return `~${formattedTotalAlphaPoints} αP (${formattedAlphaPointsPerEpoch} αP/day)`; // Changed from /epoch to /day
                   }
                   return 'Enter an amount to see rewards';
                 })()}
