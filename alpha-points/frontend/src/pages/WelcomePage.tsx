@@ -8,6 +8,8 @@ import { useZkLogin } from '../hooks/useZkLogin';
 import { useAlphaContext } from '../context/AlphaContext';
 import { useNavigate } from 'react-router-dom';
 import alphaPointsLogo from '../assets/alpha4-logo.svg'; // Verify this path
+import { toast, ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 export const WelcomePage: React.FC = () => {
   const alphaContext = useAlphaContext();
@@ -31,6 +33,29 @@ export const WelcomePage: React.FC = () => {
     }
   }, [alphaContext.isConnected, alphaContext.authLoading, navigate]);
 
+  // Effect to show toast if no wallets are detected
+  useEffect(() => {
+    // Give a brief moment for wallets to be detected, then check.
+    const timer = setTimeout(() => {
+      if (wallets.length === 0 && !alphaContext.authLoading && !alphaContext.isConnected) {
+        toast.info(
+          "No SUI wallet extensions detected. Please install a SUI wallet (e.g., Sui Wallet, Suiet) to connect.", 
+          {
+            position: "top-center",
+            autoClose: 7000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+            theme: "dark",
+          }
+        );
+      }
+    }, 1500); // Wait 1.5 seconds before showing the toast
+
+    return () => clearTimeout(timer);
+  }, [wallets, alphaContext.authLoading, alphaContext.isConnected]);
+
   if (alphaContext.authLoading && !alphaContext.isConnected) { // Show loading only if not yet connected, otherwise it might flash if already connected and just loading data
     return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
@@ -41,6 +66,7 @@ export const WelcomePage: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
+      <ToastContainer />
       <div className="w-full max-w-md flex flex-col items-center text-center">
         <img
           src={alphaPointsLogo}

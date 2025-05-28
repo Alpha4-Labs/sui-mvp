@@ -189,11 +189,18 @@ export const LoanPanel: React.FC = () => {
     }
   };
 
-  const handleRepayLoan = async (loanId: string, stakeId: string) => {
+  const handleRepayLoan = async (loanId: string, stakeId: string, principalPoints: string) => {
     setError(null);
     setTransactionLoading(true);
     try {
-      const tx = buildRepayLoanTransaction(loanId, stakeId);
+      // Ensure principalPoints is a valid string that can be converted to BigInt
+      if (!principalPoints || typeof principalPoints !== 'string' || principalPoints.trim() === '') {
+        setError("Invalid loan principal amount for repayment.");
+        setTransactionLoading(false);
+        return;
+      }
+      const tx = buildRepayLoanTransaction(loanId, stakeId, principalPoints);
+      
       // Attempt to use tx.serialize() to bypass Transaction object identity issue
       /* const result = */ await signAndExecute({ transaction: tx.serialize() });
       await refreshData();
@@ -360,7 +367,11 @@ export const LoanPanel: React.FC = () => {
                       </div>
                       <div className="mt-auto pt-2">
                         <button
-                          onClick={e => { e.preventDefault(); handleRepayLoan(loan.id, loan.stakeId); }}
+                          onClick={e => { 
+                            e.preventDefault(); 
+                            // Pass loan.principalPoints to handleRepayLoan
+                            handleRepayLoan(loan.id, loan.stakeId, loan.principalPoints); 
+                          }}
                           className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs"
                         >
                           Repay Loan
