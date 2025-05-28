@@ -1,7 +1,8 @@
 // Utility to fetch and aggregate SuiVision events for a user
 // https://docs.blockvision.org/reference/retrieve-account-events
 
-import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
+import { SuiClient, getFullnodeUrl, EventId } from '@mysten/sui/client';
+import { NETWORK_TYPE } from '../config/network'; // Import NETWORK_TYPE
 
 export interface SuiVisionEvent {
   type: 'earned' | 'spent' | 'locked' | 'unlocked';
@@ -38,10 +39,10 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
   if (!forceRefresh && eventCache.has(cacheKey)) {
     return eventCache.get(cacheKey);
   }
-  // --- TESTNET: Use Sui RPC ---
-  if (BASE_URL.includes('testnet')) {
+  // --- Use Sui RPC for testnet, devnet, localnet ---
+  if (NETWORK_TYPE === 'testnet' || NETWORK_TYPE === 'devnet' || NETWORK_TYPE === 'localnet') {
     // Use Mysten Sui SDK to fetch transactions and events
-    const client = new SuiClient({ url: getFullnodeUrl('testnet') });
+    const client = new SuiClient({ url: getFullnodeUrl(NETWORK_TYPE) });
     // Fetch all relevant Alpha Point events (Earned, Spent, Locked, Unlocked) for the address
     const eventTypes = [
       'alpha_points::ledger::Earned',
@@ -51,7 +52,7 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
     ];
     let allEvents: SuiVisionEvent[] = [];
     for (const moveEventType of eventTypes) {
-      let cursor: string | null = null;
+      let cursor: EventId | null | undefined = null;
       let hasNext = true;
       while (hasNext) {
         const res = await client.queryEvents({
@@ -103,6 +104,7 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
   }
 
   // --- MAINNET: Use BlockVision ---
+  // This part will only be reached if NETWORK_TYPE is 'mainnet'
   const endpoint = `${BASE_URL}/v2/sui/account/activities`;
   let cursor = '';
   let hasNext = true;

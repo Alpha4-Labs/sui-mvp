@@ -107,6 +107,7 @@ export const useStakePositions = () => {
               owner: typeof moveStructFields.owner === 'string' ? moveStructFields.owner : userAddress,
               principal: principal, 
               amount: principal, 
+              stakedSuiObjectId: stakedSuiObjectId,
               startTimeMs: String(startTimeMsStr),
               unlockTimeMs: String(unlockTimeMsStr),
               durationDays: String(durationDays), 
