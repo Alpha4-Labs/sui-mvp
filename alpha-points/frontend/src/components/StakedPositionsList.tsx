@@ -85,7 +85,8 @@ export const StakedPositionsList: React.FC = () => {
     isConnected: alphaIsConnected, 
     provider: alphaProvider, 
     suiClient, 
-    selectedDuration 
+    selectedDuration, 
+    version
   } = useAlphaContext();
 
   const [unstakeInProgress, setUnstakeInProgress] = useState<string | null>(null);
@@ -342,11 +343,11 @@ export const StakedPositionsList: React.FC = () => {
     
     // Display orphaned stakes first, or interleave as preferred
     return [...orphanedAsSwiperItems, ...registeredAsSwiperItems];
-  }, [orphanedStakes, stakePositions]);
+  }, [orphanedStakes, stakePositions, version]);
   // --- End Prepare combined data ---
 
   // --- Loading State ---
-  if (loading.positions && loading.orphanedStakes) { 
+  if (loading.positions || loading.allUserStakes) {
     return (
       <div className="bg-background-card rounded-lg p-6 shadow-lg animate-pulse h-[420px]"> {/* Fixed height for skeleton */}
         <div className="h-8 bg-gray-700 rounded w-3/4 mb-4"></div>
@@ -379,7 +380,7 @@ export const StakedPositionsList: React.FC = () => {
       </div>
 
       {/* Conditional Rendering: Empty State vs. List */}
-      {combinedListItems.length === 0 && !loading.positions && !loading.orphanedStakes ? (
+      {combinedListItems.length === 0 && !loading.positions && !loading.allUserStakes ? (
         // --- Empty State --- (If both registered and orphaned are empty and not loading)
         <div className="text-center py-10 bg-background rounded-lg flex flex-col items-center justify-center h-full">
           <div className="text-5xl text-gray-700 mb-4">📊</div>
@@ -390,6 +391,7 @@ export const StakedPositionsList: React.FC = () => {
         // --- List of Combined Staked Positions (Swiper) ---
         <>
           <Swiper
+            key={version}
             modules={[Navigation, Pagination, A11y]}
             spaceBetween={20}
             slidesPerView={1}

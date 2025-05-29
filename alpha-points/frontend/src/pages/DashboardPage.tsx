@@ -47,6 +47,13 @@ export const DashboardPage: React.FC = () => {
     }
   }, [alphaContext.isConnected, alphaContext.authLoading, navigate]);
 
+  // Refresh data on component mount if connected
+  useEffect(() => {
+    if (alphaContext.isConnected && !alphaContext.authLoading) {
+      alphaContext.refreshData();
+    }
+  }, [alphaContext.isConnected, alphaContext.authLoading, alphaContext.refreshData]);
+
   // Initialize data
   useEffect(() => {
     if (alphaContext.address) {

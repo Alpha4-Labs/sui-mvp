@@ -185,3 +185,39 @@ export const buildRepayLoanTransaction = (
   
   return tx;
 };
+
+/**
+ * Builds a transaction to purchase an Alpha Perk from the marketplace.
+ * This calls the `purchase_marketplace_perk` function in `integration.move`.
+ * 
+ * @param pointsToSpend The amount of Alpha Points the user is spending.
+ * @param partnerCapId The Object ID of the PartnerCap for the perk provider.
+ *                     For platform-specific perks, this might be a dedicated platform PartnerCap ID.
+ * @param perkIdentifier Optional string to identify the perk for on-chain events.
+ * @returns A Transaction object ready for signing and execution.
+ */
+export const buildPurchaseAlphaPerkTransaction = (
+  pointsToSpend: number,
+  partnerCapId: string, // Object ID of the PartnerCap of the perk provider
+  // perkIdentifier?: string // Optional: for more detailed event logging
+): Transaction => {
+  const tx = new Transaction();
+
+  tx.moveCall({
+    // Ensure SHARED_OBJECTS.config, SHARED_OBJECTS.ledger, and CLOCK_ID are correctly defined and imported
+    target: `${PACKAGE_ID}::integration::purchase_marketplace_perk`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),       // config: &Config
+      tx.object(SHARED_OBJECTS.ledger),       // ledger: &mut Ledger
+      tx.object(partnerCapId),                // partner_cap_of_perk_provider: &PartnerCap
+      tx.pure.u64(pointsToSpend),             // perk_cost_points: u64
+      // If you add perk_identifier to Move struct, pass it here:
+      // perkIdentifier ? tx.pure.string(perkIdentifier) : /* handle if not provided or make mandatory */,
+      tx.object(CLOCK_ID)                     // clock: &Clock
+      // ctx: &mut TxContext is automatically handled by the PTB execution
+    ],
+    // No typeArguments needed if your Move function doesn't have generic type parameters (e.g., purchase_marketplace_perk<T>)
+  });
+
+  return tx;
+};

@@ -50,7 +50,7 @@ const ProjectionChart: React.FC = () => {
   const [windowSize, setWindowSize] = useState(30);
   const [metricToggles, setMetricToggles] = useState<Record<string, boolean>>({
     suiPrice: true,
-    alphaPointBalance: true,
+    alphaPointBalance: false,
     alphaPointSpending: false,
     loanInflow: false,
     loanOutflow: false,

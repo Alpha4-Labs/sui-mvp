@@ -58,6 +58,7 @@ interface AlphaContextType {
   setTransactionLoading: (loading: boolean) => void;
   logout: () => void;
   removeOrphanedStake: (stakedSuiObjectId: string) => void; // Keeps its utility for signaling UI change
+  version: number;
 }
 
 // Create context with a proper initial value that matches the type
@@ -93,6 +94,7 @@ const defaultContext: AlphaContextType = {
   setTransactionLoading: () => {},
   logout: () => {},
   removeOrphanedStake: () => {},
+  version: 0,
 };
 
 const AlphaContext = createContext<AlphaContextType>(defaultContext);
@@ -233,9 +235,10 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       disconnectWalletDappKit();
     }
     // Data clearing should be handled by the refreshData effect when addresses become null
-  }, [zkLogin, currentAccount, disconnectWalletDappKit]);
+    refreshData();
+  }, [zkLogin, currentAccount, disconnectWalletDappKit, refreshData]);
 
-  const value: AlphaContextType & { version: number } = {
+  const value: AlphaContextType = {
     isConnected: zkLogin.isAuthenticated || !!currentAccount,
     address: activeAddress,
     provider: zkLogin.isAuthenticated ? zkLogin.provider : (currentAccount ? 'dapp-kit' : null),

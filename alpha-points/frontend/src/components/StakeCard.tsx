@@ -311,7 +311,18 @@ export const StakeCard: React.FC = () => {
 
       if (!newStakedSuiId) {
         console.error("Could not find StakedSui object ID in Tx1 results.");
-        throw new Error("Failed to identify the StakedSui object created by Tx1.");
+        toast.error("Stake request was cancelled or failed. Please ensure the first transaction is approved and try again.", {
+          position: "top-center",
+          autoClose: 7000,
+          hideProgressBar: false,
+          closeOnClick: true,
+          pauseOnHover: true,
+          draggable: true,
+          theme: "dark",
+        });
+        setStakingStage('failed');
+        setTransactionLoading(false);
+        return;
       }
       setStakedSuiId(newStakedSuiId);
 
@@ -322,8 +333,17 @@ export const StakeCard: React.FC = () => {
     }
 
     if (!newStakedSuiId) {
-        setError("Internal error: StakedSui ID missing before Tx2.");
+        toast.error("Failed to obtain necessary stake information after the first step. Please try again.", {
+            position: "top-center",
+            autoClose: 7000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+            theme: "dark",
+        });
         setStakingStage('failed');
+        setTransactionLoading(false);
       return;
     }
 
