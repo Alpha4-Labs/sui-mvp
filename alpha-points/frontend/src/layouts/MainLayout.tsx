@@ -1,14 +1,15 @@
 // === MainLayout.tsx (Corrected Icon Access v2) ===
 import React, { ReactNode, useState, useEffect, useRef } from 'react';
 import { Link, useLocation, NavLink, Outlet, useNavigate } from 'react-router-dom';
-// Import necessary items from dapp-kit: ConnectButton, useCurrentAccount
-import { ConnectButton, useCurrentAccount } from '@mysten/dapp-kit';
+// Import necessary items from dapp-kit: ConnectButton, useCurrentAccount, useWallets
+import { ConnectButton, useCurrentAccount, useWallets } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext'; // Import useAlphaContext
 import { formatAddress } from '../utils/format';
 import alpha4Logo from '../../public/alpha4-logo.svg';
 // import alphaPointsLogo from '../assets/alphapoints-logo.svg'; // Assuming path is correct if used
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { toast } from 'react-toastify'; // Import toast
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -18,6 +19,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate(); // Initialize navigate
   const alphaContext = useAlphaContext(); // Use AlphaContext
+  const wallets = useWallets(); // Get available wallets
   const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -114,12 +116,23 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
               // Custom button to navigate to WelcomePage if not connected
               <button
                 onClick={() => {
+                  if (wallets.length === 0) {
+                    toast.info(
+                      "No SUI wallet extensions detected. Please install a SUI wallet (e.g., Sui Wallet, Suiet) to connect.", 
+                      {
+                        position: "top-center",
+                        autoClose: 7000,
+                        hideProgressBar: false,
+                        closeOnClick: true,
+                        pauseOnHover: true,
+                        draggable: true,
+                        theme: "dark",
+                      }
+                    );
+                  }
                   if (location.pathname !== '/') {
                     navigate('/');
                   }
-                  // If already on WelcomePage, dapp-kit's ConnectButton might typically open its modal.
-                  // Here, we are simplifying: if on welcome page and click this, it does nothing extra beyond what WelcomePage offers.
-                  // The primary goal is to get to WelcomePage if disconnected and elsewhere.
                 }}
                 className="!bg-primary !hover:bg-primary-dark !text-white !py-2 !px-4 !rounded-lg !text-sm"
               >

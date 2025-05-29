@@ -30,7 +30,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
-        <WalletProvider autoConnect={false}>
+        <WalletProvider autoConnect={true}>
           <AlphaProvider>
             <BrowserRouter>
               <Routes>
