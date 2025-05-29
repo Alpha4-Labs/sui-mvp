@@ -322,7 +322,7 @@ export const GenerationPage: React.FC = () => {
         <p className="text-gray-400">Explore ways to generate points across the ecosystem.</p>
       </div>
       
-      <div className="mb-4 flex justify-end px-2">
+      <div className="bg-background rounded-lg p-4 mb-4 flex items-center justify-start">
         <button 
           onClick={() => setIsGenerationFilterModalOpen(true)}
           className="flex items-center text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 py-2 px-4 rounded-md transition-colors"
@@ -335,7 +335,7 @@ export const GenerationPage: React.FC = () => {
         </button>
       </div>
       
-      <div className="max-h-[70vh] overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 p-2 rounded-lg bg-background-input/20">
+      <div className="max-h-[55vh] overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 p-2 rounded-lg bg-background-input/20">
         {displayedGenerationMethods.map((method) => (
           <div 
             key={method.id}

@@ -23,13 +23,13 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
     explorerUrl: 'https://explorer.devnet.sui.io',
   },
   testnet: {
-    name: 'Sui Testnet',
+    name: 'testnet',
     rpcUrl: 'https://fullnode.testnet.sui.io',
     faucetUrl: 'https://faucet.testnet.sui.io',
     explorerUrl: 'https://explorer.testnet.sui.io',
   },
   mainnet: {
-    name: 'Sui Mainnet',
+    name: 'mainnet',
     rpcUrl: 'https://fullnode.mainnet.sui.io',
     faucetUrl: '',
     explorerUrl: 'https://explorer.sui.io',

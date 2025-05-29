@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
 
 import { Loan } from '../types';
-import { PACKAGE_ID } from '../config/contract';
+import { PACKAGE_ID, OLD_PACKAGE_ID } from '../config/contract';
 
 // Define the explicit type argument for native StakedSui, consistent with useStakePositions
 const NATIVE_STAKED_SUI_TYPE_ARG = '0x3::staking_pool::StakedSui';
@@ -33,19 +33,45 @@ export const useLoans = () => {
     setError(null);
 
     try {
-      // Query owned objects of type Loan
-      const response = await client.getOwnedObjects({
-        owner,
-        filter: {
-          StructType: `${PACKAGE_ID}::loan::Loan`,
-        },
-        options: {
-          showContent: true, // Request content to get fields
-        },
-      });
+      let allOwnedObjectsData: any[] = [];
+
+      // Query for new package ID objects
+      if (PACKAGE_ID) { // Ensure PACKAGE_ID is defined
+        const responseNew = await client.getOwnedObjects({
+          owner,
+          filter: {
+            StructType: `${PACKAGE_ID}::loan::Loan`,
+          },
+          options: {
+            showContent: true, // Request content to get fields
+          },
+        });
+        if (responseNew.data) {
+          allOwnedObjectsData = allOwnedObjectsData.concat(responseNew.data);
+        }
+      }
+
+      // If OLD_PACKAGE_ID is defined and different, query for old package ID objects
+      if (OLD_PACKAGE_ID && OLD_PACKAGE_ID !== PACKAGE_ID) {
+        const responseOld = await client.getOwnedObjects({
+          owner,
+          filter: {
+            StructType: `${OLD_PACKAGE_ID}::loan::Loan`,
+          },
+          options: {
+            showContent: true,
+          },
+        });
+        if (responseOld.data) {
+          allOwnedObjectsData = allOwnedObjectsData.concat(responseOld.data);
+        }
+      }
+
+      // De-duplicate based on objectId
+      const uniqueObjectsData = Array.from(new Map(allOwnedObjectsData.map(obj => [obj.data?.objectId, obj])).values());
 
       // Process response
-      const activeLoans = response.data
+      const activeLoans = uniqueObjectsData
         .map(obj => {
           const content = obj.data?.content;
 

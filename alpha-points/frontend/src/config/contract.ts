@@ -3,39 +3,84 @@ import { bcs } from '@mysten/sui/bcs';
 // --- Contract Configuration ---
 
 // Latest Package ID from deployment
-export const PACKAGE_ID = '0xfd761a2a5979db53f7f3176c0778695f6abafbb7c0eec8ce03136ae10dc2b47d';
+export const PACKAGE_ID = import.meta.env.VITE_PACKAGE_ID;
 
-// Attempt to load VITE_ORACLE_ID from environment variables
-const VITE_ORACLE_ID = import.meta.env.VITE_ORACLE_ID;
-
-if (!VITE_ORACLE_ID || typeof VITE_ORACLE_ID !== 'string' || !VITE_ORACLE_ID.startsWith('0x')) {
+// Old Package ID (if migrating or needing to read old objects)
+export const OLD_PACKAGE_ID = import.meta.env.VITE_OLD_PACKAGE_ID;
+if (!PACKAGE_ID && OLD_PACKAGE_ID) { // Check if new is undefined but old is defined
+  console.warn(
+    'WARNING: VITE_PACKAGE_ID is not defined, but VITE_OLD_PACKAGE_ID is. Ensure VITE_PACKAGE_ID is set for current operations.'
+  );
+} else if (PACKAGE_ID && !OLD_PACKAGE_ID) {
+  console.info(
+    'INFO: VITE_OLD_PACKAGE_ID is not defined. This is normal if there are no old package objects to query.'
+  );
+} else if (!PACKAGE_ID && !OLD_PACKAGE_ID) {
   console.error(
-    'CRITICAL: VITE_ORACLE_ID is not defined in your .env file, is not a string, or is not a valid Sui Object ID. '
-    + 'Please ensure VITE_ORACLE_ID is set correctly (e.g., VITE_ORACLE_ID=0xyouroracleid). '
-    + 'Using a placeholder, which will likely cause runtime errors.'
+    'CRITICAL: Neither VITE_PACKAGE_ID nor VITE_OLD_PACKAGE_ID are defined. Application will likely not function.'
   );
 }
 
-// Attempt to load VITE_LOAN_ID from environment variables
-const VITE_LOAN_ID = import.meta.env.VITE_LOAN_ID;
+// --- Load Core Object IDs from Environment Variables ---
 
+const VITE_CONFIG_ID = import.meta.env.VITE_CONFIG_ID;
+if (!VITE_CONFIG_ID || typeof VITE_CONFIG_ID !== 'string' || !VITE_CONFIG_ID.startsWith('0x')) {
+  console.error(
+    'CRITICAL: VITE_CONFIG_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
+  );
+}
+
+const VITE_LEDGER_ID = import.meta.env.VITE_LEDGER_ID;
+if (!VITE_LEDGER_ID || typeof VITE_LEDGER_ID !== 'string' || !VITE_LEDGER_ID.startsWith('0x')) {
+  console.error(
+    'CRITICAL: VITE_LEDGER_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
+  );
+}
+
+const VITE_STAKING_MANAGER_ID = import.meta.env.VITE_STAKING_MANAGER_ID;
+if (!VITE_STAKING_MANAGER_ID || typeof VITE_STAKING_MANAGER_ID !== 'string' || !VITE_STAKING_MANAGER_ID.startsWith('0x')) {
+  console.error(
+    'CRITICAL: VITE_STAKING_MANAGER_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
+  );
+}
+
+const VITE_ORACLE_ID = import.meta.env.VITE_ORACLE_ID;
+if (!VITE_ORACLE_ID || typeof VITE_ORACLE_ID !== 'string' || !VITE_ORACLE_ID.startsWith('0x')) {
+  console.error(
+    'CRITICAL: VITE_ORACLE_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
+  );
+}
+
+const VITE_LOAN_ID = import.meta.env.VITE_LOAN_ID;
 if (!VITE_LOAN_ID || typeof VITE_LOAN_ID !== 'string' || !VITE_LOAN_ID.startsWith('0x')) {
   console.error(
-    'CRITICAL: VITE_LOAN_ID is not defined in your .env file, is not a string, or is not a valid Sui Object ID. '
-    + 'Please ensure VITE_LOAN_ID is set correctly (e.g., VITE_LOAN_ID=0xyourloanid). '
-    + 'Using a placeholder, which will likely cause runtime errors.'
+    'CRITICAL: VITE_LOAN_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
+  );
+}
+
+const VITE_ESCROW_VAULT_ID = import.meta.env.VITE_ESCROW_ID; // Generic escrow, adjust if multiple needed
+if (!VITE_ESCROW_VAULT_ID || typeof VITE_ESCROW_VAULT_ID !== 'string' || !VITE_ESCROW_VAULT_ID.startsWith('0x')) {
+  console.error(
+    'CRITICAL: VITE_ESCROW_VAULT_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
+  );
+}
+
+const VITE_PARTNER_CAP_ID = import.meta.env.VITE_PARTNER_CAP;
+if (!VITE_PARTNER_CAP_ID || typeof VITE_PARTNER_CAP_ID !== 'string' || !VITE_PARTNER_CAP_ID.startsWith('0x')) {
+  console.error(
+    'CRITICAL: VITE_PARTNER_CAP_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
   );
 }
 
 // Shared object IDs - Updated with latest deployment
 export const SHARED_OBJECTS = {
-  config: '0x0a2655cc000b24a316390753253f59de6691ec0b418d38bb6bca535c4c66e9bb',
-  ledger: '0x90f17af41623cdeccbeb2b30b5df435135247e34526d56c40c491b017452dc00',
-  stakingManager: '0x3fa797fcbc0bec7390910311f432329e68e4fdf23f1a55033410e81f3ebd08f4',
-  escrowVault: 'YOUR_ESCROW_VAULT_ID_IF_APPLICABLE',
+  config: VITE_CONFIG_ID || '0xINVALID_CONFIG_ID_FALLBACK',
+  ledger: VITE_LEDGER_ID || '0xINVALID_LEDGER_ID_FALLBACK',
+  stakingManager: VITE_STAKING_MANAGER_ID || '0xINVALID_STAKING_MANAGER_ID_FALLBACK',
+  escrowVault: VITE_ESCROW_VAULT_ID || '0xINVALID_ESCROW_VAULT_ID_FALLBACK', // For general use, e.g. SUI redemptions
   loanConfig: VITE_LOAN_ID || '0xINVALID_LOAN_ID_FALLBACK',
   oracle: VITE_ORACLE_ID || '0xINVALID_ORACLE_ID_FALLBACK',
-  partnerCap: 'YOUR_GENERIC_PARTNER_CAP_ID_IF_APPLICABLE'
+  partnerCap: VITE_PARTNER_CAP_ID || '0xINVALID_PARTNER_CAP_ID_FALLBACK' // A generic/platform partner cap
 };
 
 // Sui coin type
