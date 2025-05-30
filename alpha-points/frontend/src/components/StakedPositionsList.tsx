@@ -363,7 +363,7 @@ export const StakedPositionsList: React.FC = () => {
   // --- Full JSX ---
   return (
     <div className="bg-background-card rounded-lg p-6 shadow-lg relative overflow-y-auto overflow-x-hidden">
-      <h2 className="text-xl font-semibold text-white mb-4">Your Staked Positions</h2>
+      <h2 className="text-xl font-semibold text-white mb-4">Staked Positions</h2>
 
       {/* Status Messages */}
       <div style={{ minHeight: '20px' }}>

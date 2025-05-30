@@ -3,10 +3,13 @@ import React, { useState, useEffect } from 'react';
 interface DiscordHandleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (discordHandle: string) => Promise<void>; // Make onSubmit async
+  onSubmit: (discordHandle: string) => Promise<void>; // onSubmit now only takes discordHandle
   perkName: string;
   perkCost: string;
-  isLoading: boolean; // To disable form while parent is processing
+  isLoading: boolean;
+  // New props for displaying the unique code
+  purchaseSuccess?: boolean; 
+  uniqueCode?: string;
 }
 
 export const DiscordHandleModal: React.FC<DiscordHandleModalProps> = ({
@@ -16,109 +19,138 @@ export const DiscordHandleModal: React.FC<DiscordHandleModalProps> = ({
   perkName,
   perkCost,
   isLoading,
+  purchaseSuccess,
+  uniqueCode,
 }) => {
   const [discordHandle, setDiscordHandle] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    // Reset form when modal opens/closes or when parent loading state changes
     if (isOpen) {
+      // Reset state when modal opens
       setDiscordHandle('');
-      setError(null);
-    } else {
-      // Clear errors when modal is not open, or if parent stops loading (e.g. after success/fail)
-      if (!isLoading) {
-        setError(null);
+      setError('');
+      // If opening directly into success state (e.g. if purchase happened outside modal flow initially)
+      // this modal is primarily for collecting Discord handle OR showing code, so reset if not success.
+      if (!purchaseSuccess) {
+        // Potentially clear uniqueCode as well if it shouldn't persist across openings unless it's a success display
       }
     }
-  }, [isOpen, isLoading]);
+  }, [isOpen, purchaseSuccess]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
     if (!discordHandle.trim()) {
-      setError('Discord handle cannot be empty.');
+      setError('Please enter your Discord handle (e.g., username#1234).');
       return;
     }
-    // Basic regex for Discord handle (e.g., username#1234 or new username format)
-    // This is a basic check and might need refinement for all valid Discord handles.
-    if (!/^.{2,32}#\d{4}$|^[a-z0-9_.]{2,32}$/.test(discordHandle.trim())) {
-      setError('Invalid Discord handle format. Use username#1234 or new username format.');
-      return;
-    }
-    setError(null);
-    try {
-      await onSubmit(discordHandle.trim());
-      // Parent component will handle closing the modal on successful submission after its own async ops
-    } catch (submissionError: any) {
-      // If onSubmit itself throws an error (e.g., transaction failed before bot call)
-      setError(submissionError.message || 'Failed to process perk purchase.');
-    }
+    setError('');
+    // onSubmit doesn't need the code directly anymore, 
+    // as the code generation and handling will be in the calling component (MarketplacePage)
+    await onSubmit(discordHandle); 
+    // Parent will handle closing or moving to success state inside the modal
   };
 
-  if (!isOpen) {
-    return null;
-  }
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 transition-opacity duration-300 ease-in-out" onClick={onClose}>
-      <div 
-        className="bg-background-card p-6 rounded-lg shadow-xl w-full max-w-md relative border border-gray-700 transform transition-all duration-300 ease-in-out scale-100" 
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button 
-          onClick={onClose} 
-          className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors"
-          aria-label="Close modal"
-          disabled={isLoading}
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-        </button>
-        <h2 className="text-xl font-semibold text-white mb-2 text-center">Claim Perk: {perkName}</h2>
-        <p className="text-sm text-gray-300 mb-1 text-center">Cost: <span className="text-secondary font-medium">{perkCost}</span></p>
-        <p className="text-xs text-gray-400 mb-4 text-center">Enter your Discord username to receive your role.</p>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="discordHandle" className="block text-sm font-medium text-gray-300 mb-1">
-              Discord Username (e.g., username#1234 or new username)
-            </label>
-            <input
-              id="discordHandle"
-              type="text"
-              value={discordHandle}
-              onChange={(e) => setDiscordHandle(e.target.value)}
-              className="w-full bg-background-input p-2.5 rounded-md text-white border border-gray-600 focus:border-primary focus:ring-1 focus:ring-primary text-sm"
-              placeholder="your_discord_username"
-              disabled={isLoading}
-              autoFocus
-            />
-          </div>
-          {error && (
-            <div className="p-2.5 text-sm bg-red-900/40 border border-red-700 rounded-md text-red-300 break-words text-left">
-              {error}
-            </div>
-          )}
-          <button 
-            type="submit"
-            className="w-full bg-primary hover:bg-primary-dark text-white font-semibold py-2.5 px-4 rounded-md transition-colors disabled:opacity-60 disabled:cursor-not-allowed relative flex items-center justify-center"
-            disabled={isLoading || !discordHandle.trim()}
-          >
-            {isLoading ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-background-card rounded-lg shadow-xl p-6 w-full max-w-md">
+        {!purchaseSuccess ? (
+          <>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-white">Confirm Perk Purchase</h2>
+              <button 
+                onClick={onClose} 
+                disabled={isLoading}
+                className="text-gray-400 hover:text-white transition-colors p-1 rounded-full hover:bg-gray-700 disabled:opacity-50"
+                aria-label="Close modal"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                Processing...
-              </>
-            ) : (
-              'Confirm and Purchase Perk'
-            )}
-          </button>
-        </form>
-        <p className="text-xs text-gray-500 mt-4 text-center">
-          Ensure your Discord username is correct. Roles are typically assigned within a few minutes after successful purchase.
-        </p>
+              </button>
+            </div>
+            <p className="text-gray-300 mb-1">You are about to get the <strong className="text-white">{perkName}</strong> perk.</p>
+            <p className="text-gray-300 mb-4">Cost: <strong className="text-secondary">{perkCost}</strong></p>
+            
+            <div className="mb-4">
+              <label htmlFor="discordHandle" className="block text-sm font-medium text-gray-300 mb-1">
+                Enter your Discord Handle <span className="text-xs text-gray-500">(for role assignment)</span>
+              </label>
+              <input
+                type="text"
+                id="discordHandle"
+                value={discordHandle}
+                onChange={(e) => setDiscordHandle(e.target.value)}
+                placeholder="username#1234 or server nickname"
+                className="w-full bg-background rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary text-sm"
+                disabled={isLoading}
+              />
+              {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={onClose}
+                disabled={isLoading}
+                className="px-4 py-2 text-sm rounded-md text-gray-300 bg-gray-700 hover:bg-gray-600 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={isLoading || !discordHandle.trim()}
+                className="px-4 py-2 text-sm rounded-md text-white bg-primary hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative min-w-[80px]"
+              >
+                {isLoading ? (
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  </span>
+                ) : (
+                  'Confirm & Get Role'
+                )}
+              </button>
+            </div>
+          </>
+        ) : (
+          // Success state: Display the unique code
+          <>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-green-400">Purchase Successful!</h2>
+              <button 
+                onClick={onClose} 
+                className="text-gray-400 hover:text-white transition-colors p-1 rounded-full hover:bg-gray-700"
+                aria-label="Close modal"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-gray-300 mb-2">
+              You have successfully acquired the <strong className="text-white">{perkName}</strong> perk.
+            </p>
+            <p className="text-gray-300 mb-3">
+              To claim your Discord role, please use the following unique code with our Discord bot:
+            </p>
+            <div className="bg-background p-3 rounded-md mb-4 text-center">
+              <strong className="text-secondary text-lg font-mono break-all">{uniqueCode || 'Generating code...'}</strong>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">
+              Note: This code is unique to you for this purchase. The corresponding SuiNS subname has also been minted to your wallet as proof.
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={onClose}
+                className="px-6 py-2 text-sm rounded-md text-white bg-primary hover:bg-primary-dark transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

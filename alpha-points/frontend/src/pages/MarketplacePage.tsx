@@ -1,15 +1,16 @@
-// === MarketplacePage.tsx (Modified for SUI Redeem) ===
+// === MarketplacePage.tsx (Modified for SUI Redeem & Modal-based Role Perk Purchase) ===
 import React, { useMemo, useState, useEffect } from 'react';
 import { useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext';
 import { formatPoints, formatSui } from '../utils/format';
 import { MainLayout } from '../layouts/MainLayout';
 import { buildRedeemPointsTransaction, buildPurchaseAlphaPerkTransaction } from '../utils/transaction';
-import { adaptPtbJsonForSignAndExecute } from '../utils/transaction-adapter';
 import suiLogo from '../assets/sui-logo.jpg';
-import { DiscordHandleModal } from '../components/DiscordHandleModal';
 import { PerkFilterModal } from '../components/PerkFilterModal';
+import { SubnameInputModal } from '../components/SubnameInputModal';
+import { SubnameSuccessModal } from '../components/SubnameSuccessModal';
 import { toast } from 'react-toastify';
+import { SuinsClient } from '@mysten/suins';
 
 // Define prices for rate calculation
 const SUI_PRICE_USD = 3.28;
@@ -203,19 +204,48 @@ const ALL_POSSIBLE_PERK_TAGS = [
   'Developer', 'RealWorldAsset', 'Platform', 'SaaS', 'Contest', 'EarlyAccess', 'Support'
 ];
 
+// Helper to generate a unique code based on user's formula + randomness
+const generateUniqueCode = () => {
+  // Generate parts based on multiples
+  const part1Num = Math.floor(Math.random() * 100000) * 592;
+  const part3Num = Math.floor(Math.random() * 100000) * 241;
+
+  // Convert to base36 and pad to ensure some length, take last few chars to keep it short
+  const part1Str = part1Num.toString(36).slice(-3); // e.g., 3 chars
+  const part3Str = part3Num.toString(36).slice(-3); // e.g., 3 chars
+
+  // Generate random alphanumeric string for the middle part
+  // Aim for a total length of ~15 chars: 3 (part1) + 3 (part3) + 9 (middle) = 15
+  const middleLength = 9;
+  let middleStr = '';
+  const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < middleLength; i++) {
+    middleStr += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+
+  const combined = `${part1Str}${middleStr}${part3Str}`.toLowerCase();
+  
+  // Ensure it doesn't accidentally start/end with problematic characters or look like a hex address if not intended
+  // For SuiNS, typical names are alphanumeric, lowercase often preferred.
+  // The current generation should be fine.
+  return combined.slice(0, 15); // Ensure max length, though current logic produces 3+9+3 = 15
+};
+
 export const MarketplacePage: React.FC = () => {
   const { points, setTransactionLoading, refreshData, address: userAddress, suiClient } = useAlphaContext();
   const currentAccount = useCurrentAccount();
   const [tab, setTab] = useState<'crypto' | 'perks'>('crypto');
 
-  // Modal State
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // Modal States
+  const [isSubnameInputModalOpen, setIsSubnameInputModalOpen] = useState(false);
+  const [isSubnameSuccessModalOpen, setIsSubnameSuccessModalOpen] = useState(false);
   const [selectedPerkForModal, setSelectedPerkForModal] = useState<Perk | null>(null);
-  const [modalLoading, setModalLoading] = useState(false);
+  const [registeredSubname, setRegisteredSubname] = useState<string>('');
+  const [perkPurchaseLoading, setPerkPurchaseLoading] = useState(false);
 
   // State for Perk Filtering
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
-  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false); // For the filter modal itself
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
@@ -223,6 +253,8 @@ export const MarketplacePage: React.FC = () => {
     if (ALPHA_POINT_PRICE_USD <= 0) return Infinity;
     return SUI_PRICE_USD / ALPHA_POINT_PRICE_USD;
   }, []);
+
+  const [userHasAlpha4Subleaf, setUserHasAlpha4Subleaf] = useState(false);
 
   const perks: Perk[] = useMemo(() => [
     {
@@ -462,9 +494,6 @@ export const MarketplacePage: React.FC = () => {
     return perks.filter(perk => 
       perk.tags?.some(tag => activeTags.has(tag))
     );
-    // OR logic: perk.tags?.some(tag => activeTags.has(tag))
-    // AND logic: activeTags.forEach(activeTag => { if (!perk.tags?.includes(activeTag)) return false; return true; })
-    // For AND: return perks.filter(perk => Array.from(activeTags).every(activeTag => perk.tags?.includes(activeTag)));
   }, [perks, activeTags]);
 
   const handleRedeemSui = async (amountToRedeem: string) => {
@@ -483,86 +512,138 @@ export const MarketplacePage: React.FC = () => {
     }
   };
 
-  const handlePerkButtonClick = (perk: Perk) => {
-    if (perk.actionable) {
-      if (perk.id === 'alpha4-tester-role' || perk.id === 'alpha4-veteran-role') {
-        if (points.available < perk.costNumeric) {
-          toast.error("You don't have enough Alpha Points for this perk.");
-          return;
-        }
-        setSelectedPerkForModal(perk);
-        setIsModalOpen(true);
-      } else {
-        toast.info('This perk action is not yet implemented.');
-      }
+  const openSubnameInputModal = (perk: Perk) => {
+    if (!userAddress) {
+      toast.error("User address not found. Please connect your wallet.");
+      return;
     }
+    if (points.available < perk.costNumeric) {
+      toast.error("You don't have enough Alpha Points for this perk.");
+      return;
+    }
+    setSelectedPerkForModal(perk);
+    setIsSubnameInputModalOpen(true);
   };
 
-  const handleModalSubmit = async (discordHandle: string) => {
+  const handleSubnameInputSubmit = async (subname: string) => {
     if (!selectedPerkForModal || !userAddress) {
-      toast.error("Error: No perk selected or user address missing.");
+      toast.error("Error: No perk selected or user address missing for transaction.");
+      // This should ideally not happen if checks are done before opening modal
+      setIsSubnameInputModalOpen(false); // Close input modal
       return;
     }
 
-    setModalLoading(true);
-    setTransactionLoading(true);
+    setPerkPurchaseLoading(true);
+    setTransactionLoading(true); // Global loading for general transaction visibility
 
     try {
       const platformPartnerCapId = import.meta.env.VITE_PARTNER_CAP;
       if (!platformPartnerCapId) {
-        toast.error("Configuration error: PartnerCap ID is missing. Please contact support.");
-        setModalLoading(false);
-        setTransactionLoading(false);
-        throw new Error("VITE_PARTNER_CAP is not set in .env file.");
+        toast.error("Configuration error: PartnerCap ID is missing.");
+        throw new Error("VITE_PARTNER_CAP is not set.");
       }
       
+      if (!suiClient) {
+        toast.error("Sui Client not available. Cannot proceed with SuiNS operations.");
+        throw new Error("Sui Client is not initialized in context.");
+      }
+
+      // Get network for transaction explorer link
+      const network = (import.meta.env.VITE_SUI_NETWORK as 'mainnet' | 'testnet' | undefined) || 'testnet';
+
+      // Reverted: Use suiClient from context for SuinsClient initialization
+      console.log('[SuiNS Debug] VITE_SUI_NETWORK:', import.meta.env.VITE_SUI_NETWORK);
+      console.log('[SuiNS Debug] typeof suiClient from context:', typeof suiClient, suiClient);
+
+      const suinsClientInstance = new SuinsClient({
+        client: suiClient, // USE suiClient FROM CONTEXT
+        network: network 
+      });
+      console.log('[SuiNS Debug] SuinsClient initialized with context client and network', suinsClientInstance);
+
+      // Clean the subname input
+      const cleanedSubname = subname.trim().toLowerCase();
+
+      if (!cleanedSubname) {
+        toast.error("Subname cannot be empty.");
+        setPerkPurchaseLoading(false);
+        setTransactionLoading(false);
+        return;
+      }
+
       const tx = buildPurchaseAlphaPerkTransaction(
         selectedPerkForModal.costNumeric,
         platformPartnerCapId,
+        selectedPerkForModal.id,
+        cleanedSubname, // Use the actual cleaned subname
+        userAddress,
+        suinsClientInstance // Pass the SuinsClient instance
       );
 
       const purchaseResult = await signAndExecute({ transaction: tx });
-      toast.success(`Successfully purchased ${selectedPerkForModal.name}!`);
 
-      const botApiEndpoint = import.meta.env.VITE_DISCORD_BOT_ENDPOINT_URL || '/api/assign-role'; 
-      try {
-        const response = await fetch(botApiEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            discordHandle: discordHandle,
-            perkId: selectedPerkForModal.id,
-            perkName: selectedPerkForModal.name,
-            userAddress: userAddress, 
-            transactionDigest: purchaseResult.digest,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: 'Failed to assign role. Bot API returned an error.' }));
-          throw new Error(errorData.message || `Bot API Error: ${response.status}`);
-        }
-        const responseData = await response.json();
-        toast.info(responseData.message || 'Discord role assignment request sent.'); 
-
-      } catch (botError: any) {
-        console.error("Error calling bot API:", botError);
-        toast.warn(`Perk purchased, but failed to send info to Discord bot: ${botError.message}. Please contact support.`);
-      }
+      // Call bot API (no discordHandle needed for this flow now)
+      // const botApiEndpoint = import.meta.env.VITE_DISCORD_BOT_ENDPOINT_URL || '/api/assign-role'; 
+      // try {
+      //   await fetch(botApiEndpoint, {
+      //     method: 'POST',
+      //     headers: { 'Content-Type': 'application/json' },
+      //     body: JSON.stringify({
+      //       perkId: selectedPerkForModal.id,
+      //       perkName: selectedPerkForModal.name,
+      //       userAddress: userAddress, 
+      //       transactionDigest: purchaseResult.digest,
+      //       uniqueVerificationCode: subname, // The subname is the code
+      //     }),
+      //   });
+      // } catch (botError: any) {
+      //   console.warn("Warning: Bot API call failed after successful transaction:", botError);
+      //   toast.warn(`Perk token minted, but Discord bot notification failed. Your code: ${subname}. Please contact support if needed.`);
+      // }
 
       refreshData();
-      setIsModalOpen(false); 
+      setRegisteredSubname(cleanedSubname); // Store for success modal
+      setIsSubnameInputModalOpen(false); // Close input modal
+      setIsSubnameSuccessModalOpen(true); // Open success modal
+
+      // Display success toast with transaction digest
+      toast.success(
+        <div>
+          <div>Successfully purchased perk: {selectedPerkForModal.name}!</div>
+          {purchaseResult.digest && (
+            <div className="mt-1 text-xs">
+              Digest: <a href={`https://suiscan.xyz/${network}/tx/${purchaseResult.digest}`} target="_blank" rel="noopener noreferrer" className="underline">{purchaseResult.digest.substring(0, 10)}...</a>
+            </div>
+          )}
+        </div>,
+        { position: 'top-right', autoClose: 7000 }
+      );
 
     } catch (error: any) {
       console.error(`Error purchasing perk ${selectedPerkForModal.name}:`, error);
       toast.error(error.message || `Failed to purchase ${selectedPerkForModal.name}.`);
+      // Keep input modal open on error for user to retry or cancel
+      // Or close it if error is not recoverable: setIsSubnameInputModalOpen(false);
+      throw error; // Re-throw to be caught by SubnameInputModal if it has its own try-catch
     } finally {
-      setModalLoading(false);
+      setPerkPurchaseLoading(false);
       setTransactionLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!userAddress || !suiClient) return;
+    const suinsClient = new SuinsClient({ client: suiClient, network: import.meta.env.VITE_SUI_NETWORK || 'testnet' });
+    (async () => {
+      try {
+        const records = await suinsClient.getNameRecordsForAddress(userAddress);
+        const hasAlpha4 = (records || []).some((rec: any) => rec.name && rec.name.endsWith('.alpha4.sui'));
+        setUserHasAlpha4Subleaf(hasAlpha4);
+      } catch (e) {
+        setUserHasAlpha4Subleaf(false);
+      }
+    })();
+  }, [userAddress, suiClient]);
 
   return (
      <>
@@ -620,8 +701,8 @@ export const MarketplacePage: React.FC = () => {
                   )}
                 </div>
                 <div className="text-right">
-                    <span className="text-gray-400 mr-2">Available Balance:</span>
-                    <span className="text-xl font-semibold text-secondary">{formatPoints(points.available)} αP</span>
+                <span className="text-gray-400 mr-2">Available Balance:</span>
+                <span className="text-xl font-semibold text-secondary">{formatPoints(points.available)} αP</span>
                 </div>
             </div>
 
@@ -631,15 +712,35 @@ export const MarketplacePage: React.FC = () => {
                
                {/* Cards for each crypto */}
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                 {/* SUI Redemption Card */}
-                 <CryptoRedemptionCard
-                    cryptoName="Sui"
-                    icon={<img src={suiLogo} alt="Sui Logo" className="w-6 h-6 rounded-full object-cover" />}
-                    exchangeRateText={`${alphaPointsPerSui.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} αP / SUI`}
-                    pointsAvailable={points.available}
-                    onRedeem={handleRedeemSui}
-                    tooltip="During the testnet phase, there are no assurances that the conversion transaction will reward sufficient testnet Sui due to faucet limitations."
-                 />
+                 {/* SUI Redemption Card - replaced with warning */}
+                 <div className="border border-yellow-500 rounded-lg p-3 bg-yellow-900/20 flex flex-col justify-center items-center text-center min-h-[160px] relative">
+                   <div className="flex items-center mb-2">
+                     <img src={suiLogo} alt="Sui Logo" className="w-6 h-6 rounded-full object-cover mr-2" />
+                     <span className="text-lg font-semibold text-yellow-300">Sui</span>
+                     <svg className="w-5 h-5 text-yellow-400 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4l8.66 15H3.34L12 4z" fill="#fbbf24" stroke="#b45309" />
+                       <circle cx="12" cy="17" r="1" fill="#b45309" />
+                       <rect x="11.25" y="9" width="1.5" height="5" rx="0.75" fill="#b45309" />
+                     </svg>
+                   </div>
+                   <button
+                     className="w-full bg-yellow-500 text-yellow-900 font-semibold py-2 px-4 rounded-md cursor-not-allowed flex items-center justify-center mt-2 relative group"
+                     disabled
+                     style={{ pointerEvents: 'auto' }}
+                   >
+                     <span className="flex items-center">
+                       <svg className="w-4 h-4 text-yellow-700 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4l8.66 15H3.34L12 4z" fill="#fbbf24" stroke="#b45309" />
+                         <circle cx="12" cy="17" r="1" fill="#b45309" />
+                         <rect x="11.25" y="9" width="1.5" height="5" rx="0.75" fill="#b45309" />
+                       </svg>
+                       Testnet Faucet Limitation
+                     </span>
+                     <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 bg-yellow-100 border border-yellow-500 text-yellow-900 text-xs rounded shadow-lg px-3 py-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-normal text-left z-20">
+                       During the testnet phase, there are no assurances that the conversion transaction will reward sufficient testnet Sui due to faucet limitations.
+                     </span>
+                   </button>
+                 </div>
                  
                  {/* Placeholder for Avalanche */}
                  <div className="border border-dashed border-gray-600 rounded-lg p-3 bg-background-input flex flex-col justify-center items-center text-center text-gray-500 min-h-[160px]">
@@ -688,9 +789,8 @@ export const MarketplacePage: React.FC = () => {
            {tab === 'perks' && (
               <div>
                   <div className="max-h-[30rem] overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4 p-1 rounded-md bg-background-input/30">
-                    {/* Perks data - now uses displayedPerks */}
                     {displayedPerks.map((perk: Perk) => (
-                      <div key={perk.id} className={`border border-gray-700 rounded-lg p-4 flex items-center bg-background-input ${perk.actionable ? '' : 'opacity-70'}`}>
+                      <div key={perk.id} className={`border rounded-lg p-4 flex items-center bg-background-input ${perk.actionable ? '' : 'opacity-70'} ${perk.id === 'alpha4-tester-role' && userHasAlpha4Subleaf ? 'border-yellow-500 bg-yellow-900/20' : 'border-gray-700'}`}>
                         <div className="w-12 h-12 flex items-center justify-center bg-background rounded-full mr-4 text-2xl flex-shrink-0">{perk.image}</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-start gap-2">
@@ -712,15 +812,33 @@ export const MarketplacePage: React.FC = () => {
                                 </div>
                               )}
                               <button 
-                                onClick={() => handlePerkButtonClick(perk)}
-                                disabled={!perk.actionable || modalLoading}
-                                className={`flex-shrink-0 px-2 py-1 text-xs rounded transition-colors 
+                                onClick={() => {
+                                  if (perk.actionable && (perk.id === 'alpha4-tester-role' || perk.id === 'alpha4-veteran-role')) {
+                                    openSubnameInputModal(perk);
+                                  } else if (perk.actionable) {
+                                    toast.info('This specific perk action is not yet implemented for direct purchase.');
+                                  }
+                                }}
+                                disabled={!perk.actionable || perkPurchaseLoading} 
+                                className={`flex-shrink-0 px-2 py-1 text-xs rounded transition-colors relative
                                   ${perk.actionable 
                                     ? 'bg-primary hover:bg-primary-dark text-white'
                                     : 'bg-gray-600 text-gray-400 cursor-not-allowed'}
                                 `}
                               >
-                                {perk.actionable ? 'Get Role' : 'Soon'}
+                                {perkPurchaseLoading && selectedPerkForModal?.id === perk.id ? (
+                                  <>
+                                    <span className="opacity-0">Processing...</span>
+                                    <span className="absolute inset-0 flex items-center justify-center">
+                                      <svg className="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                      </svg>
+                                    </span>
+                                  </>
+                                ) : (
+                                  perk.actionable ? 'Get Role' : 'Soon'
+                                )}
                               </button>
                             </div>
                           </div>
@@ -736,26 +854,47 @@ export const MarketplacePage: React.FC = () => {
            )}
          </div>
        </div>
+
        {selectedPerkForModal && (
-        <DiscordHandleModal
-          isOpen={isModalOpen}
-          onClose={() => !modalLoading && setIsModalOpen(false)}
-          onSubmit={handleModalSubmit}
-          perkName={selectedPerkForModal.name}
-          perkCost={selectedPerkForModal.cost}
-          isLoading={modalLoading} 
-        />
-      )}
-      {isFilterModalOpen && (
-        <PerkFilterModal 
-          isOpen={isFilterModalOpen}
-          onClose={() => setIsFilterModalOpen(false)}
-          allTags={allUniqueTags}
-          activeTags={activeTags}
-          setActiveTags={setActiveTags}
-          modalTitle="Filter Perks by Tag"
-        />
-      )}
+         <SubnameInputModal
+           isOpen={isSubnameInputModalOpen}
+           onClose={() => {
+             setIsSubnameInputModalOpen(false);
+             setSelectedPerkForModal(null);
+           }}
+           onSubmit={handleSubnameInputSubmit}
+           perkName={selectedPerkForModal.name}
+           isLoading={perkPurchaseLoading}
+           currentPoints={points.available}
+           perkCost={selectedPerkForModal.costNumeric}
+           userHasAlpha4Subleaf={userHasAlpha4Subleaf}
+         />
+       )}
+
+       {selectedPerkForModal && registeredSubname && (
+          <SubnameSuccessModal
+             isOpen={isSubnameSuccessModalOpen}
+             onClose={() => {
+                 setIsSubnameSuccessModalOpen(false);
+                 setSelectedPerkForModal(null);
+                 setRegisteredSubname('');
+             }}
+             subnameRegistered={registeredSubname}
+             perkName={selectedPerkForModal.name}
+             // parentDomain="yourparent.sui" // Optional: if different from default
+          />
+       )}
+
+       {isFilterModalOpen && (
+         <PerkFilterModal 
+           isOpen={isFilterModalOpen}
+           onClose={() => setIsFilterModalOpen(false)}
+           allTags={allUniqueTags}
+           activeTags={activeTags}
+           setActiveTags={setActiveTags}
+           modalTitle="Filter Perks by Tag"
+         />
+       )}
     </>
   );
 };

@@ -9,7 +9,7 @@ import { Transaction } from '@mysten/sui/transactions';
 import { SUI_CLOCK_OBJECT_ID, SUI_SYSTEM_STATE_OBJECT_ID } from '@mysten/sui/utils';
 
 import { StakePosition, DurationOption } from '../types';
-import { PACKAGE_ID } from '../config/contract';
+import { PACKAGE_ID, OLD_PACKAGE_ID } from '../config/contract';
 
 // Define the explicit type argument for native StakedSui
 const NATIVE_STAKED_SUI_TYPE_ARG = '0x3::staking_pool::StakedSui';
@@ -53,18 +53,40 @@ export const useStakePositions = () => {
 
     try {
       const currentTimeMs = Date.now(); 
+      let allOwnedObjectsData: any[] = [];
 
-      const response = await client.getOwnedObjects({
-        owner: userAddress, 
-        filter: {
-          StructType: `${PACKAGE_ID}::stake_position::StakePosition<${NATIVE_STAKED_SUI_TYPE_ARG}>`,
-        },
-        options: {
-          showContent: true,
-        },
-      });
+      // Query for new package ID objects
+      if (PACKAGE_ID) { // Ensure PACKAGE_ID is defined before using it
+        const responseNew = await client.getOwnedObjects({
+          owner: userAddress!,
+          filter: {
+            StructType: `${PACKAGE_ID}::stake_position::StakePosition<${NATIVE_STAKED_SUI_TYPE_ARG}>`,
+          },
+          options: { showContent: true },
+        });
+        if (responseNew.data) {
+          allOwnedObjectsData = allOwnedObjectsData.concat(responseNew.data);
+        }
+      }
 
-      const stakePositions = response.data
+      // If OLD_PACKAGE_ID is defined and different, query for old package ID objects
+      if (OLD_PACKAGE_ID && OLD_PACKAGE_ID !== PACKAGE_ID) {
+        const responseOld = await client.getOwnedObjects({
+          owner: userAddress!,
+          filter: {
+            StructType: `${OLD_PACKAGE_ID}::stake_position::StakePosition<${NATIVE_STAKED_SUI_TYPE_ARG}>`,
+          },
+          options: { showContent: true },
+        });
+        if (responseOld.data) {
+          allOwnedObjectsData = allOwnedObjectsData.concat(responseOld.data);
+        }
+      }
+      
+      // De-duplicate based on objectId in case an object somehow matches both
+      const uniqueObjectsData = Array.from(new Map(allOwnedObjectsData.map(obj => [obj.data?.objectId, obj])).values());
+
+      const stakePositions = uniqueObjectsData
         .map(obj => {
           const content = obj.data?.content;
 

@@ -4,9 +4,17 @@
  * Adjusted for two-transaction native staking flow.
  */
 
-import { Transaction } from '@mysten/sui/transactions';
+import { Transaction, TransactionArgument, TransactionObjectArgument } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contract';
+import { SuinsClient, SuinsTransaction } from '@mysten/suins'; // Import actual SuiNS SDK components
+
+
+
+// VITE_SUINS_PARENT_NFT_ID should be the OBJECT ID of your registered parent *.sui name NFT
+const VITE_SUINS_PARENT_OBJECT_ID = import.meta.env.VITE_SUINS_PARENT_OBJECT_ID; // Renamed for clarity
+// Add parent domain string (e.g., "alpha4.sui")
+const VITE_SUINS_PARENT_DOMAIN_NAME = import.meta.env.VITE_SUINS_PARENT_DOMAIN_NAME || '';
 
 // Define constant for Sui System State Object ID
 const SUI_SYSTEM_STATE_ID = '0x5';
@@ -69,8 +77,8 @@ export const buildRegisterStakeTransaction = (
       tx.object(SHARED_OBJECTS.stakingManager),
       tx.object(CLOCK_ID),
       tx.object(stakedSuiObjectId),
-      tx.pure.u64(durationDays),
-      tx.pure.option('address', null)
+      tx.pure.u64(BigInt(durationDays)),
+      tx.pure(bcs.option(bcs.Address).serialize(null))
     ]
   });
   
@@ -109,21 +117,25 @@ export const buildUnstakeTransaction = (
  * @param pointsAmount Amount of Alpha Points to redeem
  * @returns Transaction object ready for execution
  */
-export const buildRedeemPointsTransaction = (
-  pointsAmount: string
-) => {
+export const buildRedeemPointsTransaction = (pointsToRedeem: string): Transaction => {
+  const ALPHA_POINTS_PACKAGE_ID = import.meta.env.VITE_PACKAGE_ID; // Use the main package ID
+  const ALPHA_POINTS_LEDGER_ID = SHARED_OBJECTS.ledger; // Use the ledger from shared objects
+
+  if (!ALPHA_POINTS_PACKAGE_ID || !ALPHA_POINTS_LEDGER_ID) {
+    throw new Error("Alpha Points package or ledger ID is not configured.");
+  }
   const tx = new Transaction();
   tx.moveCall({
-    target: `${PACKAGE_ID}::integration::redeem_points`,
-    typeArguments: [SUI_TYPE],
+    // Assuming redeem_points_for_sui is in the integration module for consistency
+    target: `${ALPHA_POINTS_PACKAGE_ID}::integration::redeem_points_for_sui`,
     arguments: [
-      tx.object(SHARED_OBJECTS.config),
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.object(SHARED_OBJECTS.escrowVault),
-      tx.object(SHARED_OBJECTS.oracle),
-      tx.pure.u64(BigInt(pointsAmount)),
-      tx.object(CLOCK_ID)
-    ]
+      tx.object(SHARED_OBJECTS.config), // Config might be needed
+      tx.object(ALPHA_POINTS_LEDGER_ID),
+      tx.object(SHARED_OBJECTS.escrowVault), // EscrowVault<SUI> is needed
+      tx.object(SHARED_OBJECTS.oracle), // Oracle might be needed
+      tx.pure.u64(BigInt(pointsToRedeem)),
+      tx.object(CLOCK_ID) // Clock is often needed
+    ],
   });
   return tx;
 };
@@ -149,7 +161,7 @@ export const buildCreateLoanTransaction = (
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(stakeId),
       tx.object(SHARED_OBJECTS.oracle),
-      tx.pure.u64(pointsAmount),
+      tx.pure.u64(BigInt(pointsAmount)),
       tx.object(CLOCK_ID)
     ]
   });
@@ -189,35 +201,115 @@ export const buildRepayLoanTransaction = (
 /**
  * Builds a transaction to purchase an Alpha Perk from the marketplace.
  * This calls the `purchase_marketplace_perk` function in `integration.move`.
+ * If the perk is a role perk, it also creates a SuiNS subname.
  * 
  * @param pointsToSpend The amount of Alpha Points the user is spending.
  * @param partnerCapId The Object ID of the PartnerCap for the perk provider.
- *                     For platform-specific perks, this might be a dedicated platform PartnerCap ID.
  * @param perkIdentifier Optional string to identify the perk for on-chain events.
+ * @param uniqueCode The subname to register if it's a role perk.
+ * @param userAddress The user's Sui address.
+ * @param suinsClientInstance An instance of SuinsClient for SuiNS operations.
  * @returns A Transaction object ready for signing and execution.
  */
 export const buildPurchaseAlphaPerkTransaction = (
-  pointsToSpend: number,
-  partnerCapId: string, // Object ID of the PartnerCap of the perk provider
-  // perkIdentifier?: string // Optional: for more detailed event logging
+  amount: number, 
+  partnerCapId: string, 
+  perkId: string, 
+  uniqueCode: string, 
+  userAddress: string,
+  suinsClientInstance: SuinsClient // Use the actual SuinsClient type
 ): Transaction => {
+  if (!PACKAGE_ID) {
+    throw new Error("PACKAGE_ID is not configured in your contract config.");
+  }
+  if (!SHARED_OBJECTS.config) {
+    throw new Error("SHARED_OBJECTS.config is not configured in your contract config.");
+  }
+  if (!SHARED_OBJECTS.ledger) {
+    throw new Error("SHARED_OBJECTS.ledger (Ledger ID) is not configured in your contract config. Cannot build transaction.");
+  }
+  if (!CLOCK_ID) {
+    throw new Error("CLOCK_ID is not configured in your contract config.");
+  }
+  if (!partnerCapId) {
+    throw new Error("partnerCapId is missing. Cannot build transaction.");
+  }
+
   const tx = new Transaction();
 
+  // 1. Call the purchase_marketplace_perk function from integration.move
   tx.moveCall({
-    // Ensure SHARED_OBJECTS.config, SHARED_OBJECTS.ledger, and CLOCK_ID are correctly defined and imported
     target: `${PACKAGE_ID}::integration::purchase_marketplace_perk`,
     arguments: [
-      tx.object(SHARED_OBJECTS.config),       // config: &Config
-      tx.object(SHARED_OBJECTS.ledger),       // ledger: &mut Ledger
-      tx.object(partnerCapId),                // partner_cap_of_perk_provider: &PartnerCap
-      tx.pure.u64(pointsToSpend),             // perk_cost_points: u64
-      // If you add perk_identifier to Move struct, pass it here:
-      // perkIdentifier ? tx.pure.string(perkIdentifier) : /* handle if not provided or make mandatory */,
-      tx.object(CLOCK_ID)                     // clock: &Clock
-      // ctx: &mut TxContext is automatically handled by the PTB execution
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(partnerCapId),
+      tx.pure.u64(BigInt(amount)),
+      tx.object(CLOCK_ID),
     ],
-    // No typeArguments needed if your Move function doesn't have generic type parameters (e.g., purchase_marketplace_perk<T>)
   });
+
+  // 2. If it's a role perk, create SuiNS subname and set metadata
+  if ((perkId === 'alpha4-tester-role' || perkId === 'alpha4-veteran-role') && 
+      uniqueCode && VITE_SUINS_PARENT_OBJECT_ID && userAddress && suinsClientInstance) {
+    
+    if (!VITE_SUINS_PARENT_OBJECT_ID) {
+      throw new Error("VITE_SUINS_PARENT_OBJECT_ID is not configured in .env for SuiNS subname creation.");
+    }
+
+    const suinsTx = new SuinsTransaction(suinsClientInstance, tx);
+
+    // Calculate subname expiration: 30 days from now (safer than 1 year)
+    const thirtyDaysFromNowMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+    // Test: Check if VITE_SUINS_PARENT_DOMAIN_NAME is set
+    console.log('[SuiNS Debug] VITE_SUINS_PARENT_DOMAIN_NAME:', VITE_SUINS_PARENT_DOMAIN_NAME);
+    if (!VITE_SUINS_PARENT_DOMAIN_NAME) {
+      console.warn('[SuiNS Debug] WARNING: VITE_SUINS_PARENT_DOMAIN_NAME is not set in environment variables!');
+      console.warn('[SuiNS Debug] This might be causing name validation issues. Expected format: "alpha4.sui"');
+    }
+
+    // Create the subname
+    console.log('[SuiNS Debug] Attempting to create subname with params:');
+    console.log('[SuiNS Debug] Parent NFT Object ID:', VITE_SUINS_PARENT_OBJECT_ID);
+    console.log('[SuiNS Debug] Transaction sender:', userAddress);
+    console.log('[SuiNS Debug] Label only (uniqueCode):', uniqueCode);
+    console.log('[SuiNS Debug] Expiration Timestamp (ms):', thirtyDaysFromNowMs);
+    console.log('[SuiNS Debug] Expiration Date:', new Date(thirtyDaysFromNowMs).toISOString());
+    console.log('[SuiNS Debug] SuinsClient instance:', suinsClientInstance);
+    console.log('[SuiNS Debug] SuinsClient config:', suinsClientInstance.config);
+    console.log('[SuiNS Debug] SuinsClient config.packageId:', suinsClientInstance.config.packageId);
+    // Note: suinsObjectId might not exist on the config type
+
+    let subnameNftObjectArg;
+    
+    // SuiNS SDK expects the full subname including .sui (e.g., "test.alpha4.sui")
+    const fullNameWithSui = `${uniqueCode}.alpha4.sui`;
+    console.log('[SuiNS Debug] Creating leaf subname with full name:', fullNameWithSui);
+    console.log('[SuiNS Debug] Target address for leaf subname:', userAddress);
+    
+    try {
+      // Use createLeafSubName instead - this doesn't require parent ownership
+      // and doesn't create an NFT, just associates the name with the user's address
+      suinsTx.createLeafSubName({
+        parentNft: VITE_SUINS_PARENT_OBJECT_ID,
+        name: fullNameWithSui, // Full name including .sui
+        targetAddress: userAddress // The user's address
+      });
+      console.log('[SuiNS Debug] createLeafSubName succeeded!');
+      
+      // Since leaf subnames don't create NFTs, we don't need to transfer anything
+      // Comment out the transfer line
+      // tx.transferObjects([subnameNftObjectArg], tx.pure.address(userAddress));
+    } catch (error: any) {
+      console.error('[SuiNS Debug] createLeafSubName failed:', error);
+      console.error('[SuiNS Debug] Error message:', error.message);
+      console.error('[SuiNS Debug] Error stack:', error.stack);
+      throw error;
+    }
+
+    // Remove the NFT transfer since leaf subnames don't create NFTs
+  }
 
   return tx;
 };

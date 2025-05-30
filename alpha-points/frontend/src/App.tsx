@@ -1,11 +1,12 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { createNetworkConfig, SuiClientProvider, WalletProvider } from '@mysten/dapp-kit';
-import { getFullnodeUrl } from '@mysten/sui/client';
+import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ZkLoginCallback } from './components/ZkLoginCallback';
 import { MainLayout } from './layouts/MainLayout';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { NETWORK_TYPE, CURRENT_NETWORK } from './config/network';
 
 // Import your pages
 import { WelcomePage } from './pages/WelcomePage';
@@ -19,17 +20,22 @@ import { PartnerOnboardingPage } from './pages/PartnerOnboardingPage';
 // Create a client for React Query
 const queryClient = new QueryClient();
 
+// Add console logs for debugging network configuration
+console.log('[App.tsx Debug] NETWORK_TYPE:', NETWORK_TYPE);
+console.log('[App.tsx Debug] CURRENT_NETWORK.rpcUrl:', CURRENT_NETWORK.rpcUrl);
+
 // Setup network configuration
 const { networkConfig } = createNetworkConfig({
-  testnet: {
-    url: getFullnodeUrl('testnet'),
+  [NETWORK_TYPE]: {
+    url: CURRENT_NETWORK.rpcUrl,
+    network: NETWORK_TYPE as any, // Ensure SuiClient receives network key so it isn't 'unknown'
   },
 });
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <SuiClientProvider networks={networkConfig} defaultNetwork="testnet">
+      <SuiClientProvider networks={networkConfig} defaultNetwork={NETWORK_TYPE}>
         <WalletProvider autoConnect={true}>
           <AlphaProvider>
             <BrowserRouter>
