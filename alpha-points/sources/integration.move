@@ -21,6 +21,7 @@ module alpha_points::integration {
     use alpha_points::oracle::{Self, RateOracle};
     use alpha_points::staking_manager::{Self, StakingManager};
     use alpha_points::partner::{Self, PartnerCap};
+    use alpha_points::partner_flex::{Self as partner_flex, PartnerCapFlex};
     use alpha_points::loan;
     use sui::object::id_from_address;
     // use alpha_points::types::{Self, CollateralType, PointTypeConstants, ErrorCodeConstants}; // FIXME: Temporarily commented out due to unresolved types
@@ -43,6 +44,7 @@ module alpha_points::integration {
     // New Errors for earn_points functions
     const EPartnerPaused: u64 = 7;
     const EPartnerExceedsQuota: u64 = 8;
+    const EInsufficientPointsForPerk: u64 = 9; // New error for perk purchase
     // EUserExceedsDailyCap is no longer needed as MintStats is removed
     // const EUserExceedsDailyCap: u64 = 9; 
     
@@ -199,6 +201,17 @@ module alpha_points::integration {
         loan_fee_points: u64,       // Fee taken for opening this loan (if any)
         loan_object_id: ID,         // ID of the Loan object created (held by protocol admin)
         opened_time_ms: u64,
+    }
+
+    /// Event emitted when a user purchases a perk from the marketplace.
+    public struct PerkPurchased has copy, drop {
+        user: address,
+        perk_provider_partner_address: address,
+        points_spent: u64,
+        partner_share_points: u64,
+        deployer_share_points: u64,
+        burned_amount_points: u64,
+        // perk_identifier: String, // Optional: Consider adding if perks have unique IDs
     }
 
     /// Event emitted when user claims accrued points from a stake
@@ -706,6 +719,8 @@ module alpha_points::integration {
         });
     }
 
+    /// Legacy function for backward compatibility (DEPRECATED)
+    /// @deprecated Use earn_points_by_partner_flex for TVL-backed quota validation
     public entry fun earn_points_by_partner(
         user: address,
         pts: u64,
@@ -742,6 +757,46 @@ module alpha_points::integration {
             user, 
             amount: pts, 
             partner: object::uid_to_address(partner::get_id(partner))
+        });
+    }
+
+    /// Modern function with TVL-backed quota validation using PartnerCapFlex
+    /// This function validates against the partner's quota backed by actual TVL
+    public entry fun earn_points_by_partner_flex(
+        user: address,
+        pts: u64,
+        partner_cap: &mut PartnerCapFlex,
+        ledger: &mut Ledger,
+        clock: &Clock,
+        config: &Config,
+        ctx: &mut TxContext
+    ) {
+        let current_epoch = tx_context::epoch(ctx);
+        
+        // Validate that partner can mint the requested points within their quota
+        partner_flex::validate_mint_quota(partner_cap, pts, current_epoch, ctx);
+        
+        // Mint the points to the user
+        let stake_opt = std_option::none<StakePosition<u8>>();
+        ledger::mint_points<u8>(
+            ledger,
+            user,
+            pts,
+            ledger::new_point_type_generic_reward(),
+            ctx,
+            &stake_opt,
+            admin::get_default_liq_share(config),
+            clock
+        );
+        std_option::destroy_none(stake_opt);
+
+        // Record the points minted against partner's quota
+        partner_flex::record_points_minted(partner_cap, pts, current_epoch, ctx);
+        
+        event::emit(PointsEarned { 
+            user, 
+            amount: pts, 
+            partner: partner_flex::partner_address(partner_cap)
         });
     }
 
@@ -926,6 +981,77 @@ module alpha_points::integration {
             sui_amount_unstaked: principal_sui,
             points_minted: principal_sui,
             stake_position_id,
+        });
+    }
+
+    /// Allows a user to purchase a perk from the marketplace using Alpha Points.
+    /// Points are distributed: 70% to the perk-providing partner, 30% to the deployer. 0% Burned.
+    public entry fun purchase_marketplace_perk(
+        config: &Config,
+        ledger: &mut Ledger,
+        partner_cap_of_perk_provider: &PartnerCap, // PartnerCap of the partner who listed the perk
+        perk_cost_points: u64,
+        // perk_identifier: String, // Optional: for more detailed event logging
+        clock: &Clock, // Required by ledger::mint_points
+        ctx: &mut TxContext
+    ) {
+        admin::assert_not_paused(config);
+        let user = tx_context::sender(ctx);
+        let deployer_address = admin::deployer_address(config);
+        let partner_address = object::uid_to_address(partner::get_id(partner_cap_of_perk_provider));
+
+        // 1. Ensure user has enough points
+        assert!(ledger::get_available_balance(ledger, user) >= perk_cost_points, EInsufficientPointsForPerk);
+
+        // 2. Spend user's points (this reduces their balance)
+        ledger::internal_spend(ledger, user, perk_cost_points, ctx);
+
+        // 3. Calculate shares (70% partner, 30% deployer, 0% burn)
+        let partner_share_points = (perk_cost_points * 70) / 100;
+        let deployer_share_points = perk_cost_points - partner_share_points; // The remainder is for the deployer
+        
+        // This assertion ensures no underflow and that shares sum up to the cost
+        assert!(partner_share_points + deployer_share_points == perk_cost_points, EFeeCalculationError);
+
+        // 4. Credit partner with their share using ledger::mint_points
+        let stake_opt_none = std::option::none<StakePosition<u8>>(); // Using u8 as a generic type for non-staking mint
+        if (partner_share_points > 0) {
+            ledger::mint_points<u8>(
+                ledger,
+                partner_address,
+                partner_share_points,
+                ledger::new_point_type_generic_reward(), 
+                ctx,
+                &stake_opt_none,
+                0, // liq_share
+                clock
+            )
+        };
+
+        // 5. Credit deployer with their share
+        if (deployer_share_points > 0) {
+            ledger::mint_points<u8>(
+                ledger,
+                deployer_address,
+                deployer_share_points,
+                ledger::new_point_type_generic_reward(), 
+                ctx,
+                &stake_opt_none,
+                0, // liq_share
+                clock
+            )
+        };
+        std::option::destroy_none(stake_opt_none); // Clean up the Option
+
+        // 6. Emit event
+        event::emit(PerkPurchased {
+            user,
+            perk_provider_partner_address: partner_address,
+            points_spent: perk_cost_points,
+            partner_share_points,
+            deployer_share_points,
+            burned_amount_points: 0 // Now 0% burn
+            // perk_identifier, // Include if you add this parameter
         });
     }
 }

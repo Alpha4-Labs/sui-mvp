@@ -78,6 +78,16 @@
   }
 } /* End @layer utilities */
 
+/* Swiper Pagination Custom Styles */
+@layer components {
+  .swiper-pagination-custom .swiper-pagination-bullet {
+    @apply w-2 h-2 bg-gray-600 rounded-full opacity-70 transition-all duration-200;
+  }
+  
+  .swiper-pagination-custom .swiper-pagination-bullet-active {
+    @apply bg-primary opacity-100 transform scale-125;
+  }
+}
 
 /* Tooltip z-index (Keep if needed) */
 .relative[data-headlessui-state="open"] > .absolute {

@@ -46,19 +46,6 @@ module alpha_points::oracle {
         new_threshold: u64
     }
 
-    // === Test-only functions ===
-    #[test_only]
-    /// Initialize oracle with a GovernCap for testing purposes
-    public fun create_oracle_for_testing(
-        oracle_cap: &OracleCap, // Using OracleCap type for testing
-        initial_rate: u128,
-        decimals: u8,
-        threshold: u64,
-        ctx: &mut tx_context::TxContext
-    ) {
-        create_oracle(oracle_cap, initial_rate, decimals, threshold, ctx)
-    }
-
     // === Core module functions ===
 
     /// Creates and shares RateOracle
@@ -259,7 +246,6 @@ module alpha_points::oracle {
         result
     }
 
-    // Add price_in_usdc function
     /// Converts an amount of a base asset (whose price is tracked by this oracle)
     /// into its equivalent value in the target currency (e.g., USDC points),
     /// using the oracle's rate and decimals.

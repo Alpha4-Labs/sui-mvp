@@ -24,7 +24,7 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
   },
   testnet: {
     name: 'testnet',
-    rpcUrl: 'https://fullnode.testnet.sui.io',
+    rpcUrl: import.meta.env.DEV ? 'http://localhost:3000/sui-rpc' : 'https://fullnode.testnet.sui.io',
     faucetUrl: 'https://faucet.testnet.sui.io',
     explorerUrl: 'https://explorer.testnet.sui.io',
   },
@@ -36,5 +36,5 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
   },
 };
 
-export const NETWORK_TYPE: NetworkType = (import.meta.env.VITE_SUI_NETWORK as NetworkType) || 'testnet';
+export const NETWORK_TYPE: NetworkType = (import.meta.env['VITE_SUI_NETWORK'] as NetworkType) || 'testnet';
 export const CURRENT_NETWORK = NETWORKS[NETWORK_TYPE];

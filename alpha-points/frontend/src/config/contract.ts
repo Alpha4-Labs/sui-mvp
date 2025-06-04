@@ -2,89 +2,116 @@ import { bcs } from '@mysten/sui/bcs';
 
 // --- Contract Configuration ---
 
-// Latest Package ID from deployment
-export const PACKAGE_ID = import.meta.env.VITE_PACKAGE_ID;
+export const PACKAGE_ID_V8 = import.meta.env['VITE_PACKAGE_ID_V8']; // New v8 package
+export const PACKAGE_ID_V7 = import.meta.env['VITE_PACKAGE_ID_V7']; // New v7 package
+export const PACKAGE_ID_V6 = import.meta.env['VITE_PACKAGE_ID_V6']; // New v6 package
+export const PACKAGE_ID_V5 = import.meta.env['VITE_PACKAGE_ID_V5']; // Ensure .env is up-to-date if used.
+export const PACKAGE_ID_V4 = import.meta.env['VITE_PACKAGE_ID_V4']; // Still exported for direct use if needed, but ensure VITE_PACKAGE_ID_V4 in .env is also up-to-date if used.
+export const PACKAGE_ID_V3 = import.meta.env['VITE_PACKAGE_ID_V3']; // Ensure .env is up-to-date if used.
+export const PACKAGE_ID_V2 = import.meta.env['VITE_PACKAGE_ID_V2']; // Ensure .env is up-to-date if used.
+export const PACKAGE_ID_V1 = import.meta.env['VITE_PACKAGE_ID_V1']; // Ensure .env is up-to-date if used.
+export const PACKAGE_ID = import.meta.env['VITE_PACKAGE_ID']; // THIS IS THE SOLE INTENDED SOURCE FOR THE LATEST PACKAGE ID
 
-// Old Package ID (if migrating or needing to read old objects)
-export const OLD_PACKAGE_ID = import.meta.env.VITE_OLD_PACKAGE_ID;
-if (!PACKAGE_ID && OLD_PACKAGE_ID) { // Check if new is undefined but old is defined
-  console.warn(
-    'WARNING: VITE_PACKAGE_ID is not defined, but VITE_OLD_PACKAGE_ID is. Ensure VITE_PACKAGE_ID is set for current operations.'
-  );
-} else if (PACKAGE_ID && !OLD_PACKAGE_ID) {
-  console.info(
-    'INFO: VITE_OLD_PACKAGE_ID is not defined. This is normal if there are no old package objects to query.'
-  );
-} else if (!PACKAGE_ID && !OLD_PACKAGE_ID) {
-  console.error(
-    'CRITICAL: Neither VITE_PACKAGE_ID nor VITE_OLD_PACKAGE_ID are defined. Application will likely not function.'
-  );
-}
+// Aggregate all known package IDs, newest first
+export const ALL_PACKAGE_IDS = [
+  PACKAGE_ID,        // Latest (should be V8)
+  PACKAGE_ID_V8,     // V8 explicitly
+  PACKAGE_ID_V7,     // V7
+  PACKAGE_ID_V6,     // V6  
+  PACKAGE_ID_V5,     // V5
+  PACKAGE_ID_V4,     // V4
+  PACKAGE_ID_V3,     // V3
+  PACKAGE_ID_V2,     // V2
+  PACKAGE_ID_V1,     // V1
+  // Additional known packages that created PartnerCapFlex objects
+  '0xf933e69aeeeebb9d1fc50b6324070d8f2bdc2595162b0616142a509c90e3cd16', // Package that created user's PartnerCapFlex
+].filter(Boolean);
+
+// Log package configuration on module load for debugging
+console.log('📦 Package Configuration:', {
+  PACKAGE_ID_LATEST: PACKAGE_ID,
+  PACKAGE_ID_V8,
+  TOTAL_PACKAGE_VERSIONS: ALL_PACKAGE_IDS.length,
+  ALL_PACKAGE_IDS_PREVIEW: ALL_PACKAGE_IDS.slice(0, 3).map((id, i) => `${i === 0 ? 'LATEST' : `V${8-i}`}: ${id}`)
+});
+
+// Additional debug for PartnerCapFlex detection
+console.log('🔍 PartnerCapFlex Detection - Package IDs to check:', {
+  ALL_PACKAGE_IDS: ALL_PACKAGE_IDS.filter(Boolean),
+  note: 'If your PartnerCapFlex is not found, ensure its package ID is in this list'
+});
 
 // --- Load Core Object IDs from Environment Variables ---
 
-const VITE_CONFIG_ID = import.meta.env.VITE_CONFIG_ID;
-if (!VITE_CONFIG_ID || typeof VITE_CONFIG_ID !== 'string' || !VITE_CONFIG_ID.startsWith('0x')) {
-  console.error(
-    'CRITICAL: VITE_CONFIG_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
-  );
-}
-
-const VITE_LEDGER_ID = import.meta.env.VITE_LEDGER_ID;
-if (!VITE_LEDGER_ID || typeof VITE_LEDGER_ID !== 'string' || !VITE_LEDGER_ID.startsWith('0x')) {
-  console.error(
-    'CRITICAL: VITE_LEDGER_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
-  );
-}
-
-const VITE_STAKING_MANAGER_ID = import.meta.env.VITE_STAKING_MANAGER_ID;
-if (!VITE_STAKING_MANAGER_ID || typeof VITE_STAKING_MANAGER_ID !== 'string' || !VITE_STAKING_MANAGER_ID.startsWith('0x')) {
-  console.error(
-    'CRITICAL: VITE_STAKING_MANAGER_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
-  );
-}
-
-const VITE_ORACLE_ID = import.meta.env.VITE_ORACLE_ID;
-if (!VITE_ORACLE_ID || typeof VITE_ORACLE_ID !== 'string' || !VITE_ORACLE_ID.startsWith('0x')) {
-  console.error(
-    'CRITICAL: VITE_ORACLE_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
-  );
-}
-
-const VITE_LOAN_ID = import.meta.env.VITE_LOAN_ID;
-if (!VITE_LOAN_ID || typeof VITE_LOAN_ID !== 'string' || !VITE_LOAN_ID.startsWith('0x')) {
-  console.error(
-    'CRITICAL: VITE_LOAN_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
-  );
-}
-
-const VITE_ESCROW_VAULT_ID = import.meta.env.VITE_ESCROW_ID; // Generic escrow, adjust if multiple needed
-if (!VITE_ESCROW_VAULT_ID || typeof VITE_ESCROW_VAULT_ID !== 'string' || !VITE_ESCROW_VAULT_ID.startsWith('0x')) {
-  console.error(
-    'CRITICAL: VITE_ESCROW_VAULT_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
-  );
-}
-
-const VITE_PARTNER_CAP_ID = import.meta.env.VITE_PARTNER_CAP;
-if (!VITE_PARTNER_CAP_ID || typeof VITE_PARTNER_CAP_ID !== 'string' || !VITE_PARTNER_CAP_ID.startsWith('0x')) {
-  console.error(
-    'CRITICAL: VITE_PARTNER_CAP_ID is not defined, not a string, or not a valid Sui Object ID. Using placeholder.'
-  );
-}
-
-// Shared object IDs - Updated with latest deployment
-export const SHARED_OBJECTS = {
-  config: VITE_CONFIG_ID || '0xINVALID_CONFIG_ID_FALLBACK',
-  ledger: VITE_LEDGER_ID || '0xINVALID_LEDGER_ID_FALLBACK',
-  stakingManager: VITE_STAKING_MANAGER_ID || '0xINVALID_STAKING_MANAGER_ID_FALLBACK',
-  escrowVault: VITE_ESCROW_VAULT_ID || '0xINVALID_ESCROW_VAULT_ID_FALLBACK', // For general use, e.g. SUI redemptions
-  loanConfig: VITE_LOAN_ID || '0xINVALID_LOAN_ID_FALLBACK',
-  oracle: VITE_ORACLE_ID || '0xINVALID_ORACLE_ID_FALLBACK',
-  partnerCap: VITE_PARTNER_CAP_ID || '0xINVALID_PARTNER_CAP_ID_FALLBACK' // A generic/platform partner cap
+// Helper function to validate Sui Object IDs
+const isValidSuiObjectId = (id: string | undefined): boolean => {
+  return typeof id === 'string' && id.startsWith('0x') && id.length === 66;
 };
+
+// Helper function to handle invalid IDs
+const handleInvalidId = (name: string, id: string | undefined): string => {
+  console.error(
+    `CRITICAL: ${name} is not defined, not a string, or not a valid Sui Object ID. Using placeholder.`
+  );
+  return `0xINVALID_${name}_FALLBACK`;
+};
+
+// Ensure the primary PACKAGE_ID is correctly set
+if (!isValidSuiObjectId(PACKAGE_ID)) {
+  throw new Error(
+    'CRITICAL: VITE_PACKAGE_ID (main PACKAGE_ID) is not defined or invalid. Application cannot start.'
+  );
+}
+
+// Validate and load all required object IDs
+const VITE_CONFIG_ID = import.meta.env['VITE_CONFIG_ID'];
+const VITE_LEDGER_ID = import.meta.env['VITE_LEDGER_ID'];
+const VITE_STAKING_MANAGER_ID = import.meta.env['VITE_STAKING_MANAGER_ID'];
+const VITE_ORACLE_ID = import.meta.env['VITE_ORACLE_ID'];
+const VITE_LOAN_ID = import.meta.env['VITE_LOAN_ID'];
+const VITE_ESCROW_VAULT_ID = import.meta.env['VITE_ESCROW_ID'];
+const VITE_PARTNER_CAP = import.meta.env['VITE_PARTNER_CAP'];
+
+// === TVL-Backed PartnerCapFlex System ===
+export const SHARED_OBJECTS = {
+  config: isValidSuiObjectId(VITE_CONFIG_ID) ? VITE_CONFIG_ID : handleInvalidId('CONFIG_ID', VITE_CONFIG_ID),
+  ledger: isValidSuiObjectId(VITE_LEDGER_ID) ? VITE_LEDGER_ID : handleInvalidId('LEDGER_ID', VITE_LEDGER_ID),
+  stakingManager: isValidSuiObjectId(VITE_STAKING_MANAGER_ID) ? VITE_STAKING_MANAGER_ID : handleInvalidId('STAKING_MANAGER_ID', VITE_STAKING_MANAGER_ID),
+  escrowVault: isValidSuiObjectId(VITE_ESCROW_VAULT_ID) ? VITE_ESCROW_VAULT_ID : handleInvalidId('ESCROW_VAULT_ID', VITE_ESCROW_VAULT_ID),
+  loanConfig: isValidSuiObjectId(VITE_LOAN_ID) ? VITE_LOAN_ID : handleInvalidId('LOAN_ID', VITE_LOAN_ID),
+  oracle: isValidSuiObjectId(VITE_ORACLE_ID) ? VITE_ORACLE_ID : handleInvalidId('ORACLE_ID', VITE_ORACLE_ID),
+  partnerCap: isValidSuiObjectId(VITE_PARTNER_CAP) ? VITE_PARTNER_CAP : handleInvalidId('PARTNER_CAP_ID', VITE_PARTNER_CAP)
+} as const;
+
+// Type for the shared objects
+export type SharedObjectIds = typeof SHARED_OBJECTS;
+
+// Validate that all required objects are present
+const missingObjects = Object.entries(SHARED_OBJECTS)
+  .filter(([_, id]) => id.startsWith('0xINVALID_'))
+  .map(([name]) => name);
+
+if (missingObjects.length > 0) {
+  console.error('Missing or invalid object IDs:', missingObjects.join(', '));
+}
 
 // Sui coin type
 export const SUI_TYPE = '0x2::sui::SUI';
 
 // Global clock ID
 export const CLOCK_ID = '0x6';
+
+// === Sponsorship Configuration ===
+export const SPONSOR_CONFIG = {
+  // Platform sponsor address for perk-related transactions
+  PLATFORM_SPONSOR_ADDRESS: import.meta.env['VITE_PLATFORM_SPONSOR_ADDRESS'] || null,
+  // Deployer/Admin wallet address for partner operations sponsorship
+  DEPLOYER_SPONSOR_ADDRESS: import.meta.env['VITE_DEPLOYER_SPONSOR_ADDRESS'] || import.meta.env['VITE_PLATFORM_SPONSOR_ADDRESS'] || null,
+  // Enable/disable sponsorship features
+  ENABLE_PERK_SPONSORSHIP: import.meta.env['VITE_ENABLE_PERK_SPONSORSHIP'] === 'true',
+  ENABLE_PARTNER_CAP_SPONSORSHIP: import.meta.env['VITE_ENABLE_PARTNER_CAP_SPONSORSHIP'] === 'true',
+  // Enable all partner transactions sponsorship (overrides individual settings)
+  ENABLE_ALL_PARTNER_SPONSORSHIP: import.meta.env['VITE_ENABLE_ALL_PARTNER_SPONSORSHIP'] === 'true',
+  // Gas budget for sponsored transactions (in MIST)
+  DEFAULT_SPONSORED_GAS_BUDGET: BigInt(import.meta.env['VITE_DEFAULT_SPONSORED_GAS_BUDGET'] || '10000000'), // 0.01 SUI
+};

@@ -6,6 +6,7 @@ import { useLoans } from '../hooks/useLoans';
 import { useZkLogin } from '../hooks/useZkLogin';
 import { useAllUserStakes, GenericStakedSui } from '../hooks/useAllUserStakes';
 import { Loan, StakePosition, PointBalance, DurationOption } from '../types';
+import { retryWithBackoff } from '../utils/retry';
 
 // Define OrphanedStake type - principalAmount and timestamp are now always optional
 export interface OrphanedStake {
@@ -22,6 +23,14 @@ interface AlphaContextType {
   address: string | undefined;
   provider: string | null;
   authLoading: boolean;
+  
+  // App Mode
+  mode: 'user' | 'partner';
+  setMode: (mode: 'user' | 'partner') => void;
+  
+  // Partner Capabilities - NEW
+  partnerCaps: any[]; // Will store PartnerCapInfo[] but avoiding import cycle
+  setPartnerCaps: (caps: any[]) => void;
   
   // Core Data
   suiBalance: string;
@@ -67,6 +76,10 @@ const defaultContext: AlphaContextType = {
   address: undefined,
   provider: null,
   authLoading: true,
+  mode: 'user',
+  setMode: () => {},
+  partnerCaps: [],
+  setPartnerCaps: () => {},
   suiBalance: '0',
   points: { available: 0, locked: 0, total: 0 },
   stakePositions: [],
@@ -130,16 +143,37 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     refetch: refetchAllUserStakes 
   } = useAllUserStakes(activeAddress);
 
+  // Partner detection - REMOVED from here, moved to MainLayout
+  // const {
+  //   isLoading: partnerLoading,
+  //   error: partnerError,
+  //   detectPartnerCaps,
+  //   getPrimaryPartnerCap,
+  //   hasPartnerCap,
+  // } = usePartnerDetection();
+
   const [suiBalance, setSuiBalance] = useState<string>('0');
   const [loadingSuiBalance, setLoadingSuiBalance] = useState(false);
   const [authLoadingState, setAuthLoadingState] = useState(true);
   const [transactionLoading, setTransactionLoading] = useState(false);
   const [durations] = useState<DurationOption[]>(DEFAULT_DURATIONS);
-  const [selectedDuration, setSelectedDuration] = useState<DurationOption>(DEFAULT_DURATIONS[2]);
+  const [selectedDuration, setSelectedDuration] = useState<DurationOption>(() => 
+    DEFAULT_DURATIONS[2] || { days: 30, label: '30 days', apy: 10.0 }
+  );
   const [version, setVersion] = useState(0);
+
+  // NEW: App mode state
+  const [mode, setMode] = useState<'user' | 'partner'>('user');
+
+  // NEW: Partner caps state
+  const [partnerCaps, setPartnerCaps] = useState<any[]>([]);
 
   // State for derived orphanedStakes - no longer directly set by add/remove, but calculated
   const [orphanedStakes, setOrphanedStakes] = useState<OrphanedStake[]>([]);
+
+  // Get current partner capabilities - REMOVED
+  // const isPartner = hasPartnerCap();
+  // const partnerCap = getPrimaryPartnerCap();
 
   // --- Calculate Orphaned Stakes --- 
   useEffect(() => {
@@ -185,8 +219,11 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
     setLoadingSuiBalance(true);
     try {
-      const { totalBalance } = await suiClient.getBalance({ owner: addr, coinType: '0x2::sui::SUI' });
-      setSuiBalance(totalBalance);
+      const result = await retryWithBackoff(async () => {
+        return await suiClient.getBalance({ owner: addr, coinType: '0x2::sui::SUI' });
+      }, 2, 500); // Reduced retries and delay for balance fetch
+      
+      setSuiBalance(result.totalBalance);
     } catch (err) {
       console.error("[AlphaContext] Error fetching SUI balance:", err);
       setSuiBalance('0'); // Reset on error
@@ -198,22 +235,36 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const refreshData = useCallback(async () => {
     const currentActiveAddress = zkLogin.address || currentAccount?.address;
     if (currentActiveAddress) {
-      await Promise.all([
-        fetchSuiBalance(currentActiveAddress),
-        refetchPoints(currentActiveAddress),
-        refetchPositions(currentActiveAddress), // Fetches stakes registered with our protocol
-        refetchAllUserStakes(currentActiveAddress), // Fetches ALL StakedSui objects user owns
-        refetchLoans(currentActiveAddress),
-      ]);
+      try {
+        // Sequential execution to avoid overwhelming the RPC endpoint
+        await fetchSuiBalance(currentActiveAddress);
+        await refetchPoints(currentActiveAddress);
+        await refetchPositions(currentActiveAddress);
+        
+        // Add delay before additional requests
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        await refetchAllUserStakes(currentActiveAddress);
+        await refetchLoans(currentActiveAddress);
+        
+        // Add delay before partner detection
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // await detectPartnerCaps();
+      } catch (error) {
+        console.error('[AlphaContext] Error during data refresh:', error);
+      }
     } else {
-      // Clear data if no user
-      await Promise.all([
-        fetchSuiBalance(undefined),
-        refetchPoints(undefined),
-        refetchPositions(undefined),
-        refetchAllUserStakes(undefined),
-        refetchLoans(undefined),
-      ]);
+      // Clear data if no user - also sequential to avoid rate limits
+      try {
+        await fetchSuiBalance(undefined);
+        await refetchPoints(undefined);
+        await refetchPositions(undefined);
+        await refetchAllUserStakes(undefined);
+        await refetchLoans(undefined);
+      } catch (error) {
+        console.error('[AlphaContext] Error during data clearing:', error);
+      }
     }
     setVersion(v => v + 1);
     setAuthLoadingState(false);
@@ -243,6 +294,10 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     address: activeAddress,
     provider: zkLogin.isAuthenticated ? zkLogin.provider : (currentAccount ? 'dapp-kit' : null),
     authLoading: authLoadingState,
+    mode,
+    setMode,
+    partnerCaps,
+    setPartnerCaps,
     suiBalance,
     points,
     stakePositions,
