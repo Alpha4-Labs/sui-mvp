@@ -81,6 +81,8 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
     setError(null);
 
     try {
+      console.log('🔍 Fetching settings for Partner Cap ID:', partnerCapId);
+      
       // First, get the specific PartnerCapFlex object by ID
       const partnerCapObject = await client.getObject({
         id: partnerCapId,
@@ -89,6 +91,8 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
           showType: true,
         },
       });
+
+      console.log('🔍 Raw partner cap object response:', partnerCapObject);
 
       if (partnerCapObject?.data?.content && partnerCapObject.data.content.dataType === 'moveObject') {
         const fields = (partnerCapObject.data.content as any).fields;
@@ -106,10 +110,28 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
         // Look for perk_control_settings in the PartnerCapFlex fields
         let perkControlSettings = fields.perk_control_settings;
         
+        // Debug logging for troubleshooting TRC-Crypto settings
+        console.log('🔍 Partner Settings Debug for', partnerCapId, ':', {
+          partnerCapType: objectType,
+          isPartnerCapFlex,
+          fieldsKeys: Object.keys(fields),
+          perkControlSettingsExists: !!perkControlSettings,
+          perkControlSettingsType: typeof perkControlSettings,
+          perkControlSettingsFields: perkControlSettings?.fields ? Object.keys(perkControlSettings.fields) : 'no fields',
+          rawPerkControlSettings: perkControlSettings
+        });
+        
         // The perk_control_settings is a structured object of type PerkControlSettings
         // We need to access its .fields property to get the actual values
         if (perkControlSettings && perkControlSettings.fields) {
           perkControlSettings = perkControlSettings.fields;
+          console.log('🔍 After accessing .fields:', {
+            fieldsKeys: Object.keys(perkControlSettings),
+            maxCostPerPerk: perkControlSettings.max_cost_per_perk,
+            maxPerksPerPartner: perkControlSettings.max_perks_per_partner,
+            minPartnerShare: perkControlSettings.min_partner_share_percentage,
+            maxPartnerShare: perkControlSettings.max_partner_share_percentage
+          });
         }
 
         if (perkControlSettings) {
@@ -135,6 +157,8 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
             blacklistedTags: perkControlSettings.blacklisted_tags || [],
           };
           
+          console.log('🔍 Constructed settings for', partnerCapId, ':', settings);
+          
           setCurrentSettings(settings);
           
           // Auto-populate form with current values if they have been set
@@ -143,11 +167,9 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
           }
 
           return settings;
+        } else {
+          console.log('❌ No perkControlSettings found for', partnerCapId, '- partner cap may not be configured yet');
         }
-
-        // No valid PartnerCapFlex object or settings found
-        setCurrentSettings(null);
-        return null;
 
       }
 
