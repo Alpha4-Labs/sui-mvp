@@ -9,7 +9,10 @@ module alpha_points::partner {
     use alpha_points::oracle::{Self, RateOracle};
     
     use alpha_points::admin::AdminCap;
-    
+    // use sui::dynamic_field::{Self as df}; // Added for PartnerPerkStats linkage
+    // use std::option::{Self as option, Option}; // This line will be removed
+    // use alpha_points::perk_manager; // Removed to break cycle
+
     /// Event for when partner settings are updated
     public struct PartnerSettingsUpdated has copy, drop {
         partner_cap_id: object::ID,
@@ -56,6 +59,22 @@ module alpha_points::partner {
         partner_name: String
     }
     
+    /// ProxyCap struct - MUST match live version exactly for upgrade compatibility
+    public struct ProxyCap<SuiNSNft: key + store> has key, store {
+        id: object::UID,
+        owner_address: address,
+        partner_cap_id: object::ID,         // ← Must match live version field name
+        suins_parent_nft_object: SuiNSNft  // ← Must store actual object, not just ID
+    }
+    
+    /// Event emitted when a new ProxyCap is created.
+    public struct ProxyCapCreated has copy, drop {
+        proxy_cap_id: object::ID,
+        partner_cap_id: object::ID,
+        owner_address: address,
+        suins_parent_nft_id: object::ID
+    }
+    
     // CONSTANTS
     const E_COLLATERAL_VALUE_ZERO: u64 = 101;
     const POINTS_QUOTA_PER_USDC_COLLATERAL_UNIT: u64 = 1000; // Example: 1 USDC collateral value = 1000 daily points quota
@@ -75,8 +94,6 @@ module alpha_points::partner {
         let sui_collateral_amount = coin::value(&sui_collateral);
 
         // Use the oracle to get the value of SUI in USDC (or a base unit the oracle provides)
-        // Assuming oracle::price_in_usdc converts the SUI amount to a USDC equivalent value.
-        // The oracle.move currently has a placeholder for price_in_usdc, this will need actual implementation.
         let collateral_value_usdc = oracle::price_in_usdc(rate_oracle, sui_collateral_amount);
         assert!(collateral_value_usdc > 0, E_COLLATERAL_VALUE_ZERO);
 
@@ -188,6 +205,34 @@ module alpha_points::partner {
         transfer::public_transfer(cap, to);
     }
     
+    /// Creates ProxyCap - MUST match live version exactly for upgrade compatibility
+    public entry fun create_proxy_cap<SuiNSNft: key + store>(
+        partner_cap: &PartnerCap,
+        suins_parent_nft: SuiNSNft,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let sender = tx_context::sender(ctx);
+        let proxy_cap_uid = object::new(ctx);
+
+        let suins_nft_id_for_event = object::id(&suins_parent_nft);
+
+        let new_proxy_cap = ProxyCap<SuiNSNft> {
+            id: proxy_cap_uid,
+            owner_address: sender,
+            partner_cap_id: object::id(partner_cap),    // ← Must match live field name
+            suins_parent_nft_object: suins_parent_nft   // ← Must store actual object
+        };
+
+        event::emit(ProxyCapCreated {
+            proxy_cap_id: object::uid_to_inner(&new_proxy_cap.id),
+            partner_cap_id: object::id(partner_cap),
+            owner_address: sender,
+            suins_parent_nft_id: suins_nft_id_for_event
+        });
+
+        transfer::public_transfer(new_proxy_cap, sender);
+    }
+    
     /// Returns the partner name
     public fun get_partner_name(cap: &PartnerCap): String {
         cap.partner_name
@@ -254,13 +299,32 @@ module alpha_points::partner {
         _ctx: &mut tx_context::TxContext // Context for event emission or future use
     ) {
         cap.daily_quota_pts = new_quota;
-        // Optionally reset mint_remaining_today if quota changes, or handle as needed
-        // For now, just updating the quota.
-        // cap.mint_remaining_today = new_quota; // Example: reset remaining if quota increases
         event::emit(PartnerSettingsUpdated {
             partner_cap_id: object::uid_to_inner(&cap.id),
             paused: cap.paused,
             daily_quota_pts: cap.daily_quota_pts
         });
+    }
+
+    // --- ProxyCap Functions - MUST match live version exactly ---
+
+    /// Returns the UID of the ProxyCap.
+    public fun get_proxy_cap_id<SuiNSNft: key + store>(proxy_cap: &ProxyCap<SuiNSNft>): &object::UID {
+        &proxy_cap.id
+    }
+
+    /// Returns the owner address of the ProxyCap.
+    public fun get_proxy_cap_owner_address<SuiNSNft: key + store>(proxy_cap: &ProxyCap<SuiNSNft>): address {
+        proxy_cap.owner_address
+    }
+
+    /// Returns an immutable reference to the SuiNS parent NFT object held by the ProxyCap.
+    public fun get_proxy_cap_suins_parent_nft_object_ref<SuiNSNft: key + store>(proxy_cap: &ProxyCap<SuiNSNft>): &SuiNSNft {
+        &proxy_cap.suins_parent_nft_object
+    }
+
+    /// Returns a mutable reference to the SuiNS parent NFT object held by the ProxyCap.
+    public fun get_proxy_cap_suins_parent_nft_object_mut<SuiNSNft: key + store>(proxy_cap: &mut ProxyCap<SuiNSNft>): &mut SuiNSNft {
+        &mut proxy_cap.suins_parent_nft_object
     }
 }

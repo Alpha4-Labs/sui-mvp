@@ -12,6 +12,7 @@ module alpha_points::loan {
     use alpha_points::oracle::{Self as oracle, RateOracle};
     use alpha_points::stake_position::{Self as stake_position, StakePosition};
     use alpha_points::partner::{Self as partner, PartnerCap};
+    use alpha_points::partner_flex::{Self as partner_flex, PartnerCapFlex}; // Added for new TVL-backed system
     use sui::object::{new as object_new}; // Changed import: ID and UID will be fully qualified
     // use sui::balance::{Self, Balance}; // Self (balance) and Balance removed as unused
     // use sui::coin::Coin; // Coin alias removed as unused
@@ -137,6 +138,7 @@ module alpha_points::loan {
     }
     
     /// Opens a loan against a stake position
+    /// @deprecated Use open_loan_with_partner_flex for TVL-backed quota validation
     public entry fun open_loan<T: store>(
         config: &Config,
         loan_config: &LoanConfig,
@@ -257,6 +259,92 @@ module alpha_points::loan {
             principal_points: amount_points, 
             opened_time_ms
         });
+        transfer::public_transfer(loan, borrower);
+    }
+    
+    /// Opens a loan against a stake position with TVL-backed PartnerCapFlex
+    /// This function validates against the partner's quota and includes enhanced revenue split
+    public entry fun open_loan_with_partner_flex<T: store>(
+        config: &Config,
+        loan_config: &LoanConfig,
+        partner_cap: &mut PartnerCapFlex,
+        ledger: &mut Ledger,
+        stake: &mut StakePosition<T>,
+        oracle: &RateOracle,
+        amount_points: u64,
+        clock: &Clock,
+        ctx: &mut tx_context::TxContext
+    ) {
+        admin::assert_not_paused(config);
+        assert!(amount_points > 0, EInvalidLoanAmount);
+        let borrower = tx_context::sender(ctx);
+        assert!(stake_position::owner_view(stake) == borrower, EUnauthorized);
+        assert!(!stake_position::is_encumbered_view(stake), EStakeAlreadyEncumbered);
+        
+        // Validate that partner can mint the loan amount within their quota
+        let current_epoch = tx_context::epoch(ctx);
+        partner_flex::validate_mint_quota(partner_cap, amount_points, current_epoch, ctx);
+        
+        let stake_principal = stake_position::principal_view(stake);
+        let (rate, decimals) = oracle::get_rate(oracle);
+        let stake_value_in_points = oracle::convert_asset_to_points(
+            stake_principal,
+            rate,
+            decimals
+        );
+        let max_loanable_points = (stake_value_in_points * loan_config.max_ltv_bps) / 10000;
+        assert!(amount_points <= max_loanable_points, EExceedsLTV);
+        
+        stake_position::set_encumbered(stake, true);
+        let stake_id = stake_position::get_id_view(stake);
+        let opened_time_ms = clock::timestamp_ms(clock);
+        let fee_points = amount_points / 1000; 
+        let borrower_points = amount_points - fee_points;
+        if (fee_points > amount_points) { abort EFeeCalculationError };
+        
+        // Record the points minted against partner's quota
+        partner_flex::record_points_minted(partner_cap, amount_points, current_epoch, ctx);
+        
+        let partner_addr = partner_flex::partner_address(partner_cap);
+        let partner_share = fee_points / 5; // 20% to partner
+        let deployer_share = fee_points - partner_share;
+        
+        if (partner_share > 0) {
+            ledger::internal_earn(ledger, partner_addr, partner_share, ctx);
+            event::emit(LoanPartnerAttribution {
+                partner_address: partner_addr,
+                user: borrower,
+                action: b"open_loan_with_partner_flex",
+                amount: amount_points,
+                fee_share: partner_share
+            });
+        };
+        
+        if (deployer_share > 0) {
+            ledger::internal_earn(ledger, admin::deployer_address(config), deployer_share, ctx);
+        };
+        
+        let stake_opt = std::option::none<StakePosition<T>>();
+        ledger::mint_points<T>(ledger, borrower, borrower_points, ledger::new_point_type_staking(), ctx, &stake_opt, 0, clock);
+        option::destroy_none(stake_opt);
+        
+        let loan = Loan {
+            id: object::new(ctx),
+            borrower,
+            stake_id,
+            principal_points: amount_points, 
+            interest_owed_points: 0, 
+            opened_time_ms
+        };
+        
+        event::emit(LoanOpened<T> {
+            id: object::uid_to_inner(&loan.id),
+            borrower,
+            stake_id,
+            principal_points: amount_points, 
+            opened_time_ms
+        });
+        
         transfer::public_transfer(loan, borrower);
     }
     
