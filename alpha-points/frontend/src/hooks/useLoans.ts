@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
 
 import { Loan } from '../types';
-import { PACKAGE_ID, OLD_PACKAGE_ID } from '../config/contract';
+import { PACKAGE_ID, ALL_PACKAGE_IDS } from '../config/contract';
 
 // Define the explicit type argument for native StakedSui, consistent with useStakePositions
 const NATIVE_STAKED_SUI_TYPE_ARG = '0x3::staking_pool::StakedSui';
@@ -35,35 +35,19 @@ export const useLoans = () => {
     try {
       let allOwnedObjectsData: any[] = [];
 
-      // Query for new package ID objects
-      if (PACKAGE_ID) { // Ensure PACKAGE_ID is defined
-        const responseNew = await client.getOwnedObjects({
+      // Query for loans from all known package IDs
+      for (const pkgId of ALL_PACKAGE_IDS) {
+        const response = await client.getOwnedObjects({
           owner,
           filter: {
-            StructType: `${PACKAGE_ID}::loan::Loan`,
+            StructType: `${pkgId}::loan::Loan`,
           },
           options: {
             showContent: true, // Request content to get fields
           },
         });
-        if (responseNew.data) {
-          allOwnedObjectsData = allOwnedObjectsData.concat(responseNew.data);
-        }
-      }
-
-      // If OLD_PACKAGE_ID is defined and different, query for old package ID objects
-      if (OLD_PACKAGE_ID && OLD_PACKAGE_ID !== PACKAGE_ID) {
-        const responseOld = await client.getOwnedObjects({
-          owner,
-          filter: {
-            StructType: `${OLD_PACKAGE_ID}::loan::Loan`,
-          },
-          options: {
-            showContent: true,
-          },
-        });
-        if (responseOld.data) {
-          allOwnedObjectsData = allOwnedObjectsData.concat(responseOld.data);
+        if (response.data) {
+          allOwnedObjectsData = allOwnedObjectsData.concat(response.data);
         }
       }
 
@@ -118,7 +102,7 @@ export const useLoans = () => {
     } finally {
       setLoading(false);
     }
-  }, [client, currentAccount?.address]);
+  }, [client, currentAccount]);
 
   // Initialize data and set up polling
   useEffect(() => {

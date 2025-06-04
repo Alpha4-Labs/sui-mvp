@@ -10,6 +10,7 @@ interface SubnameInputModalProps {
   isLoading: boolean;
   currentPoints: number;
   perkCost: number;
+  userHasAlpha4Subleaf: boolean;
 }
 
 export const SubnameInputModal: React.FC<SubnameInputModalProps> = ({
@@ -20,6 +21,7 @@ export const SubnameInputModal: React.FC<SubnameInputModalProps> = ({
   isLoading,
   currentPoints,
   perkCost,
+  userHasAlpha4Subleaf,
 }) => {
   const { suiClient, address: userAddress } = useAlphaContext();
   const [subname, setSubname] = useState('');

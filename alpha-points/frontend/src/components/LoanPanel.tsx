@@ -335,7 +335,7 @@ export const LoanPanel: React.FC = () => {
                 breakpoints={{
                   1024: { slidesPerView: Math.min(loans.length, 3) },
                 }}
-                loop={loans.length > slidesPerView}
+                loop={loans.length > slidesPerView && loans.length >= 3}
                 onSwiper={setSwiperInstance}
                 onSlideChange={(swiper) => setActiveIndex(swiper.realIndex)}
                 pagination={false}
@@ -405,7 +405,13 @@ export const LoanPanel: React.FC = () => {
                             ${currentPage === idx ? 'bg-primary text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
                           onClick={() => {
                             if (swiperInstance) {
-                              swiperInstance.slideToLoop(idx * slidesPerView);
+                              // Use slideTo instead of slideToLoop when not in loop mode
+                              const isLoopMode = loans.length > slidesPerView && loans.length >= 3;
+                              if (isLoopMode) {
+                                swiperInstance.slideToLoop(idx * slidesPerView);
+                              } else {
+                                swiperInstance.slideTo(idx * slidesPerView);
+                              }
                             }
                           }}
                           aria-label={`Go to page ${idx + 1}`}

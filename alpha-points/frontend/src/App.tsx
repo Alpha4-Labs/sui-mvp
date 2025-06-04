@@ -16,6 +16,7 @@ import { GenerationPage } from './pages/GenerationPage';
 import { LoanPage } from './pages/LoanPage';
 import { AlphaProvider } from './context/AlphaContext';
 import { PartnerOnboardingPage } from './pages/PartnerOnboardingPage';
+import { PartnersPage } from './pages/PartnersPage';
 
 // Create a client for React Query
 const queryClient = new QueryClient();
@@ -51,7 +52,13 @@ function App() {
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/generation" element={<GenerationPage />} />
                     <Route path="/loans" element={<LoanPage />} />
-                    <Route path="/partner-onboarding" element={<PartnerOnboardingPage />} />
+                    <Route path="/partners" element={<PartnersPage />} />
+                    <Route path="/partners/overview" element={<PartnersPage />} />
+                    <Route path="/partners/perks" element={<PartnersPage />} />
+                    <Route path="/partners/analytics" element={<PartnersPage />} />
+                    <Route path="/partners/settings" element={<PartnersPage />} />
+                    <Route path="/partners/create" element={<PartnerOnboardingPage />} />
+                    <Route path="/partner-onboarding" element={<Navigate to="/partners" replace />} />
                   </Route>
                 </Route>
 
