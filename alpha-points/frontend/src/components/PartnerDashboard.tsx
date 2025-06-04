@@ -9,6 +9,7 @@ import { toast } from 'react-toastify';
 import { useAlphaContext } from '../context/AlphaContext';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
 import { usePartnerSettings } from '../hooks/usePartnerSettings';
+import { usePartnerDetection } from '../hooks/usePartnerDetection';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
 import { buildCreatePerkDefinitionTransaction, buildSetPerkActiveStatusTransaction, buildUpdatePerkControlSettingsTransaction, buildUpdatePerkTypeListsTransaction, buildUpdatePerkTagListsTransaction } from '../utils/transaction';
 // import { SPONSOR_CONFIG } from '../config/contract'; // Commented out - will re-enable for sponsored transactions later
@@ -16,12 +17,14 @@ import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { PACKAGE_ID, SHARED_OBJECTS } from '../config/contract';
 import { formatErrorForToast, parseErrorCode, debugError114 } from '../utils/errorCodes';
-import { simulateTransaction } from '../utils/transactionSimulation';
+import { simulateTransaction, executeWithSimulation } from '../utils/transactionSimulation';
 import { 
   predictSmartContractValidation, 
   logConversionDebug,
   formatUSD,
-  formatAlphaPoints 
+  formatAlphaPoints,
+  usdToAlphaPointsDisplay,
+  formatAlphaPoints as formatAP
 } from '../utils/conversionUtils';
 
 // Import Swiper React components
@@ -87,8 +90,9 @@ interface PartnerDashboardProps {
 }
 
 export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, currentTab = 'overview', onPartnerCreated }: PartnerDashboardProps) {
-  const { partnerCaps, refreshData } = useAlphaContext();
+  const { partnerCaps, refreshData, setPartnerCaps } = useAlphaContext();
   const { currentWallet } = useCurrentWallet();
+  const { detectPartnerCaps } = usePartnerDetection();
   
   // Portal Tooltip Component
   const PortalTooltip: React.FC<{ children: React.ReactNode; show: boolean; position: { x: number; y: number } }> = ({ children, show, position }) => {
@@ -140,7 +144,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     refreshSettings,
     fetchSettings,
     resetFormToCurrentSettings
-  } = usePartnerSettings(initialPartnerCap.id);
+  } = usePartnerSettings(selectedPartnerCapId);
   
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
 
@@ -237,13 +241,6 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   }, [partnerCap.id, preloadPartnerPerks]);
 
-  // OPTIMIZATION: Preload when hovering over perks tab (not implemented in UI but available)
-  const handlePreloadPerks = useCallback(() => {
-    if (partnerCap.id) {
-      preloadPartnerPerks(partnerCap.id);
-    }
-  }, [partnerCap.id, preloadPartnerPerks]);
-
   // Click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -271,6 +268,52 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       setTagInput('');
     }
   }, [currentTab]);
+
+  // Refresh partner caps when component mounts or wallet changes
+  useEffect(() => {
+    const refreshPartnerCaps = async () => {
+      try {
+        const detectedCaps = await detectPartnerCaps();
+        if (detectedCaps.length > 0) {
+          setPartnerCaps(detectedCaps);
+        }
+      } catch (error) {
+        console.error('Failed to detect partner caps:', error);
+      }
+    };
+    
+    if (currentWallet?.accounts?.[0]?.address) {
+      refreshPartnerCaps();
+    }
+  }, [currentWallet?.accounts?.[0]?.address, detectPartnerCaps, setPartnerCaps]);
+
+  // Ensure we have a valid selected partner cap when partnerCaps changes
+  useEffect(() => {
+    if (partnerCaps.length > 0) {
+      // If current selection is not in the list, select the first one
+      const currentExists = partnerCaps.some(cap => cap.id === selectedPartnerCapId);
+      if (!currentExists) {
+        setSelectedPartnerCapId(partnerCaps[0].id);
+      }
+    }
+  }, [partnerCaps, selectedPartnerCapId]);
+
+  // Debug log current partner cap state
+  useEffect(() => {
+    // Only log in development for debugging
+    if (import.meta.env.DEV) {
+      console.log('🔍 Partner Cap Debug:', {
+        selectedPartnerCapId,
+        partnerCapsCount: partnerCaps.length,
+        partnerCapNames: partnerCaps.map(cap => cap.partnerName),
+        currentPartnerCap: partnerCap ? {
+          id: partnerCap.id,
+          name: partnerCap.partnerName,
+          tvl: partnerCap.currentEffectiveUsdcValue
+        } : 'undefined'
+      });
+    }
+  }, [selectedPartnerCapId, partnerCaps, partnerCap]);
 
   // Tag handling functions
   const addTag = (tag: string) => {
@@ -350,6 +393,13 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       return;
     }
 
+    // Safety check: Ensure we have a valid partner cap
+    if (!partnerCap || !partnerCap.id) {
+      toast.error('❌ No partner cap selected. Please refresh the page and select a business.');
+      console.error('❌ partnerCap is undefined:', { partnerCap, selectedPartnerCapId, partnerCapsCount: partnerCaps.length });
+      return;
+    }
+
     const usdcPrice = parseFloat(newPerkUsdcPrice);
 
     if (isNaN(usdcPrice) || usdcPrice <= 0) {
@@ -403,15 +453,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     
     try {
       // 🔄 REFRESH SETTINGS BEFORE VALIDATION - Ensure we have latest blockchain data
-      console.log('🔄 Refreshing partner settings before perk creation...');
       await refreshSettings();
       
       // 🔄 REDUCED DELAY: Wait for blockchain state to settle after settings update (reduced to prevent 429 errors)
-      console.log('⏳ Waiting 2 seconds for blockchain state to settle (reduced to prevent rate limiting)...');
       await new Promise(resolve => setTimeout(resolve, 2000)); // Reduced from 3 seconds
       
       // 🔄 FORCE SECOND REFRESH: Ensure we have the absolute latest data
-      console.log('🔄 Force refreshing settings again...');
       await refreshSettings();
       
       // Build the blockchain transaction
@@ -563,7 +610,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           const prediction = predictSmartContractValidation(
             usdcPrice, 
             currentMaxCostNum,
-            currentSettings?.maxCostPerPerk
+            currentSettings?.maxCostPerPerk || 0
           );
           
           logConversionDebug('SMART CONTRACT COMPARISON', prediction);
@@ -851,18 +898,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
     setIsUpdatingSettings(true);
     try {
-      // FIXED: No conversion needed here - pass USD directly to transaction builder
-      // The transaction builder now converts USD to Alpha Points correctly
-      console.log(`💰 Passing USD directly: $${perkSettings.maxCostPerPerkUsd} USD (transaction will convert to Alpha Points)`);
-      
       // Define allowed arrays
       const allowedPerkTypes = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta'];
       const allowedTags = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta', 'NFT', 'Discord', 'Support', 'Merch', 'Ticket'];
-
-      console.log(`🔄 Executing 3 operations with delays to prevent object conflicts:
-        1. Perk control settings update
-        2. Perk types allowlist update (${allowedPerkTypes.length} types)
-        3. Perk tags allowlist update (${allowedTags.length} tags)`);
 
       // 1. Update perk control settings first
       toast.info('Step 1/3: Updating perk control settings...');
@@ -991,7 +1029,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   // Initialize settings from blockchain data when partner cap changes
   useEffect(() => {
     if (partnerCap?.id) {
-      console.log('🔍 Partner settings will be loaded by usePartnerSettings hook');
+      // Settings will be loaded by usePartnerSettings hook
     }
   }, [partnerCap?.id]);
 
@@ -1223,12 +1261,330 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       }
     ];
 
+    // Extract compliance checking logic
+    const renderComplianceCheck = () => {
+      // CRITICAL: Detect fresh partner caps without settings 
+      // If currentSettings is null, this partner cap has NEVER been configured
+      if (!currentSettings && !isLoadingSettings) {
+        return (
+          <div className="bg-orange-600/10 border border-orange-600/30 rounded-lg p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+              <div className="flex-1">
+                <div className="text-orange-400 font-medium text-sm">Fresh Partner Cap Detected</div>
+                <div className="text-orange-300 text-xs mt-1">
+                  "{partnerCap.partnerName}" has no blockchain settings configured. Configure settings first to enable perk creation.
+                </div>
+              </div>
+              <button
+                onClick={() => window.location.hash = '#settings'}
+                className="px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white text-xs rounded font-medium transition-colors"
+              >
+                Configure Now
+              </button>
+            </div>
+          </div>
+        );
+      }
+      
+      // Show loading state while fetching settings
+      if (isLoadingSettings) {
+        return (
+          <div className="bg-gray-600/10 border border-gray-600/30 rounded-lg p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-3 h-3 rounded-full bg-gray-500 animate-pulse"></div>
+              <div className="flex-1">
+                <div className="text-gray-400 font-medium text-sm">Loading On-Chain Settings...</div>
+                <div className="text-gray-500 text-xs mt-1">
+                  Fetching validation rules from blockchain for "{partnerCap.partnerName}"
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      
+      // At this point we know currentSettings exists, so we can safely use it
+      const maxCost = currentSettings!.maxCostPerPerkUsd;
+      const minShare = currentSettings!.minPartnerSharePercentage;
+      const maxShare = currentSettings!.maxPartnerSharePercentage;
+      const allowedTypes = currentSettings!.allowedPerkTypes;
+      const allowedTags = currentSettings!.allowedTags;
+      const maxPerks = currentSettings!.maxPerksPerPartner;
+      
+      // Debug logging for troubleshooting (only in development)
+      if (import.meta.env.DEV) {
+        console.log('🔍 Compliance Check Debug for', partnerCap.partnerName, ':', {
+          maxCost,
+          minShare,
+          maxShare,
+          allowedTypes: allowedTypes.length,
+          allowedTags: allowedTags.length,
+          maxPerks,
+          currentSettings: currentSettings
+        });
+      }
+      
+      // Check if the settings are configured but have invalid/zero values
+      // FIXED: Only consider settings invalid if maxCost is 0 AND no range is set
+      // If minShare and maxShare are both 0, that could be valid (no restrictions)
+      const hasInvalidSettings = maxCost === 0 && maxPerks === 0;
+      
+      if (hasInvalidSettings) {
+        return (
+          <div className="bg-blue-600/10 border border-blue-600/30 rounded-lg p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+              <div className="flex-1">
+                <div className="text-blue-400 font-medium text-sm">Settings Need Configuration</div>
+                <div className="text-blue-300 text-xs mt-1">
+                  Settings exist for "{partnerCap.partnerName}" but contain invalid values. Please update them.
+                </div>
+              </div>
+              <button
+                onClick={() => window.location.hash = '#settings'}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded font-medium transition-colors"
+              >
+                Fix Settings
+              </button>
+            </div>
+          </div>
+        );
+      }
+      
+      // Enhanced check: settings are unconfigured if they're zero OR if this specific partner cap hasn't been set up
+      const isUnconfigured = maxCost === 0 || (minShare === 0 && maxShare === 0) || !currentSettings;
+      
+      // Show loading state while fetching settings
+      if (isLoadingSettings) {
+        return (
+          <div className="bg-gray-600/10 border border-gray-600/30 rounded-lg p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-3 h-3 rounded-full bg-gray-500 animate-pulse"></div>
+              <div className="flex-1">
+                <div className="text-gray-400 font-medium text-sm">Loading On-Chain Settings...</div>
+                <div className="text-gray-500 text-xs mt-1">
+                  Fetching validation rules from blockchain for "{partnerCap.partnerName}"
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      
+      if (isUnconfigured) {
+        return (
+          <div className="bg-blue-600/10 border border-blue-600/30 rounded-lg p-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+              <div className="flex-1">
+                <div className="text-blue-400 font-medium text-sm">Settings Configuration Required</div>
+                <div className="text-blue-300 text-xs mt-1">
+                  Configure settings for "{partnerCap.partnerName}" to enable perk creation validation.
+                </div>
+              </div>
+              <button
+                onClick={() => window.location.hash = '#settings'}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded font-medium transition-colors"
+              >
+                Go to Settings
+              </button>
+            </div>
+          </div>
+        );
+      }
+      
+      // Helper functions for individual validations (now using validated currentSettings)
+      const renderPriceValidation = () => {
+        const price = parseFloat(newPerkUsdcPrice) || 0;
+        const isValid = price > 0 && price <= maxCost;
+        const isEmpty = !newPerkUsdcPrice.trim();
+        
+        if (isEmpty) {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-gray-500"></div>
+              <span className="text-gray-400">Price: Not set</span>
+            </>
+          );
+        } else if (isValid) {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <span className="text-green-400">Price: ${price.toFixed(2)} ✓</span>
+            </>
+          );
+        } else {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-red-500"></div>
+              <span className="text-red-400">Price: Exceeds ${maxCost} limit</span>
+            </>
+          );
+        }
+      };
+
+      const renderSplitValidation = () => {
+        const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
+        const isValid = partnerShare >= minShare && partnerShare <= maxShare;
+        
+        if (isValid) {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <span className="text-green-400">Split: {partnerShare}% ✓</span>
+            </>
+          );
+        } else {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-red-500"></div>
+              <span className="text-red-400">Split: {partnerShare}% (Range: {minShare}-{maxShare}%)</span>
+            </>
+          );
+        }
+      };
+
+      const renderTagsValidation = () => {
+        const hasEnoughTags = newPerkTags.length >= 1;
+        const notTooManyTags = newPerkTags.length <= 5;
+        
+        // Enhanced: Check against on-chain allowed tags
+        const allTagsAllowed = allowedTags.length === 0 || newPerkTags.every(tag => allowedTags.includes(tag));
+        const isValid = hasEnoughTags && notTooManyTags && allTagsAllowed;
+        
+        if (isValid) {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <span className="text-green-400">Tags: {newPerkTags.length}/5 ✓</span>
+            </>
+          );
+        } else if (!hasEnoughTags) {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-red-500"></div>
+              <span className="text-red-400">Tags: Need at least 1</span>
+            </>
+          );
+        } else if (!allTagsAllowed) {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-red-500"></div>
+              <span className="text-red-400">Tags: Contains disallowed tags</span>
+            </>
+          );
+        } else {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+              <span className="text-yellow-400">Tags: {newPerkTags.length}/5 (Max reached)</span>
+            </>
+          );
+        }
+      };
+
+      const renderTypeValidation = () => {
+        // Enhanced: Check against on-chain allowed perk types
+        const isTypeAllowed = allowedTypes.length === 0 || allowedTypes.includes(newPerkType);
+        
+        if (isTypeAllowed) {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <span className="text-green-400">Type: {newPerkType} ✓</span>
+            </>
+          );
+        } else {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-red-500"></div>
+              <span className="text-red-400">Type: Not allowed</span>
+            </>
+          );
+        }
+      };
+
+      const renderReadinessValidation = () => {
+        const hasName = newPerkName.trim().length > 0;
+        const hasDescription = newPerkDescription.trim().length > 0;
+        const hasValidPrice = parseFloat(newPerkUsdcPrice) > 0 && parseFloat(newPerkUsdcPrice) <= maxCost;
+        const hasValidSplit = (() => {
+          const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
+          return partnerShare >= minShare && partnerShare <= maxShare;
+        })();
+        const hasTags = newPerkTags.length >= 1;
+        
+        // Enhanced: Include on-chain validations
+        const allTagsAllowed = allowedTags.length === 0 || newPerkTags.every(tag => allowedTags.includes(tag));
+        const isTypeAllowed = allowedTypes.length === 0 || allowedTypes.includes(newPerkType);
+        
+        const isReady = hasName && hasDescription && hasValidPrice && hasValidSplit && hasTags && allTagsAllowed && isTypeAllowed;
+        
+        if (isReady) {
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-green-500"></div>
+              <span className="text-green-400 font-medium">Ready to Create ✓</span>
+            </>
+          );
+        } else {
+          const missing = [];
+          if (!hasName) missing.push('name');
+          if (!hasDescription) missing.push('description');
+          if (!hasValidPrice) missing.push('valid price');
+          if (!hasValidSplit) missing.push('valid split');
+          if (!hasTags) missing.push('tags');
+          if (!allTagsAllowed) missing.push('valid tags');
+          if (!isTypeAllowed) missing.push('valid type');
+          
+          return (
+            <>
+              <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+              <span className="text-yellow-400">Missing: {missing.slice(0, 2).join(', ')}{missing.length > 2 ? '...' : ''}</span>
+            </>
+          );
+        }
+      };
+      
+      // Normal validation when settings are configured
+      return (
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          {/* Left Column - Validation Status */}
+          <div className="space-y-2">
+            {/* Price Validation */}
+            <div className="flex items-center space-x-2">
+              {renderPriceValidation()}
+            </div>
+            
+            {/* Revenue Split Validation */}
+            <div className="flex items-center space-x-2">
+              {renderSplitValidation()}
+            </div>
+          </div>
+          
+          {/* Right Column - Requirements */}
+          <div className="space-y-2">
+            {/* Tags Validation */}
+            <div className="flex items-center space-x-2">
+              {renderTagsValidation()}
+            </div>
+            
+            {/* Overall Readiness */}
+            <div className="flex items-center space-x-2">
+              {renderReadinessValidation()}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div>
         {/* Create New Perk Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
           {/* Perk Creation Form */}
-          <div className="bg-background-card rounded-lg p-4">
+          <div className="bg-background-card rounded-lg p-3">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-lg font-semibold text-white">Create New Perk</h4>
               <div className="flex items-center space-x-1">
@@ -1279,170 +1635,145 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             </PortalTooltip>
             
             <div className="space-y-3">
-              <div className="grid grid-cols-5 gap-3">
-                <Input
-                  placeholder="Perk Name"
-                  value={newPerkName}
-                  onChange={(e) => setNewPerkName(e.target.value)}
-                  disabled={isCreatingPerk}
-                  className="text-sm"
-                  title="Enter a catchy name for your perk (e.g., 'VIP Discord Access', 'Exclusive NFT')"
-                />
+              {/* 3-Column Layout: Input Stack | Revenue Slider | Alpha Points */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
-                {/* Perk Type Selector */}
-                <select
-                  value={newPerkType}
-                  onChange={(e) => setNewPerkType(e.target.value)}
-                  disabled={isCreatingPerk}
-                  className="w-full h-10 bg-background-input border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500 text-sm"
-                  title="Select the primary type/category for this perk"
-                >
-                  <option value="Access">Access</option>
-                  <option value="Service">Service</option>
-                  <option value="Digital Asset">Digital Asset</option>
-                  <option value="Physical">Physical</option>
-                  <option value="Event">Event</option>
-                  <option value="VIP">VIP</option>
-                  <option value="Premium">Premium</option>
-                  <option value="Exclusive">Exclusive</option>
-                  <option value="Limited">Limited</option>
-                  <option value="Beta">Beta</option>
-                </select>
-                
-                {/* Icon Selector - DISABLED: Smart contract doesn't support custom icons yet */}
-                {/* 
-                <div className="relative" title="Choose an icon to represent your perk">
-                  <select
-                    value={newPerkIcon}
-                    onChange={(e) => setNewPerkIcon(e.target.value)}
+                {/* LEFT COLUMN: Input Fields Stack */}
+                <div className="space-y-3">
+                  <Input
+                    placeholder="Perk Name"
+                    value={newPerkName}
+                    onChange={(e) => setNewPerkName(e.target.value)}
                     disabled={isCreatingPerk}
-                    className="w-full h-10 bg-background-input border border-gray-600 rounded text-center text-lg cursor-pointer hover:border-gray-500"
+                    className="w-full"
+                    title="Enter a catchy name for your perk (e.g., 'VIP Discord Access', 'Exclusive NFT')"
+                  />
+                  
+                  <select
+                    value={newPerkType}
+                    onChange={(e) => setNewPerkType(e.target.value)}
+                    disabled={isCreatingPerk}
+                    className="w-full h-10 bg-background-input border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500"
+                    title="Select the primary type/category for this perk"
                   >
-                    <option value="🎁">🎁 Gift</option>
-                    <option value="🔑">🔑 Access</option>
-                    <option value="🎧">🎧 Service</option>
-                    <option value="🖼️">🖼️ Digital</option>
-                    <option value="📦">📦 Physical</option>
-                    <option value="🎫">🎫 Event</option>
-                    <option value="👑">👑 VIP</option>
-                    <option value="⭐">⭐ Premium</option>
-                    <option value="💎">💎 Exclusive</option>
-                    <option value="🚀">🚀 Beta</option>
-                    <option value="🎯">🎯 Target</option>
-                    <option value="💰">💰 Value</option>
-                    <option value="🔥">🔥 Hot</option>
-                    <option value="⚡">⚡ Fast</option>
-                    <option value="🌟">🌟 Special</option>
-                    <option value="🎨">🎨 Creative</option>
-                    <option value="🎵">🎵 Music</option>
-                    <option value="📚">📚 Education</option>
-                    <option value="🏆">🏆 Achievement</option>
-                    <option value="🎮">🎮 Gaming</option>
+                    <option value="Access">Access</option>
+                    <option value="Service">Service</option>
+                    <option value="Digital Asset">Digital Asset</option>
+                    <option value="Physical">Physical</option>
+                    <option value="Event">Event</option>
+                    <option value="VIP">VIP</option>
+                    <option value="Premium">Premium</option>
+                    <option value="Exclusive">Exclusive</option>
+                    <option value="Limited">Limited</option>
+                    <option value="Beta">Beta</option>
                   </select>
-                </div>
-                */}
-                
-                {/* Compact Tag Selector */}
-                <div className="relative tag-selector" title="Select up to 5 tags to categorize your perk and make it discoverable">
-                  <div 
-                    className="min-h-[40px] border border-gray-600 rounded-md bg-background-input px-3 py-2 cursor-pointer"
-                    onClick={() => setShowTagDropdown(!showTagDropdown)}
-                  >
-                    {newPerkTags.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {newPerkTags.map((tag, index) => (
-                          <span key={index} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-600/20 text-blue-300 text-xs rounded border border-blue-600/30">
-                            {tag}
+                  
+                  <Input
+                    type="number"
+                    placeholder="USDC Price"
+                    value={newPerkUsdcPrice}
+                    onChange={(e) => setNewPerkUsdcPrice(e.target.value)}
+                    disabled={isCreatingPerk}
+                    step="0.01"
+                    min="0"
+                    className="w-full"
+                    title="Set the price in USDC (e.g., 10.00 for $10). This determines the Alpha Points cost."
+                  />
+                  
+                  {/* Streamlined Tag Selector */}
+                  <div className="relative tag-selector" title="Select up to 5 tags to categorize your perk and make it discoverable">
+                    <div 
+                      className="min-h-[40px] border border-gray-600 rounded-md bg-background-input px-3 py-2 cursor-pointer"
+                      onClick={() => setShowTagDropdown(!showTagDropdown)}
+                    >
+                      {newPerkTags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {newPerkTags.map((tag, index) => (
+                            <span key={index} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-300 text-xs rounded border border-blue-600/30">
+                              {tag}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeTag(tag);
+                                }}
+                                className="text-blue-400 hover:text-blue-200 text-xs"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">Select tags...</span>
+                      )}
+                    </div>
+                    
+                    {showTagDropdown && (
+                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-background-card border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        {/* Custom tag input */}
+                        <div className="p-2 border-b border-gray-600">
+                          <div className="flex gap-1">
+                            <input
+                              type="text"
+                              placeholder="Custom tag..."
+                              value={tagInput}
+                              onChange={(e) => setTagInput(e.target.value)}
+                              onKeyPress={(e) => e.key === 'Enter' && handleCustomTag()}
+                              className="flex-1 px-2 py-1 text-xs bg-background-input border border-gray-600 rounded"
+                              maxLength={20}
+                            />
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeTag(tag);
-                              }}
-                              className="text-blue-400 hover:text-blue-200 text-xs"
+                              onClick={handleCustomTag}
+                              disabled={!tagInput.trim() || newPerkTags.length >= 5}
+                              className="px-2 py-1 text-xs bg-blue-600 text-white rounded disabled:bg-gray-600"
                             >
-                              ×
+                              Add
                             </button>
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400 text-sm">Select tags...</span>
-                    )}
-                  </div>
-                  
-                  {showTagDropdown && (
-                    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-background-card border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                      {/* Custom tag input */}
-                      <div className="p-2 border-b border-gray-600">
-                        <div className="flex gap-1">
-                          <input
-                            type="text"
-                            placeholder="Custom tag..."
-                            value={tagInput}
-                            onChange={(e) => setTagInput(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && handleCustomTag()}
-                            className="flex-1 px-2 py-1 text-xs bg-background-input border border-gray-600 rounded"
-                            maxLength={20}
-                          />
-                          <button
-                            type="button"
-                            onClick={handleCustomTag}
-                            disabled={!tagInput.trim() || newPerkTags.length >= 5}
-                            className="px-2 py-1 text-xs bg-blue-600 text-white rounded disabled:bg-gray-600"
-                          >
-                            Add
-                          </button>
+                          </div>
+                        </div>
+                        
+                        {/* Predefined tags */}
+                        <div className="p-1">
+                          {(tagInput ? filteredTags : availableTags.filter(tag => !newPerkTags.includes(tag))).map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => addTag(tag)}
+                              disabled={newPerkTags.length >= 5}
+                              className="w-full text-left px-2 py-1 text-xs hover:bg-gray-700 rounded disabled:opacity-50 disabled:hover:bg-transparent"
+                            >
+                              {tag}
+                            </button>
+                          ))}
+                          {tagInput && filteredTags.length === 0 && (
+                            <div className="px-2 py-1 text-xs text-gray-400">No matching tags</div>
+                          )}
                         </div>
                       </div>
-                      
-                      {/* Predefined tags */}
-                      <div className="p-1">
-                        {(tagInput ? filteredTags : availableTags.filter(tag => !newPerkTags.includes(tag))).map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => addTag(tag)}
-                            disabled={newPerkTags.length >= 5}
-                            className="w-full text-left px-2 py-1 text-xs hover:bg-gray-700 rounded disabled:opacity-50 disabled:hover:bg-transparent"
-                          >
-                            {tag}
-                          </button>
-                        ))}
-                        {tagInput && filteredTags.length === 0 && (
-                          <div className="px-2 py-1 text-xs text-gray-400">No matching tags</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
                 
-                <Input
-                  type="number"
-                  placeholder="USDC Price"
-                  value={newPerkUsdcPrice}
-                  onChange={(e) => setNewPerkUsdcPrice(e.target.value)}
-                  disabled={isCreatingPerk}
-                  step="0.01"
-                  min="0"
-                  className="text-sm"
-                  title="Set the price in USDC (e.g., 10.00 for $10). This determines the Alpha Points cost."
-                />
-                
-                {/* Reinvestment Slider */}
+                {/* MIDDLE COLUMN: Revenue Slider */}
                 <div className="flex flex-col justify-center" title="Control revenue split: Direct payment vs. TVL reinvestment">
-                  <div className="text-xs text-gray-300 mb-1 font-medium">
-                    Revenue Split
+                  <div className="text-center mb-4">
+                    <div className="text-sm font-medium text-gray-300 mb-2">Revenue Split</div>
+                    <div className="text-xs text-gray-400 mb-3">
+                      Adjust the balance between direct revenue and TVL reinvestment
+                    </div>
                   </div>
-                  <div className="relative">
+                  
+                  <div className="relative px-2">
                     <input
                       type="range"
-                  min="0"
+                      min="0"
                       max="60"
                       value={newPerkReinvestmentPercent}
                       onChange={(e) => setNewPerkReinvestmentPercent(parseInt(e.target.value))}
                       disabled={isCreatingPerk}
-                      className={`w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider ${
+                      className={`w-full h-3 bg-gray-600 rounded-lg appearance-none cursor-pointer slider ${
                         (() => {
                           const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
                           return (partnerShare < 10 || partnerShare > 90) ? 'border-2 border-red-500' : '';
@@ -1452,14 +1783,17 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                         background: `linear-gradient(to right, #10b981 0%, #10b981 ${((70 - newPerkReinvestmentPercent) / 70) * 100}%, #3b82f6 ${((70 - newPerkReinvestmentPercent) / 70) * 100}%, #3b82f6 100%)`
                       }}
                     />
-                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                    <div className="flex justify-between text-xs text-gray-400 mt-2">
                       <span>💰 Revenue</span>
                       <span>🔄 Reinvest</span>
                     </div>
-                    <div className={`text-center text-xs mt-1 ${
+                  </div>
+                  
+                  <div className="text-center mt-4">
+                    <div className={`text-lg font-bold mb-1 ${
                       (() => {
                         const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
-                        return (partnerShare < 10 || partnerShare > 90) ? 'text-red-400 font-bold' : 'text-white';
+                        return (partnerShare < 10 || partnerShare > 90) ? 'text-red-400' : 'text-white';
                       })()
                     }`}>
                       {calculatePartnerShare(newPerkReinvestmentPercent)}% / {newPerkReinvestmentPercent}% / 10%
@@ -1468,25 +1802,69 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                         return (partnerShare < 10 || partnerShare > 90) ? ' ⚠️' : '';
                       })()}
                     </div>
+                    <div className="text-xs text-gray-500">
+                      Revenue / Reinvest / Platform
+                    </div>
                   </div>
+                </div>
+                
+                {/* RIGHT COLUMN: Alpha Points Display */}
+                <div className="flex flex-col justify-center">
+                  {newPerkUsdcPrice && parseFloat(newPerkUsdcPrice) > 0 ? (
+                    <div className="text-center p-4 bg-background-input rounded-lg border border-gray-600">
+                      <div className="text-sm text-gray-400 mb-2">Alpha Points Cost</div>
+                      <div className={`font-bold text-green-400 mb-2 ${
+                        (() => {
+                          const apValue = usdToAlphaPointsDisplay(parseFloat(newPerkUsdcPrice));
+                          const apString = formatAP(apValue);
+                          if (apString.length > 12) return 'text-lg'; // Very long numbers
+                          if (apString.length > 9) return 'text-xl'; // Long numbers  
+                          if (apString.length > 6) return 'text-2xl'; // Medium numbers
+                          return 'text-3xl'; // Short numbers only
+                        })()
+                      }`}>
+                        {formatAP(usdToAlphaPointsDisplay(parseFloat(newPerkUsdcPrice)))}
+                      </div>
+                      <div className="text-sm text-gray-500 mb-4">
+                        ${newPerkUsdcPrice} USD = {usdToAlphaPointsDisplay(parseFloat(newPerkUsdcPrice)).toLocaleString()} Alpha Points
+                      </div>
+                      <div className="text-xs text-gray-400 pt-2">
+                        Rate: $1 USD = 1,000 Alpha Points
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center p-4 bg-background-input rounded-lg border border-gray-600 opacity-50">
+                      <div className="text-sm text-gray-400 mb-2">Alpha Points Cost</div>
+                      <div className="text-3xl font-bold text-gray-500 mb-2">
+                        --,--- AP
+                      </div>
+                      <div className="text-sm text-gray-500 mb-4">
+                        Enter price to see cost
+                      </div>
+                      <div className="text-xs text-gray-400 pt-2">
+                        Rate: $1 USD = 1,000 Alpha Points
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               
-              <div className="grid grid-cols-4 gap-3">
+              {/* Description and Create Button Row */}
+              <div className="grid grid-cols-4 gap-3 mt-4">
                 <div className="col-span-3">
                   <Input
                     placeholder="Perk Description"
                     value={newPerkDescription}
                     onChange={(e) => setNewPerkDescription(e.target.value)}
                     disabled={isCreatingPerk}
-                    className="text-sm"
+                    className="w-full"
                     title="Describe what users get with this perk. Be specific about benefits and any redemption instructions."
                   />
                 </div>
                 <Button 
                   onClick={handleCreatePerk}
                   disabled={isCreatingPerk || !newPerkName.trim() || !newPerkDescription.trim() || newPerkTags.length === 0 || !newPerkUsdcPrice.trim()}
-                  className="text-sm"
+                  className="w-full"
                 >
                   {isCreatingPerk ? 'Creating...' : 'Create Perk'}
                 </Button>
@@ -1495,95 +1873,188 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           </div>
           
           {/* Field Guide & Examples - 2x2 Grid with Swiper */}
-          <div className="bg-background-card rounded-lg p-4">
+          <div className="bg-background-card rounded-lg p-3">
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center space-x-3">
-                <h4 className="text-lg font-semibold text-white">Field Guide & Examples</h4>
-                <div className="flex items-center space-x-1 group relative">
-                  <h5 className="text-sm font-medium text-blue-400">{exampleSets[currentExampleSet]?.title || 'Examples'}</h5>
-                  <svg className="w-3 h-3 text-blue-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                  <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-2 bg-gray-900 border border-blue-700 rounded-lg shadow-lg z-10">
-                    <p className="text-blue-300 text-xs">{exampleSets[currentExampleSet]?.tooltip || 'Example tooltip'}</p>
-                  </div>
+              <h4 className="text-lg font-semibold text-white">Field Guide & Examples</h4>
+              <div className="flex items-center space-x-1 group relative">
+                <h5 className="text-sm font-medium text-blue-400">{exampleSets[currentExampleSet]?.title || 'Examples'}</h5>
+                <svg className="w-3 h-3 text-blue-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-2 bg-gray-900 border border-blue-700 rounded-lg shadow-lg z-10">
+                  <p className="text-blue-300 text-xs">{exampleSets[currentExampleSet]?.tooltip || 'Example tooltip'}</p>
                 </div>
               </div>
-              <div className="flex items-center space-x-3">
-                <div className="flex space-x-1">
-                  {exampleSets.map((_, index) => (
-                    <button
-                      key={index}
-                      onClick={() => setCurrentExampleSet(index)}
-                      className={`w-2 h-2 rounded-full transition-colors ${
-                        index === currentExampleSet ? 'bg-blue-400' : 'bg-gray-600'
-                      }`}
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center space-x-1 group relative">
-                  <svg className="w-4 h-4 text-green-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-                  </svg>
-                  <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-80 p-3 bg-gray-900 border border-green-700 rounded-lg shadow-lg z-10">
-                    <p className="text-green-300 text-sm">
-                      <strong>💡 Pro Tip:</strong> The slider controls your revenue split. More reinvestment grows your TVL (increasing future quotas), while more direct revenue gives immediate profit. Default: 70% revenue, 20% reinvestment, 10% platform.
-                    </p>
-                  </div>
+              <div className="flex space-x-1">
+                {exampleSets.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentExampleSet(index)}
+                    className={`w-2 h-2 rounded-full transition-colors ${
+                      index === currentExampleSet ? 'bg-blue-400' : 'bg-gray-600'
+                    }`}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center space-x-1 group relative">
+                <svg className="w-4 h-4 text-green-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                </svg>
+                <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-80 p-3 bg-gray-900 border border-green-700 rounded-lg shadow-lg z-10">
+                  <p className="text-green-300 text-sm">
+                    <strong>💡 Pro Tip:</strong> The slider controls your revenue split. More reinvestment grows your TVL (increasing future quotas), while more direct revenue gives immediate profit. Default: 70% revenue, 20% reinvestment, 10% platform.
+                  </p>
                 </div>
               </div>
             </div>
             
-            {/* Current Example Set */}
-            <div className="grid grid-cols-3 gap-3 text-sm">
-              {(exampleSets[currentExampleSet]?.cards || []).map((card, index) => (
-                <div key={index} className="bg-background rounded-lg p-3 border border-gray-700">
-                  <div className="text-blue-400 font-medium mb-1 text-xs">{card.title}</div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-400">Type:</span>
-                      <span className="text-white">{card.type}</span>
+            {/* Example Perk Templates */}
+            <div className="mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {exampleSets[currentExampleSet]?.cards.map((card, index) => (
+                  <div key={index} className="bg-background rounded-lg p-2 border border-gray-700">
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span className="text-lg">
+                        {card.type === 'Access' ? '🔑' :
+                         card.type === 'Service' ? '🎧' :
+                         card.type === 'Digital Asset' ? '🖼️' :
+                         card.type === 'Physical' ? '📦' :
+                         card.type === 'Event' ? '🎫' : '🎁'}
+                      </span>
+                      <div className="flex-1">
+                        <div className="font-medium text-white text-sm">{card.title}</div>
+                        <div className="text-xs text-gray-400">{card.type}</div>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-400">Price:</span>
-                      <span className="text-green-400">${card.price}</span>
+                    
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Price:</span>
+                        <span className="text-green-400">${card.price}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Revenue:</span>
+                        <span className="text-purple-400">{card.share}%</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-400">Share:</span>
-                      <span className="text-purple-400">{card.share}%</span>
+                    
+                    <p className="text-xs text-gray-500 line-clamp-2">{card.description}</p>
+                    
+                    <button
+                      className="w-full mt-1 px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                      onClick={() => {
+                        // Auto-fill form with example data
+                        setNewPerkName(card.title);
+                        setNewPerkDescription(card.description);
+                        setNewPerkType(card.type);
+                        setNewPerkUsdcPrice(card.price);
+                        const reinvestmentPercent = 90 - parseInt(card.share);
+                        setNewPerkReinvestmentPercent(reinvestmentPercent);
+                        setNewPerkTags([card.type]);
+                      }}
+                    >
+                      Use Template
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            {/* Best Practices & Key Insights */}
+            <div className="mt-4">
+              <h5 className="text-sm font-semibold text-white flex items-center mb-2">
+                <span className="text-purple-400 mr-2">💡</span>
+                Best Practices & Key Insights
+              </h5>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  {/* Pricing Strategy */}
+                  <div className="group relative">
+                    <span className="text-xl cursor-help">💰</span>
+                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-green-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
+                      <div className="text-green-400 font-medium text-xs mb-1">Pricing Sweet Spot: $5-50</div>
+                      <div className="text-gray-300 text-xs">Most successful perks fall in this range. Start conservative, adjust based on demand.</div>
                     </div>
-                    <div className="text-gray-500 text-xs mt-2 line-clamp-2">{card.description}</div>
+                  </div>
+                  
+                  {/* Revenue Split Strategy */}
+                  <div className="group relative">
+                    <span className="text-xl cursor-help">⚖️</span>
+                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-blue-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
+                      <div className="text-blue-400 font-medium text-xs mb-1">Revenue Split Strategy</div>
+                      <div className="text-gray-300 text-xs">70%+ for immediate profit, 30-50% for TVL growth mode, 50-70% balanced approach.</div>
+                    </div>
+                  </div>
+                  
+                  {/* Tag Optimization */}
+                  <div className="group relative">
+                    <span className="text-xl cursor-help">🏷️</span>
+                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-purple-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
+                      <div className="text-purple-400 font-medium text-xs mb-1">Tag Optimization</div>
+                      <div className="text-gray-300 text-xs">Use 3-5 tags: one primary type + descriptive modifiers (VIP/Limited/Beta).</div>
+                    </div>
+                  </div>
+                  
+                  {/* Success Metrics */}
+                  <div className="group relative">
+                    <span className="text-xl cursor-help">📊</span>
+                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-orange-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-72">
+                      <div className="text-orange-400 font-medium text-xs mb-1">Success Metrics</div>
+                      <div className="text-gray-300 text-xs">
+                        <span className="text-green-400">&gt;20% claim rate:</span> Strong demand<br/>
+                        <span className="text-yellow-400">5-20%:</span> Normal range<br/>
+                        <span className="text-red-400">&lt;5%:</span> Needs optimization
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Pro Strategies */}
+                  <div className="group relative">
+                    <span className="text-xl cursor-help">🔄</span>
+                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-cyan-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
+                      <div className="text-cyan-400 font-medium text-xs mb-1">Pro Strategies</div>
+                      <div className="text-gray-300 text-xs">Rotate low-performers, bundle benefits, time launches with community events.</div>
+                    </div>
+                  </div>
+                  
+                  {/* Value Stacking */}
+                  <div className="group relative">
+                    <span className="text-xl cursor-help">💎</span>
+                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-pink-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
+                      <div className="text-pink-400 font-medium text-xs mb-1">Value Stacking</div>
+                      <div className="text-gray-300 text-xs">"Discord + Beta + Support" bundles often outperform individual perks.</div>
+                    </div>
                   </div>
                 </div>
-              ))}
+                
+                {/* Live Compliance Checking - Inline */}
+                <div className="flex-1 max-w-md ml-4">
+                  {renderComplianceCheck()}
+                </div>
+              </div>
             </div>
           </div>
         </div>
         
         {/* Existing Perks Section */}
-        <div className="bg-background-card rounded-lg p-4">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-background-card rounded-lg p-3">
+          <div className="flex items-center justify-between mb-3">
             <h4 className="text-lg font-semibold text-white">Your Perks</h4>
             <div className="flex items-center space-x-2">
-              {/* PERFORMANCE DEBUG PANEL - Show in development */}
-              {import.meta.env.DEV && (
-                <div className="text-xs bg-gray-800 rounded px-2 py-1 border border-gray-600">
-                  {(() => {
-                    const metrics = getPerformanceMetrics();
-                    return (
-                      <span className="text-blue-400">
-                        Cache: {(metrics.cacheHitRate * 100).toFixed(0)}% hit rate | 
-                        Size: {metrics.cacheSize} | 
-                        Last: {metrics.lastFetchTime}ms
-                      </span>
-                    );
-                  })()}
-                </div>
-              )}
+              {/* Show current partner info */}
+              <div className="text-xs text-gray-400">
+                {partnerCap.partnerName}
+              </div>
+              
               <Button 
-                onClick={() => fetchPartnerPerks(partnerCap.id)}
+                onClick={() => {
+                  // Clear cache and refresh all perk data
+                  refreshPerkData();
+                  fetchPartnerPerks(partnerCap.id);
+                }}
                 disabled={isLoadingPerks}
                 className="bg-gray-600 hover:bg-gray-500 text-sm px-3 py-1"
+                title={`Refresh perks for ${partnerCap.partnerName}`}
               >
                 {isLoadingPerks ? '⏳' : '🔄'} Refresh
               </Button>
@@ -1595,7 +2066,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             // Show loading state
             if (isLoadingPerks) {
               return (
-                <div className="text-center py-8">
+                <div className="text-center py-6">
                   <div className="text-4xl mb-4">⏳</div>
                   <div className="text-gray-400 mb-2">Loading your perks...</div>
                   <div className="text-sm text-gray-500">
@@ -1608,7 +2079,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             // Show error state
             if (perkError) {
               return (
-                <div className="text-center py-8">
+                <div className="text-center py-6">
                   <div className="text-4xl mb-4">❌</div>
                   <div className="text-red-400 mb-2">Error loading perks</div>
                   <div className="text-sm text-gray-500 mb-4">{perkError}</div>
@@ -1630,7 +2101,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             // Show empty state
             if (currentPartnerPerks.length === 0) {
               return (
-                <div className="text-center py-8">
+                <div className="text-center py-6">
                   <div className="text-6xl mb-4">🎁</div>
                   <div className="text-gray-400 mb-4">No perks created yet</div>
                   <p className="text-sm text-gray-500 max-w-md mx-auto">
@@ -1672,9 +2143,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 >
                   {currentPartnerPerks.map((perk) => (
                     <SwiperSlide key={perk.id} className="h-auto">
-                      <div className="bg-background rounded-lg p-4 border border-gray-700 h-full flex flex-col">
+                      <div className="bg-background rounded-lg p-3 border border-gray-700 h-full flex flex-col">
                         {/* Perk Header */}
-                        <div className="flex items-start space-x-3 mb-3">
+                        <div className="flex items-start space-x-3 mb-2">
                           <div className="w-8 h-8 flex items-center justify-center bg-background-card rounded-full text-lg flex-shrink-0">
                             {perk.icon || 
                              (perk.perk_type === 'Access' ? '🔑' :
@@ -1700,7 +2171,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     </div>
                     
                         {/* Perk Details Grid */}
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mb-3 flex-grow">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mb-2 flex-grow">
                           <div className="flex justify-between">
                             <span className="text-gray-400">USDC:</span>
                             <span className="text-green-400 font-medium">${perk.usdc_price.toFixed(2)}</span>
@@ -1721,7 +2192,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                           
                         {/* Tags */}
                               {perk.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-3">
+                          <div className="flex flex-wrap gap-1 mb-2">
                             {perk.tags.slice(0, 3).map((tag, index) => (
                               <span key={index} className="text-xs bg-gray-600/50 text-gray-300 px-1.5 py-0.5 rounded">
                                 {tag}
@@ -1734,7 +2205,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                           )}
                           
                         {/* Description */}
-                        <div className="text-xs text-gray-500 mb-3 line-clamp-2">{perk.description}</div>
+                        <div className="text-xs text-gray-500 mb-2 line-clamp-2">{perk.description}</div>
 
                         {/* Action Buttons */}
                         <div className="flex gap-2 mt-auto">
@@ -2471,33 +2942,58 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     </div>
   );
 
+  // Handler for partner cap dropdown change
+  const handlePartnerCapChange = (newPartnerCapId: string) => {
+    const newPartnerCap = partnerCaps.find(cap => cap.id === newPartnerCapId);
+    if (newPartnerCap) {
+      setSelectedPartnerCapId(newPartnerCapId);
+      
+      // Show immediate feedback
+      toast.info(`Switched to ${newPartnerCap.partnerName}`, { autoClose: 2000 });
+      
+      // Clear form when switching partner caps
+      if (currentTab === 'perks') {
+        setNewPerkName('');
+        setNewPerkDescription('');
+        setNewPerkType('Access');
+        setNewPerkTags([]);
+        setNewPerkUsdcPrice('');
+        setNewPerkReinvestmentPercent(20);
+        setNewPerkIcon('🎁');
+        setShowTagDropdown(false);
+        setTagInput('');
+      }
+    }
+  };
+
   return (
     <>
       <div className="container mx-auto p-4 text-white">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Partner Dashboard</h1>
-            <p className="text-gray-400">
-              {partnerCap.partnerName} • Enhanced Partner System
-            </p>
-          </div>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold">Partner Dashboard</h1>
           <div className="flex items-center space-x-4">
-            {/* Condensed Partner Cap Selector */}
-            {partnerCaps.length > 1 && (
+            {/* Partner Cap Selector - Always show when partner caps exist */}
+            {partnerCaps.length >= 1 && (
               <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-400">Partner:</span>
+                <span className="text-sm text-gray-400">Business:</span>
                 <select
                   value={selectedPartnerCapId}
-                  onChange={(e) => setSelectedPartnerCapId(e.target.value)}
-                  className="bg-background text-white px-3 py-1 rounded border border-gray-600 focus:border-primary text-sm"
+                  onChange={(e) => handlePartnerCapChange(e.target.value)}
+                  className="bg-background text-white px-3 py-2 rounded border border-gray-600 focus:border-primary text-sm min-w-[200px]"
+                  title="Select which business/partner cap to manage"
                 >
                   {partnerCaps.map((cap) => (
                     <option key={cap.id} value={cap.id}>
-                      {cap.partnerName} (${(cap.currentEffectiveUsdcValue || 0).toLocaleString()})
+                      {cap.partnerName} (${(cap.currentEffectiveUsdcValue || 0).toLocaleString()} TVL)
                     </option>
                   ))}
                 </select>
+                {partnerCaps.length > 1 && (
+                  <span className="text-xs text-blue-400">
+                    {partnerCaps.length} businesses
+                  </span>
+                )}
               </div>
             )}
             <div className={`px-3 py-1 rounded-full text-sm ${

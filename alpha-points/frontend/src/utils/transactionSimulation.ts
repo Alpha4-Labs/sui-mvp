@@ -4,10 +4,13 @@ import { formatErrorForToast, parseErrorCode } from './errorCodes';
 import { globalRateLimiter } from './globalRateLimiter';
 
 interface SimulationResult {
-  status: 'success' | 'error';
+  success: boolean;
   gasUsed?: string;
-  error?: string;
-  errorCode?: number;
+  error?: {
+    title: string;
+    message: string;
+    code?: number;
+  };
 }
 
 /**
@@ -55,6 +58,20 @@ export async function simulateTransaction(
   maxRetries: number = 3
 ): Promise<SimulationResult> {
   try {
+    // Validate sender address first
+    if (!senderAddress) {
+      return {
+        success: false,
+        error: {
+          title: 'Missing Sender Address',
+          message: 'Transaction sender address is required for simulation',
+        },
+      };
+    }
+
+    // Set the sender on the transaction before building
+    transaction.setSender(senderAddress);
+
     // Build transaction for simulation
     const builtTransaction = await transaction.build({ client });
     
@@ -67,15 +84,18 @@ export async function simulateTransaction(
 
         if (simulation.effects.status.status === 'success') {
           return {
-            status: 'success',
+            success: true,
             gasUsed: simulation.effects.gasUsed?.computationCost || '1000000',
           };
         } else {
           const errorInfo = extractErrorFromSimulation(simulation);
           return {
-            status: 'error',
-            error: errorInfo.message,
-            errorCode: errorInfo.code,
+            success: false,
+            error: {
+              title: 'Simulation Error',
+              message: errorInfo.message,
+              code: errorInfo.code
+            },
           };
         }
       } catch (err: any) {
@@ -91,8 +111,11 @@ export async function simulateTransaction(
     }
 
     return {
-      status: 'error',
-      error: 'Max retries exceeded due to rate limiting',
+      success: false,
+      error: {
+        title: 'Max Retries Exceeded',
+        message: 'Max retries exceeded due to rate limiting',
+      },
     };
   } catch (error: any) {
     const errorInfo = extractSimulationError(error);
@@ -103,6 +126,9 @@ export async function simulateTransaction(
       await new Promise(resolve => setTimeout(resolve, 3000));
       
       try {
+        // Set sender on the transaction again for retry
+        transaction.setSender(senderAddress);
+        
         // Rebuild transaction and retry simulation
         const freshTransaction = await transaction.build({ client });
         const retrySimulation = await client.dryRunTransactionBlock({
@@ -111,7 +137,7 @@ export async function simulateTransaction(
 
         if (retrySimulation.effects.status.status === 'success') {
           return {
-            status: 'success',
+            success: true,
             gasUsed: retrySimulation.effects.gasUsed?.computationCost || '1000000',
           };
         }
@@ -121,9 +147,12 @@ export async function simulateTransaction(
     }
 
     return {
-      status: 'error',
-      error: errorInfo.message,
-      errorCode: errorInfo.code,
+      success: false,
+      error: {
+        title: 'Simulation Error',
+        message: errorInfo.message,
+        code: errorInfo.code
+      },
     };
   }
 }
@@ -133,8 +162,8 @@ export async function simulateTransaction(
  * Used to prevent execution of transactions that will definitely fail
  */
 export function validateSimulationBeforeExecution(simulation: SimulationResult): void {
-  if (simulation.status === 'error') {
-    throw new Error(`Simulation failed: ${simulation.error}`);
+  if (!simulation.success) {
+    throw new Error(`Simulation failed: ${simulation.error?.message}`);
   }
 }
 
@@ -158,7 +187,7 @@ export async function executeWithSimulation(
     }
     
     // Throw error to prevent execution
-    throw new Error(`Simulation failed: ${simulation.error}`);
+    throw new Error(`Simulation failed: ${simulation.error.message}`);
   }
   
   console.log(`✅ Simulation passed. Estimated gas: ${simulation.gasUsed}`);

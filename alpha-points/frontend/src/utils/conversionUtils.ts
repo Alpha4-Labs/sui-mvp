@@ -1,26 +1,62 @@
 /**
  * Centralized Unit Conversion Utilities
  * 
- * WORKAROUND STRATEGY:
- * - Smart contract incorrectly uses oracle for Alpha Points validation
- * - User expects $1 = 1000 Alpha Points (correct)
- * - We store oracle-converted values to pass validation
- * - We display user's original USD intent
+ * DISPLAY STRATEGY:
+ * - For user display: Always use correct 1 USD = 1000 Alpha Points
+ * - For smart contract: Use oracle conversion only when required by backend
+ * - Users should see consistent 1:1000 conversion everywhere in UI
  * 
  * CONVERSION RATES:
  * - 1 USD = 1,000,000 micro-USDC (6 decimal places)
- * - 1 USD = 1,000 Alpha Points (CORRECT, but smart contract uses oracle)
- * - Smart contract receives micro-USDC and converts using broken oracle
+ * - 1 USD = 1,000 Alpha Points (CORRECT for UI display)
+ * - 1 SUI = 3.28 USDC (via oracle)
+ * - 1 SUI = 3,280 Alpha Points (3.28 * 1000)
  */
 
 // Core conversion rates
 export const CONVERSION_RATES = {
   USD_TO_MICRO_USDC: 1_000_000,   // 1 USD = 1,000,000 micro-USDC
   USD_TO_ALPHA_POINTS: 1_000,     // 1 USD = 1,000 Alpha Points (CORRECT)
-  ORACLE_RATE: 328_000_000,       // Oracle rate (SUI price in smallest units)
+  SUI_TO_USDC: 3.28,              // 1 SUI = 3.28 USDC (via oracle)
+  SUI_TO_ALPHA_POINTS: 3_280,     // 1 SUI = 3,280 Alpha Points (calculated)
+  ORACLE_RATE: 328_000_000,       // Oracle rate (only for backend compatibility)
   ORACLE_DECIMALS: 9,             // Oracle decimal places
   BUFFER_USD: 0.01,               // Small buffer to avoid off-by-one errors
 } as const;
+
+/**
+ * DISPLAY CONVERSIONS: Use these for all UI display purposes
+ * These functions use the correct 1 USD = 1000 Alpha Points conversion
+ */
+
+/**
+ * Convert USD to Alpha Points for display (CORRECT: 1 USD = 1000 AP)
+ */
+export function usdToAlphaPointsDisplay(usdAmount: number): number {
+  return Math.floor(usdAmount * CONVERSION_RATES.USD_TO_ALPHA_POINTS);
+}
+
+/**
+ * Convert Alpha Points to USD for display (CORRECT: 1000 AP = 1 USD)
+ */
+export function alphaPointsToUSDDisplay(alphaPoints: number): number {
+  return alphaPoints / CONVERSION_RATES.USD_TO_ALPHA_POINTS;
+}
+
+/**
+ * Convert SUI to Alpha Points for display (using correct oracle rate)
+ * 1 SUI = 3.28 USD = 3,280 Alpha Points
+ */
+export function suiToAlphaPointsDisplay(suiAmount: number): number {
+  return Math.floor(suiAmount * CONVERSION_RATES.SUI_TO_ALPHA_POINTS);
+}
+
+/**
+ * Convert Alpha Points to SUI for display
+ */
+export function alphaPointsToSUIDisplay(alphaPoints: number): number {
+  return alphaPoints / CONVERSION_RATES.SUI_TO_ALPHA_POINTS;
+}
 
 /**
  * Simple micro-USDC to USD conversion
@@ -51,7 +87,8 @@ export function alphaPointsToUSD(alphaPoints: number): number {
 }
 
 /**
- * WORKAROUND: Oracle conversion (matches broken smart contract)
+ * BACKEND COMPATIBILITY ONLY: Oracle conversion (matches smart contract behavior)
+ * ⚠️ DO NOT USE FOR DISPLAY - Use usdToAlphaPointsDisplay() instead
  */
 export function usdToAlphaPointsViaOracle(usdAmount: number): number {
   const asset = Math.floor(usdAmount * CONVERSION_RATES.USD_TO_MICRO_USDC);
@@ -60,7 +97,8 @@ export function usdToAlphaPointsViaOracle(usdAmount: number): number {
 }
 
 /**
- * WORKAROUND: Oracle conversion back to USD
+ * BACKEND COMPATIBILITY ONLY: Oracle conversion back to USD
+ * ⚠️ DO NOT USE FOR DISPLAY - Use alphaPointsToUSDDisplay() instead
  */
 export function alphaPointsToUSDViaOracle(alphaPoints: number): number {
   const asset = (alphaPoints * CONVERSION_RATES.ORACLE_RATE) / Math.pow(10, CONVERSION_RATES.ORACLE_DECIMALS);
