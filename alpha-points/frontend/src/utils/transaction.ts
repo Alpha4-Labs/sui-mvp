@@ -568,8 +568,9 @@ export const buildCreatePerkDefinitionTransaction = (
     tx.setSender(sponsorAddress);
   }
 
-  // Convert USDC price to micro-USDC for smart contract (6 decimals)
-  const microUsdcPrice = usdToMicroUSDC(usdcPrice);
+  // Smart contract expects USD amount as integer (e.g., 40 for $40)
+  // NOT micro-USDC (which would be 40,000,000)
+  const usdAmountForContract = Math.floor(usdcPrice);
 
   // Prepare optional parameters using BCS serialization
   const maxUsesOption = maxUsesPerClaim 
@@ -593,7 +594,7 @@ export const buildCreatePerkDefinitionTransaction = (
       tx.pure.string(name),
       tx.pure.string(description),
       tx.pure.string(perkType),
-      tx.pure.u64(BigInt(microUsdcPrice)), // FIXED: Use microUsdcPrice (integer) instead of usdcPrice (decimal)
+      tx.pure.u64(BigInt(usdAmountForContract)), // FIXED: Use USD amount (e.g., 40) instead of micro-USDC (40,000,000)
       tx.pure.u8(partnerSharePercentage),
       tx.pure(maxUsesOption),
       tx.pure(expirationOption),

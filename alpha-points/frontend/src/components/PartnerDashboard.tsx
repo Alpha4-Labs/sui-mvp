@@ -2251,7 +2251,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                             </div>
                           <div className="flex justify-between">
                             <span className="text-gray-400">AP Price:</span>
-                            <span className="text-blue-400 font-medium">{perk.current_alpha_points_price.toFixed(0)}</span>
+                            <span className="text-blue-400 font-medium">{usdToAlphaPointsDisplay(perk.usdc_price).toLocaleString()}</span>
                             </div>
                           <div className="flex justify-between">
                             <span className="text-gray-400">Revenue:</span>

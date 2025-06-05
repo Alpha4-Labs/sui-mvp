@@ -153,9 +153,10 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     return filtered;
   }, [marketplacePerks, activeTags, activeCompanies, partnerNames]);
 
-  // Check if user can afford a perk
+  // Check if user can afford a perk (use correct calculation from USD price)
   const canAffordPerk = (perk: PerkDefinition) => {
-    return userPoints >= perk.current_alpha_points_price;
+    const correctAlphaPointsPrice = Math.floor(perk.usdc_price * 1000); // $1 = 1000 AP
+    return userPoints >= correctAlphaPointsPrice;
   };
 
   // Handle perk purchase for role perks (with subname)
@@ -492,7 +493,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                         >
                           {perkPurchaseLoading && selectedPerkForModal?.id === perk.id ? (
                             <>
-                              <span className="opacity-0">{perk.current_alpha_points_price.toLocaleString()} αP</span>
+                              <span className="opacity-0">{Math.floor(perk.usdc_price * 1000).toLocaleString()} αP</span>
                               <span className="absolute inset-0 flex items-center justify-center">
                                 <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -501,7 +502,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                               </span>
                             </>
                           ) : (
-                            `${perk.current_alpha_points_price.toLocaleString()} αP`
+                            `${Math.floor(perk.usdc_price * 1000).toLocaleString()} αP`
                           )}
                         </button>
                       </div>
