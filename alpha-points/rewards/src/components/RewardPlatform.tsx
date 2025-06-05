@@ -13,7 +13,7 @@ const mockAlpha4Perks: Alpha4Perk[] = [
     name: 'Discord Premium Role',
     description: 'Get exclusive access to Alpha4 premium Discord channels',
     icon: '👑',
-    alphaPointCost: 1000,
+    alphaPointCost: 10000,
     usdcValue: 10,
     isAvailable: true,
     requiredPerkType: 'discord_role',
@@ -21,14 +21,13 @@ const mockAlpha4Perks: Alpha4Perk[] = [
   },
   {
     id: '2',
-    name: 'Early Access Pass',
+    name: 'Discord Alpha OG',
     description: 'Get early access to new Alpha4 features and products',
     icon: '🚀',
-    alphaPointCost: 2500,
+    alphaPointCost: 2000000,
     usdcValue: 25,
     isAvailable: true,
-    requiredPerkType: 'early_access',
-    requiredTags: ['alpha4', 'beta'],
+    // No requirements for this perk
   },
   {
     id: '3',
