@@ -40,8 +40,13 @@ export const PointsDisplay: React.FC = () => {
 
   const EPOCHS_PER_YEAR = 365;
   const SUI_TO_MIST_CONVERSION = 1_000_000_000n;
-  const APY_POINT_SCALING_FACTOR = 25n;
+  // FIXED: Using correct 1:1000 USD ratio (1 SUI = 3.28 USD = 3,280 AP)
+  // At 100% APY: 3,280 AP per year = 9 AP per epoch per SUI
+  // Scaling factor = 9 (not 25) to match 1:1000 USD ratio
+  const APY_POINT_SCALING_FACTOR = 1n; // Will calculate directly without scaling
   const MS_PER_DAY = 86_400_000;
+  const SUI_PRICE_USD = 3.28;
+  const ALPHA_POINTS_PER_USD = 1000;
 
   function getApyBpsForDurationDays(durationDays: number): number {
     if (durationDays === 7) return 500;
@@ -133,11 +138,12 @@ export const PointsDisplay: React.FC = () => {
           return;
       }
 
-      const numeratorPart1 = principalMist * stakeApyBps;
-      const numerator = numeratorPart1 * APY_POINT_SCALING_FACTOR;
-      const denominator = SUI_TO_MIST_CONVERSION * BigInt(EPOCHS_PER_YEAR);
-
-      const pointsPerEpoch = denominator > 0n ? numerator / denominator : 0n;
+      // FIXED: Correct calculation using 1:1000 USD ratio
+      // Formula: (principal_sui * sui_price_usd * alpha_points_per_usd * apy_percentage) / epochs_per_year
+      const principalSui = principalMist; // Keep in MIST for precision
+      const alphaPointsPerSui = BigInt(Math.floor(SUI_PRICE_USD * ALPHA_POINTS_PER_USD)); // 3,280 AP per SUI
+      const annualPoints = (principalSui * alphaPointsPerSui * stakeApyBps) / (SUI_TO_MIST_CONVERSION * 10000n); // 10000 = 100 * 100 (bps conversion)
+      const pointsPerEpoch = annualPoints / BigInt(EPOCHS_PER_YEAR);
       const epochsPassed = currentEpoch - lastClaimEpochBigInt;
       
       if (epochsPassed > 0n) {
@@ -181,10 +187,11 @@ export const PointsDisplay: React.FC = () => {
             const stakeApyBps = BigInt(getApyBpsForDurationDays(durationDays));
 
             if (stakeApyBps > 0n && principalMist > 0n) {
-                const numeratorPart1 = principalMist * stakeApyBps;
-                const numerator = numeratorPart1 * APY_POINT_SCALING_FACTOR;
-                const denominator = SUI_TO_MIST_CONVERSION * BigInt(EPOCHS_PER_YEAR);
-                const pointsPerEpoch = denominator > 0n ? numerator / denominator : 0n;
+                // FIXED: Use same corrected calculation as above
+                const principalSui = principalMist; // Keep in MIST for precision
+                const alphaPointsPerSui = BigInt(Math.floor(SUI_PRICE_USD * ALPHA_POINTS_PER_USD)); // 3,280 AP per SUI
+                const annualPoints = (principalSui * alphaPointsPerSui * stakeApyBps) / (SUI_TO_MIST_CONVERSION * 10000n); // 10000 = 100 * 100 (bps conversion)
+                const pointsPerEpoch = annualPoints / BigInt(EPOCHS_PER_YEAR);
                 const epochsPassed = currentEpoch - lastClaimEpochBigInt;
                 if (pointsPerEpoch * epochsPassed > 0n) {
                     console.log(`Adding claim for position: ${pos.id}, assetType: ${pos.assetType || SUI_TYPE}`);
