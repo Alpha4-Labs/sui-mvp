@@ -193,6 +193,11 @@ module alpha_points::admin {
         event::emit(PointsRateUpdated { new_rate });
     }
     
+    /// Get the forfeiture grace period from config
+    public fun get_forfeiture_grace_period_ms(config: &Config): u64 {
+        config.forfeiture_grace_period_ms
+    }
+
     /// Updates the forfeiture grace period. Emits ForfeitureGracePeriodUpdated.
     /// Requires AdminCap for authorization.
     public entry fun update_forfeiture_grace_period(
