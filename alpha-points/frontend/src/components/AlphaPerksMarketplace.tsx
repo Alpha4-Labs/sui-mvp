@@ -128,9 +128,12 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     return Array.from(companySet).sort();
   }, [marketplacePerks, partnerNames]);
 
-  // Filter perks based on active tags and companies
+  // Filter perks based on active status, tags and companies
   const displayedPerks = useMemo(() => {
     let filtered = marketplacePerks;
+
+    // First filter out paused/inactive perks
+    filtered = filtered.filter(perk => perk.is_active);
 
     // Filter by tags
     if (activeTags.size > 0) {
@@ -453,11 +456,6 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                   <div className="flex-1 min-w-0">
                     <h3 className="text-white font-medium flex items-center gap-1 break-words mr-1">
                       {perk.name}
-                      {!perk.is_active && (
-                        <span className="text-xs bg-yellow-600/20 text-yellow-400 px-2 py-1 rounded-full">
-                          Paused
-                        </span>
-                      )}
                     </h3>
                     <div className="text-sm text-gray-400 mt-0.5">
                       by {partnerNames.get(perk.creator_partner_cap_id) || 'Loading...'}
@@ -485,11 +483,9 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                         
                         <button 
                           onClick={() => handlePerkClick(perk)}
-                          disabled={!perk.is_active || perkPurchaseLoading || !canAffordPerk(perk)} 
+                          disabled={perkPurchaseLoading || !canAffordPerk(perk)} 
                           className={`flex-shrink-0 px-3 py-1.5 text-sm rounded transition-colors relative min-w-[140px] text-center ${
-                            !perk.is_active 
-                              ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                              : !canAffordPerk(perk)
+                            !canAffordPerk(perk)
                               ? 'bg-red-600/50 text-red-300 cursor-not-allowed'
                               : 'bg-primary hover:bg-primary-dark text-white'
                           }`}
@@ -504,8 +500,6 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                                 </svg>
                               </span>
                             </>
-                          ) : !perk.is_active ? (
-                            'Paused'
                           ) : (
                             `${perk.current_alpha_points_price.toLocaleString()} αP`
                           )}

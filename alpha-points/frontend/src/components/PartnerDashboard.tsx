@@ -102,11 +102,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       <div 
         className="fixed bg-gray-900 border rounded-lg shadow-lg p-3 text-sm"
         style={{ 
-          left: position.x, 
-          top: position.y, 
+          left: position.x,
+          top: position.y,
+          transform: 'translate(-100%, -100%)', // Bottom right corner at cursor
           zIndex: 2147483647, // Maximum possible z-index
-          transform: 'translate(-50%, -100%)',
-          marginTop: '-8px'
         }}
       >
         {children}
@@ -128,6 +127,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   // Tooltip state
   const [showBlueTooltip, setShowBlueTooltip] = useState(false);
   const [showYellowTooltip, setShowYellowTooltip] = useState(false);
+  const [showInsightTooltip, setShowInsightTooltip] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   
   // Tag selector state
@@ -150,10 +150,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
   // Tooltip helper functions
   const handleTooltipEnter = (event: React.MouseEvent, tooltipType: 'blue' | 'yellow') => {
-    const rect = event.currentTarget.getBoundingClientRect();
     setTooltipPosition({
-      x: rect.left + rect.width / 2,
-      y: rect.top
+      x: event.clientX,
+      y: event.clientY
     });
     
     if (tooltipType === 'blue') {
@@ -163,12 +162,31 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   };
 
+  const handleTooltipMove = (event: React.MouseEvent) => {
+    setTooltipPosition({
+      x: event.clientX,
+      y: event.clientY
+    });
+  };
+
   const handleTooltipLeave = (tooltipType: 'blue' | 'yellow') => {
     if (tooltipType === 'blue') {
       setShowBlueTooltip(false);
     } else {
       setShowYellowTooltip(false);
     }
+  };
+
+  const handleInsightTooltipEnter = (event: React.MouseEvent, tooltipType: string) => {
+    setTooltipPosition({
+      x: event.clientX,
+      y: event.clientY
+    });
+    setShowInsightTooltip(tooltipType);
+  };
+
+  const handleInsightTooltipLeave = () => {
+    setShowInsightTooltip(null);
   };
 
   // Predefined tag options
@@ -1595,6 +1613,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     stroke="currentColor" 
                     viewBox="0 0 24 24"
                     onMouseEnter={(e) => handleTooltipEnter(e, 'blue')}
+                    onMouseMove={handleTooltipMove}
                     onMouseLeave={() => handleTooltipLeave('blue')}
                   >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -1605,6 +1624,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   <span 
                     className="text-yellow-400 cursor-help text-sm"
                     onMouseEnter={(e) => handleTooltipEnter(e, 'yellow')}
+                    onMouseMove={handleTooltipMove}
                     onMouseLeave={() => handleTooltipLeave('yellow')}
                   >
                     🎨
@@ -1631,6 +1651,53 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 • Digital Asset → 🖼️ (picture)<br/>
                 • Physical → 📦 (package)<br/>
                 • Default → 🎁 (gift)
+              </div>
+            </PortalTooltip>
+
+            {/* Insight Tooltips */}
+            <PortalTooltip show={showInsightTooltip === 'pricing'} position={tooltipPosition}>
+              <div className="text-green-300 w-64 border-green-700">
+                <div className="text-green-400 font-medium text-xs mb-1">Pricing Sweet Spot: $5-50</div>
+                <div className="text-gray-300 text-xs">Most successful perks fall in this range. Start conservative, adjust based on demand.</div>
+              </div>
+            </PortalTooltip>
+
+            <PortalTooltip show={showInsightTooltip === 'revenue'} position={tooltipPosition}>
+              <div className="text-blue-300 w-64 border-blue-700">
+                <div className="text-blue-400 font-medium text-xs mb-1">Revenue Split Strategy</div>
+                <div className="text-gray-300 text-xs">70%+ for immediate profit, 30-50% for TVL growth mode, 50-70% balanced approach.</div>
+              </div>
+            </PortalTooltip>
+
+            <PortalTooltip show={showInsightTooltip === 'tags'} position={tooltipPosition}>
+              <div className="text-purple-300 w-64 border-purple-700">
+                <div className="text-purple-400 font-medium text-xs mb-1">Tag Optimization</div>
+                <div className="text-gray-300 text-xs">Use 3-5 tags: one primary type + descriptive modifiers (VIP/Limited/Beta).</div>
+              </div>
+            </PortalTooltip>
+
+            <PortalTooltip show={showInsightTooltip === 'metrics'} position={tooltipPosition}>
+              <div className="text-orange-300 w-72 border-orange-700">
+                <div className="text-orange-400 font-medium text-xs mb-1">Success Metrics</div>
+                <div className="text-gray-300 text-xs">
+                  <span className="text-green-400">&gt;20% claim rate:</span> Strong demand<br/>
+                  <span className="text-yellow-400">5-20%:</span> Normal range<br/>
+                  <span className="text-red-400">&lt;5%:</span> Needs optimization
+                </div>
+              </div>
+            </PortalTooltip>
+
+            <PortalTooltip show={showInsightTooltip === 'strategies'} position={tooltipPosition}>
+              <div className="text-cyan-300 w-64 border-cyan-700">
+                <div className="text-cyan-400 font-medium text-xs mb-1">Pro Strategies</div>
+                <div className="text-gray-300 text-xs">Rotate low-performers, bundle benefits, time launches with community events.</div>
+              </div>
+            </PortalTooltip>
+
+            <PortalTooltip show={showInsightTooltip === 'value'} position={tooltipPosition}>
+              <div className="text-pink-300 w-64 border-pink-700">
+                <div className="text-pink-400 font-medium text-xs mb-1">Value Stacking</div>
+                <div className="text-gray-300 text-xs">"Discord + Beta + Support" bundles often outperform individual perks.</div>
               </div>
             </PortalTooltip>
             
@@ -1969,62 +2036,64 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   {/* Pricing Strategy */}
-                  <div className="group relative">
-                    <span className="text-xl cursor-help">💰</span>
-                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-green-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
-                      <div className="text-green-400 font-medium text-xs mb-1">Pricing Sweet Spot: $5-50</div>
-                      <div className="text-gray-300 text-xs">Most successful perks fall in this range. Start conservative, adjust based on demand.</div>
-                    </div>
-                  </div>
+                  <span 
+                    className="text-xl cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'pricing')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    💰
+                  </span>
                   
                   {/* Revenue Split Strategy */}
-                  <div className="group relative">
-                    <span className="text-xl cursor-help">⚖️</span>
-                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-blue-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
-                      <div className="text-blue-400 font-medium text-xs mb-1">Revenue Split Strategy</div>
-                      <div className="text-gray-300 text-xs">70%+ for immediate profit, 30-50% for TVL growth mode, 50-70% balanced approach.</div>
-                    </div>
-                  </div>
+                  <span 
+                    className="text-xl cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'revenue')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    ⚖️
+                  </span>
                   
                   {/* Tag Optimization */}
-                  <div className="group relative">
-                    <span className="text-xl cursor-help">🏷️</span>
-                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-purple-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
-                      <div className="text-purple-400 font-medium text-xs mb-1">Tag Optimization</div>
-                      <div className="text-gray-300 text-xs">Use 3-5 tags: one primary type + descriptive modifiers (VIP/Limited/Beta).</div>
-                    </div>
-                  </div>
+                  <span 
+                    className="text-xl cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'tags')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    🏷️
+                  </span>
                   
                   {/* Success Metrics */}
-                  <div className="group relative">
-                    <span className="text-xl cursor-help">📊</span>
-                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-orange-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-72">
-                      <div className="text-orange-400 font-medium text-xs mb-1">Success Metrics</div>
-                      <div className="text-gray-300 text-xs">
-                        <span className="text-green-400">&gt;20% claim rate:</span> Strong demand<br/>
-                        <span className="text-yellow-400">5-20%:</span> Normal range<br/>
-                        <span className="text-red-400">&lt;5%:</span> Needs optimization
-                      </div>
-                    </div>
-                  </div>
+                  <span 
+                    className="text-xl cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'metrics')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    📊
+                  </span>
                   
                   {/* Pro Strategies */}
-                  <div className="group relative">
-                    <span className="text-xl cursor-help">🔄</span>
-                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-cyan-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
-                      <div className="text-cyan-400 font-medium text-xs mb-1">Pro Strategies</div>
-                      <div className="text-gray-300 text-xs">Rotate low-performers, bundle benefits, time launches with community events.</div>
-                    </div>
-                  </div>
+                  <span 
+                    className="text-xl cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'strategies')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    🔄
+                  </span>
                   
                   {/* Value Stacking */}
-                  <div className="group relative">
-                    <span className="text-xl cursor-help">💎</span>
-                    <div className="absolute bottom-full right-0 transform translate-x-[-75%] mb-2 px-3 py-2 bg-gray-900 border border-pink-600/50 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[9999] w-64">
-                      <div className="text-pink-400 font-medium text-xs mb-1">Value Stacking</div>
-                      <div className="text-gray-300 text-xs">"Discord + Beta + Support" bundles often outperform individual perks.</div>
-                    </div>
-                  </div>
+                  <span 
+                    className="text-xl cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'value')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    💎
+                  </span>
                 </div>
                 
                 {/* Live Compliance Checking - Inline */}
