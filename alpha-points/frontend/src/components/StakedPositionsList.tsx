@@ -160,7 +160,7 @@ export const StakedPositionsList: React.FC = () => {
   };
 
   // Helper for Estimated Rewards Calculation
-  // Now uses APY directly from the position object and calculates Alpha Points
+  // FIXED: Uses correct 1:1000 USD ratio for Alpha Points calculation
   const calculateEstAlphaPointRewards = (principal?: string, durationDaysStr?: string, positionApy?: number): string => {
     if (!principal || !durationDaysStr || typeof positionApy === 'undefined') return '~0 αP (0 αP/epoch)';
     try {
@@ -170,15 +170,19 @@ export const StakedPositionsList: React.FC = () => {
 
       if (isNaN(principalSui) || isNaN(durationDays) || durationDays <= 0) return '~0 αP (0 αP/epoch)';
 
-      const ALPHA_POINTS_PER_SUI_PER_EPOCH = 68;
-      const EPOCHS_PER_DAY = 1; // Corrected: Sui Testnet epochs are 24 hours
+      // FIXED: Use correct 1:1000 ratio (1 USD = 1000 Alpha Points)
+      const SUI_PRICE_USD = 3.28; // Current SUI price
+      const ALPHA_POINTS_PER_USD = 1000; // Fixed ratio
+      const ALPHA_POINTS_PER_SUI = SUI_PRICE_USD * ALPHA_POINTS_PER_USD; // 3,280 AP per SUI
+      const DAYS_PER_YEAR = 365;
+      const EPOCHS_PER_DAY = 1; // Sui Testnet epochs are 24 hours
 
-      const totalEpochs = durationDays * EPOCHS_PER_DAY; // This will now correctly be equal to durationDays
-      const totalAlphaPointsRewards = principalSui * ALPHA_POINTS_PER_SUI_PER_EPOCH * totalEpochs;
-      const alphaPointsPerEpoch = principalSui * ALPHA_POINTS_PER_SUI_PER_EPOCH; // This remains per 24h epoch
+      // Calculate daily Alpha Points rewards based on APY
+      const dailyAlphaPointsRewards = (principalSui * ALPHA_POINTS_PER_SUI * (positionApy / 100)) / DAYS_PER_YEAR;
+      const totalAlphaPointsRewards = dailyAlphaPointsRewards * durationDays;
 
       const formattedTotalAlphaPoints = totalAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
-      const formattedAlphaPointsPerEpoch = alphaPointsPerEpoch.toLocaleString(undefined, {maximumFractionDigits: 0});
+      const formattedAlphaPointsPerEpoch = dailyAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
 
       return `~${formattedTotalAlphaPoints} αP (${formattedAlphaPointsPerEpoch} αP/epoch)`;
     } catch {

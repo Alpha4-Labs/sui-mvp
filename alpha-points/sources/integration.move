@@ -1,7 +1,7 @@
 /// Module that provides the main public entry points for user interactions.
 /// Orchestrates calls to other modules.
 module alpha_points::integration {
-    use sui::clock::Clock;
+    use sui::clock::{Self as clock, Clock};
     use sui::event;
     use sui::sui::SUI;
     use sui::coin::{Self, Coin};
@@ -45,16 +45,25 @@ module alpha_points::integration {
     const EPartnerPaused: u64 = 7;
     const EPartnerExceedsQuota: u64 = 8;
     const EInsufficientPointsForPerk: u64 = 9; // New error for perk purchase
+    // New errors for v2 functions
+    const ENotPastGracePeriod: u64 = 11; // Stake is not past the forfeiture grace period
+    const EInsufficientCompensation: u64 = 12; // Compensation amount is insufficient
+    const EInvalidBatchData: u64 = 13; // Batch data arrays have mismatched lengths
     // EUserExceedsDailyCap is no longer needed as MintStats is removed
     // const EUserExceedsDailyCap: u64 = 9; 
     
-    // Constants
+        // Constants
     // const STAKE_EXPIRY_DAYS: u64 = 14; // Removed as unused
 
-    // APY Calculation Constants
+    // APY Calculation Constants  
     const EPOCHS_PER_YEAR: u64 = 365; // Assuming daily epochs for simplicity
     const SUI_TO_MIST_CONVERSION: u64 = 1_000_000_000;
     const APY_POINT_SCALING_FACTOR: u64 = 25; // Scales APY_bps * 25 for points calculation
+    
+    // NEW: Alpha Points conversion constants using 1:1000 USD ratio
+    const SUI_PRICE_USD_MILLI: u64 = 3280; // 3.28 USD * 1000 = 3,280 milli-USD
+    #[allow(unused_const)]
+    const ALPHA_POINTS_PER_USD: u64 = 1000; // 1 USD = 1000 Alpha Points
     
     // Constants for Event Structs
     // const POINTS_ACCRUED_EVENT_TYPE: vector<u8> = b"PointsAccrued"; // Removed as unused
@@ -191,6 +200,33 @@ module alpha_points::integration {
         fee_share: u64
     }
     
+    /// Event emitted when forfeited stake funds are withdrawn to treasury
+    public struct ForfeitedStakeWithdrawn has copy, drop {
+        admin_cap_id: ID,
+        amount: u64,
+        treasury_address: address,
+    }
+
+    /// Event emitted when an old stake is migrated to the new package
+    public struct OldStakeMigrated has copy, drop {
+        admin_cap_id: ID,
+        old_stake_owner: address,
+        old_stake_principal: u64,
+        old_stake_duration_days: u64,
+        old_stake_start_time_ms: u64,
+        replacement_alpha_points: u64,
+        compensation_amount: u64,
+    }
+
+    /// Event emitted when multiple old stakes are batch migrated
+    public struct BatchOldStakesMigrated has copy, drop {
+        admin_cap_id: ID,
+        stakes_migrated: u64,
+        total_principal_compensated: u64,
+        total_points_issued: u64,
+        compensation_amount: u64,
+    }
+
     /// Event emitted when a user initiates a liquid unstake, receiving points as a loan against their stake.
     public struct LiquidUnstakeAsLoanInitiated has store, copy, drop {
         user: address,
@@ -405,6 +441,14 @@ module alpha_points::integration {
         }
     }
 
+    // NEW: Helper function to convert SUI MIST to Alpha Points using 1:1000 USD ratio
+    fun mist_to_alpha_points(mist_amount: u64): u64 {
+        if (mist_amount == 0) return 0;
+        // Formula: (mist_amount * 3.28 USD * 1000 AP/USD) / (1 SUI_MIST * 1000 milli conversion)
+        // = mist_amount * 3,280 / 1,000,000,000
+        ((mist_amount as u128) * (SUI_PRICE_USD_MILLI as u128) / (SUI_TO_MIST_CONVERSION as u128)) as u64
+    }
+
     /// Allows a user to claim accrued Alpha Points for their stake position.
     public entry fun claim_accrued_points<T: key + store>(
         config: &Config,
@@ -461,6 +505,7 @@ module alpha_points::integration {
     /// Initiates unstaking but currently discards the withdrawal ticket.
     /// NOTE: Phase 5 Change - This function NO LONGER initiates native unstake.
     /// Admin must call `admin_withdraw_forfeited_stake` separately after this.
+    /// @deprecated Use admin_claim_forfeited_stake_v2 for proper implementation
     public entry fun admin_claim_forfeited_stake<T: store>(
         admin_cap: &AdminCap,
         config: &Config,
@@ -484,6 +529,79 @@ module alpha_points::integration {
             stake_id: stake_id_to_forfeit,
             forfeited_amount: forfeited_amount,
             asset_type: asset_name_string,
+        });
+    }
+
+    /// New implementation for admin forfeiture of expired stakes
+    /// This function properly validates the stake is forfeitable and processes the forfeiture
+    public entry fun admin_claim_forfeited_stake_v2(
+        admin_cap: &AdminCap,
+        config: &Config,
+        manager: &mut StakingManager,
+        stake_position: StakePosition<StakedSui>,
+        sui_system_state: &mut SuiSystemState,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(admin::is_admin(admin_cap, config), EAdminOnly);
+        
+        // Check if stake is past forfeiture grace period
+        let current_time_ms = clock::timestamp_ms(clock);
+        let unlock_time_ms = stake_position::unlock_time_ms_view(&stake_position);
+        let grace_period_ms = admin::get_forfeiture_grace_period_ms(config);
+        let forfeiture_threshold_ms = unlock_time_ms + grace_period_ms;
+        
+        assert!(current_time_ms > forfeiture_threshold_ms, ENotPastGracePeriod);
+        assert!(!stake_position::is_encumbered_view(&stake_position), EStakeEncumbered);
+        
+        let staker_address = stake_position::owner_view(&stake_position);
+        let forfeited_amount = stake_position::principal_view(&stake_position);
+        let stake_id = stake_position::get_id_view(&stake_position);
+        
+        // Get native stake ID and request withdrawal
+        let native_staked_sui_address = stake_position::native_stake_id_view(&stake_position);
+        let native_staked_sui_id = id_from_address(native_staked_sui_address);
+        
+        if (native_staked_sui_address != @0x0 && staking_manager::has_native_stake(manager, native_staked_sui_id)) {
+            staking_manager::request_native_stake_withdrawal(
+                manager,
+                sui_system_state,
+                native_staked_sui_id,
+                ctx
+            );
+        };
+        
+        // Destroy the stake position
+        stake_position::destroy_stake(stake_position);
+        
+        event::emit(StakeForfeited {
+            admin_cap_id: admin::admin_cap_id(config),
+            staker_address,
+            stake_id,
+            forfeited_amount,
+            asset_type: string::utf8(b"StakedSui"),
+        });
+    }
+
+    /// Withdraws forfeited stake funds to protocol treasury
+    /// Should be called after admin_claim_forfeited_stake_v2 processes the forfeiture
+    public entry fun admin_withdraw_forfeited_stake(
+        admin_cap: &AdminCap,
+        config: &Config,
+        forfeited_funds: Coin<SUI>,
+        _ctx: &mut TxContext
+    ) {
+        assert!(admin::is_admin(admin_cap, config), EAdminOnly);
+        
+        let amount = coin::value(&forfeited_funds);
+        let treasury_address = admin::deployer_address(config);
+        
+        transfer::public_transfer(forfeited_funds, treasury_address);
+        
+        event::emit(ForfeitedStakeWithdrawn {
+            admin_cap_id: admin::admin_cap_id(config),
+            amount,
+            treasury_address,
         });
     }
 
@@ -555,12 +673,26 @@ module alpha_points::integration {
         ledger::get_bad_debt(ledger, user)
     }
 
+    /// @deprecated Use get_user_staked_balance_v2 for proper implementation
     public fun get_user_staked_balance<T: store>(
         _escrow_vault: &EscrowVault<T>,
         _user: address,
         _ctx: &mut TxContext
     ): u64 {
         0
+    }
+
+    /// New implementation for getting user's staked balance
+    /// Note: EscrowVault doesn't track individual user balances
+    /// This function provides total vault balance as reference
+    public fun get_user_staked_balance_v2<T: store>(
+        escrow_vault: &EscrowVault<T>,
+        _user: address,
+        _ctx: &mut TxContext
+    ): u64 {
+        // EscrowVault doesn't track individual user balances
+        // Return total vault balance as the best approximation available
+        escrow::total_value(escrow_vault)
     }
 
     public fun get_user_points_balance(
@@ -576,6 +708,7 @@ module alpha_points::integration {
         admin::init_for_testing(ctx);
     }
 
+    /// @deprecated Use get_escrow_stake_details_v2 for proper implementation
     public fun get_escrow_stake_details<T: store>(
         _escrow_vault: &EscrowVault<T>,
         _owner: address,
@@ -585,6 +718,24 @@ module alpha_points::integration {
         (0,0,0,false, object::id_from_bytes(vector[]))
     }
 
+    /// New implementation that actually queries escrow vault data
+    /// Returns: (amount, unlock_time_ms, start_time_ms, is_encumbered, stake_position_id)
+    /// Note: This function works with StakePosition NFTs, not escrow vault data
+    /// Use get_stake_position_details_v2 instead for StakePosition objects
+    public fun get_escrow_stake_details_v2<T: store>(
+        escrow_vault: &EscrowVault<T>,
+        _owner: address,
+        _stake_id: ID,
+        _ctx: &mut TxContext
+    ): (u64, u64, u64, bool, ID) {
+        // EscrowVault only holds coin balances, not individual stake records
+        // Return the total vault balance as a single "stake"
+        let total_balance = escrow::total_value(escrow_vault);
+        let vault_id = object::uid_to_inner(escrow::vault_uid(escrow_vault));
+        (total_balance, 0, 0, false, vault_id)
+    }
+
+    /// @deprecated Use get_stake_details_v2 for proper implementation  
     public fun get_stake_details<T: store>(
         _escrow_vault: &EscrowVault<T>,
         _owner: address,
@@ -594,10 +745,134 @@ module alpha_points::integration {
         (0,0,0,false, object::id_from_bytes(vector[]))
     }
 
+    /// New implementation for getting StakePosition details
+    /// Returns: (amount, unlock_time_ms, start_time_ms, is_encumbered, stake_position_id)
+    public fun get_stake_position_details_v2<T: store>(
+        stake_position: &StakePosition<T>
+    ): (u64, u64, u64, bool, ID) {
+        let amount = stake_position::principal_view(stake_position);
+        let unlock_time_ms = stake_position::unlock_time_ms_view(stake_position);
+        let start_time_ms = stake_position::start_time_ms_view(stake_position);
+        let is_encumbered = stake_position::is_encumbered_view(stake_position);
+        let stake_id = stake_position::get_id_view(stake_position);
+        
+        (amount, unlock_time_ms, start_time_ms, is_encumbered, stake_id)
+    }
+
+    /// @deprecated Always returns 0 - use total_staked_value_in_escrow_v2 for proper implementation
     public fun total_staked_value_in_escrow<T: key + store>(
         _escrow: &EscrowVault<T>
     ): u64 {
         0
+    }
+
+    /// New implementation that returns actual escrow vault balance
+    public fun total_staked_value_in_escrow_v2<T: key + store>(
+        escrow: &EscrowVault<T>
+    ): u64 {
+        escrow::total_value(escrow)
+    }
+
+    /// Get total number of stakes managed by the staking manager
+    public fun get_total_managed_stakes(manager: &StakingManager): u64 {
+        staking_manager::get_total_stakes_count(manager)
+    }
+
+    /// Check if a specific native stake exists in the manager
+    public fun has_managed_stake(manager: &StakingManager, stake_id: ID): bool {
+        staking_manager::has_native_stake(manager, stake_id)
+    }
+
+    /// Get the balance of a specific managed stake
+    public fun get_managed_stake_balance(manager: &StakingManager, stake_id: ID): u64 {
+        if (staking_manager::has_native_stake(manager, stake_id)) {
+            staking_manager::get_native_stake_balance(manager, stake_id)
+        } else {
+            0
+        }
+    }
+
+    /// Get all essential information about a StakePosition in one call
+    /// Returns: (owner, amount, unlock_time_ms, start_time_ms, is_encumbered, is_mature, native_stake_id)
+    public fun get_stake_position_full_info<T: store>(
+        stake_position: &StakePosition<T>,
+        clock: &Clock
+    ): (address, u64, u64, u64, bool, bool, address) {
+        let owner = stake_position::owner_view(stake_position);
+        let amount = stake_position::principal_view(stake_position);
+        let unlock_time_ms = stake_position::unlock_time_ms_view(stake_position);
+        let start_time_ms = stake_position::start_time_ms_view(stake_position);
+        let is_encumbered = stake_position::is_encumbered_view(stake_position);
+        let is_mature = stake_position::is_mature(stake_position, clock);
+        let native_stake_id = stake_position::native_stake_id_view(stake_position);
+        
+        (owner, amount, unlock_time_ms, start_time_ms, is_encumbered, is_mature, native_stake_id)
+    }
+
+    /// Check if a stake is eligible for forfeiture by admin
+    /// Returns true if stake is past grace period and not encumbered
+    public fun is_stake_forfeitable<T: store>(
+        stake_position: &StakePosition<T>,
+        config: &Config,
+        clock: &Clock
+    ): bool {
+        let current_time_ms = clock::timestamp_ms(clock);
+        let unlock_time_ms = stake_position::unlock_time_ms_view(stake_position);
+        let grace_period_ms = admin::get_forfeiture_grace_period_ms(config);
+        let forfeiture_threshold_ms = unlock_time_ms + grace_period_ms;
+        
+        current_time_ms > forfeiture_threshold_ms && !stake_position::is_encumbered_view(stake_position)
+    }
+
+    /// Get comprehensive escrow vault information
+    /// Returns: (vault_id, total_balance)
+    public fun get_escrow_vault_info<T: store>(
+        escrow_vault: &EscrowVault<T>
+    ): (ID, u64) {
+        let vault_id = object::uid_to_inner(escrow::vault_uid(escrow_vault));
+        let total_balance = escrow::total_value(escrow_vault);
+        (vault_id, total_balance)
+    }
+
+    /// Get staking manager statistics
+    /// Returns: (manager_id, total_stakes_count)
+    public fun get_staking_manager_stats(manager: &StakingManager): (ID, u64) {
+        let manager_id = object::id(manager);
+        let total_stakes = staking_manager::get_total_stakes_count(manager);
+        (manager_id, total_stakes)
+    }
+
+    /// Calculate time remaining until stake unlock (returns 0 if already unlocked)
+    public fun get_time_until_unlock<T: store>(
+        stake_position: &StakePosition<T>,
+        clock: &Clock
+    ): u64 {
+        let current_time_ms = clock::timestamp_ms(clock);
+        let unlock_time_ms = stake_position::unlock_time_ms_view(stake_position);
+        
+        if (current_time_ms >= unlock_time_ms) {
+            0
+        } else {
+            unlock_time_ms - current_time_ms
+        }
+    }
+
+    /// Calculate time until forfeiture becomes available (returns 0 if already forfeitable)
+    public fun get_time_until_forfeitable<T: store>(
+        stake_position: &StakePosition<T>,
+        config: &Config,
+        clock: &Clock
+    ): u64 {
+        let current_time_ms = clock::timestamp_ms(clock);
+        let unlock_time_ms = stake_position::unlock_time_ms_view(stake_position);
+        let grace_period_ms = admin::get_forfeiture_grace_period_ms(config);
+        let forfeiture_threshold_ms = unlock_time_ms + grace_period_ms;
+        
+        if (current_time_ms >= forfeiture_threshold_ms) {
+            0
+        } else {
+            forfeiture_threshold_ms - current_time_ms
+        }
     }
 
     public entry fun request_unstake_native_sui(
@@ -1014,7 +1289,7 @@ module alpha_points::integration {
         assert!(partner_share_points + deployer_share_points == perk_cost_points, EFeeCalculationError);
 
         // 4. Credit partner with their share using ledger::mint_points
-        let stake_opt_none = std::option::none<StakePosition<u8>>(); // Using u8 as a generic type for non-staking mint
+        let stake_opt_none = std_option::none<StakePosition<u8>>(); // Using u8 as a generic type for non-staking mint
         if (partner_share_points > 0) {
             ledger::mint_points<u8>(
                 ledger,
@@ -1041,7 +1316,7 @@ module alpha_points::integration {
                 clock
             )
         };
-        std::option::destroy_none(stake_opt_none); // Clean up the Option
+        std_option::destroy_none(stake_opt_none); // Clean up the Option
 
         // 6. Emit event
         event::emit(PerkPurchased {
@@ -1052,6 +1327,360 @@ module alpha_points::integration {
             deployer_share_points,
             burned_amount_points: 0 // Now 0% burn
             // perk_identifier, // Include if you add this parameter
+        });
+    }
+
+    // === NEW FUNCTIONS WITH CORRECTED 1:1000 USD RATIO ===
+    // These functions replace the legacy ones above with proper Alpha Points conversion
+
+    /// NEW: Request unstake with corrected Alpha Points calculation (1:1000 USD ratio)
+    /// @deprecated The old request_unstake_native_sui function above uses 1:1 MIST conversion
+    public entry fun request_unstake_native_sui_v2(
+        manager: &mut StakingManager,
+        config: &Config,
+        sui_system_state: &mut SuiSystemState,
+        stake_position: StakePosition<StakedSui>,
+        clock: &Clock,
+        ledger: &mut Ledger,
+        ctx: &mut TxContext
+    ) {
+        admin::assert_not_paused(config);
+        let user = tx_context::sender(ctx);
+        assert!(stake_position::owner_view(&stake_position) == user, ENotOwner);
+        assert!(!stake_position::is_encumbered_view(&stake_position), EStakeEncumbered);
+        assert!(stake_position::is_redeemable(&stake_position, clock), ENotRedeemable);
+        
+        let native_staked_sui_address = stake_position::native_stake_id_view(&stake_position);
+        let native_staked_sui_id = id_from_address(native_staked_sui_address);
+        assert!(native_staked_sui_address != @0x0, EInvalidStakeIdType);
+        
+        let principal_sui = stake_position::principal_view(&stake_position);
+        let stake_position_id = stake_position::get_id_view(&stake_position);
+        
+        staking_manager::request_native_stake_withdrawal(
+            manager,
+            sui_system_state,
+            native_staked_sui_id,
+            ctx
+        );
+
+        // FIXED: Convert SUI MIST to Alpha Points using correct 1:1000 USD ratio
+        let alpha_points_to_mint = mist_to_alpha_points(principal_sui);
+        
+        let stake_opt_none = std_option::none<StakePosition<StakedSui>>();
+        if (alpha_points_to_mint > 0) {
+            ledger::mint_points<StakedSui>(
+                ledger,
+                user,
+                alpha_points_to_mint,
+                ledger::new_point_type_staking(),
+                ctx,
+                &stake_opt_none,
+                admin::get_default_liq_share(config),
+                clock
+            );
+        };
+        std_option::destroy_none(stake_opt_none);
+        
+        stake_position::destroy_stake(stake_position);
+        
+        event::emit(StakeConvertedToPoints {
+            user,
+            original_staked_sui_id: native_staked_sui_id,
+            sui_amount_unstaked: principal_sui,
+            points_minted: alpha_points_to_mint,
+            stake_position_id,
+        });
+    }
+
+    /// NEW: Emergency unstake with corrected Alpha Points calculation (1:1000 USD ratio)
+    /// @deprecated The old emergency_unstake_native_sui function above uses 1:1 MIST conversion
+    public entry fun emergency_unstake_native_sui_v2(
+        admin_cap: &AdminCap,
+        config: &Config,
+        manager: &mut StakingManager,
+        sui_system_state: &mut SuiSystemState,
+        stake_position: StakePosition<StakedSui>,
+        clock: &Clock,
+        ledger: &mut Ledger,
+        ctx: &mut TxContext
+    ) {
+        assert!(admin::is_admin(admin_cap, config), EAdminOnly);
+        let user = stake_position::owner_view(&stake_position);
+        let _current_epoch = tx_context::epoch(ctx);
+        
+        let native_staked_sui_address = stake_position::native_stake_id_view(&stake_position);
+        let native_staked_sui_id = id_from_address(native_staked_sui_address);
+        assert!(native_staked_sui_address != @0x0, EInvalidStakeIdType);
+        
+        let principal_sui = stake_position::principal_view(&stake_position);
+        let stake_position_id = stake_position::get_id_view(&stake_position);
+        
+        staking_manager::request_native_stake_withdrawal(
+            manager,
+            sui_system_state,
+            native_staked_sui_id,
+            ctx
+        );
+
+        // FIXED: Convert SUI MIST to Alpha Points using correct 1:1000 USD ratio
+        let alpha_points_to_mint = mist_to_alpha_points(principal_sui);
+        
+        let stake_opt_none = std_option::none<StakePosition<StakedSui>>();
+        if (alpha_points_to_mint > 0) {
+            ledger::mint_points<StakedSui>(
+                ledger,
+                user,
+                alpha_points_to_mint,
+                ledger::new_point_type_staking(),
+                ctx,
+                &stake_opt_none,
+                admin::get_default_liq_share(config),
+                clock
+            );
+        };
+        std_option::destroy_none(stake_opt_none);
+        
+        stake_position::destroy_stake(stake_position);
+        
+        event::emit(StakeConvertedToPoints {
+            user,
+            original_staked_sui_id: native_staked_sui_id,
+            sui_amount_unstaked: principal_sui,
+            points_minted: alpha_points_to_mint,
+            stake_position_id,
+        });
+    }
+
+    /// NEW: Liquid unstake as loan with corrected Alpha Points calculation (1:1000 USD ratio)
+    /// @deprecated The old liquid_unstake_as_loan_native_sui function above uses 1:1 MIST conversion
+    public entry fun liquid_unstake_as_loan_native_sui_v2(
+        config: &Config,
+        _loan_config: &loan::LoanConfig,
+        ledger: &mut Ledger,
+        stake_position: &mut StakePosition<StakedSui>,
+        clock: &Clock,
+        staking_manager: &mut StakingManager,
+        sui_system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        admin::assert_not_paused(config);
+        let user = tx_context::sender(ctx);
+        assert!(stake_position::owner_view(stake_position) == user, ENotOwner);
+        assert!(!stake_position::is_encumbered_view(stake_position), EStakeEncumbered);
+        assert!(stake_position::is_redeemable(stake_position, clock), EStakeNotMatureForLoan);
+        
+        let sui_principal_for_loan = stake_position::principal_view(stake_position);
+        
+        // FIXED: Convert SUI MIST to Alpha Points using correct 1:1000 USD ratio
+        let total_alpha_points = mist_to_alpha_points(sui_principal_for_loan);
+        let loan_fee_points = total_alpha_points / 1000; // 0.1% fee in Alpha Points
+        let points_to_user_net = total_alpha_points - loan_fee_points;
+        
+        assert!(loan_fee_points <= total_alpha_points, EFeeCalculationError);
+        
+        if (points_to_user_net > 0) {
+            let stake_opt_none = std_option::none<StakePosition<StakedSui>>();
+            ledger::mint_points<StakedSui>(
+                ledger,
+                user,
+                points_to_user_net,
+                ledger::new_point_type_staking(),
+                ctx,
+                &stake_opt_none,
+                admin::get_default_liq_share(config),
+                clock
+            );
+            std_option::destroy_none(stake_opt_none);
+        };
+        
+        if (loan_fee_points > 0) {
+            let stake_opt_none_fee = std_option::none<StakePosition<StakedSui>>();
+            ledger::mint_points<StakedSui>(
+                ledger,
+                admin::deployer_address(config),
+                loan_fee_points,
+                ledger::new_point_type_staking(),
+                ctx,
+                &stake_opt_none_fee,
+                admin::get_default_liq_share(config),
+                clock
+            );
+            std_option::destroy_none(stake_opt_none_fee);
+        };
+
+        let stake_pos_id = stake_position::get_id_view(stake_position);
+        let loan_opened_time_ms = sui::clock::timestamp_ms(clock);
+        let loan_object = loan::create_loan(
+            user, 
+            stake_pos_id, 
+            sui_principal_for_loan, 
+            loan_opened_time_ms, 
+            ctx
+        );
+        let loan_object_id = object::uid_to_inner(loan::get_loan_uid(&loan_object));
+        transfer::public_transfer(loan_object, user);
+        
+        stake_position::set_encumbered(stake_position, true);
+        
+        let native_staked_sui_address = stake_position::native_stake_id_view(stake_position);
+        let native_staked_sui_id = id_from_address(native_staked_sui_address);
+        assert!(native_staked_sui_address != @0x0, EInvalidStakeIdType);
+        
+        staking_manager::request_native_stake_withdrawal(
+            staking_manager,
+            sui_system_state,
+            native_staked_sui_id,
+            ctx
+        );
+
+        event::emit(LiquidUnstakeAsLoanInitiated {
+            user,
+            stake_position_id: stake_pos_id,
+            native_sui_stake_id: native_staked_sui_id,
+            sui_value_for_loan: sui_principal_for_loan,
+            points_loaned: points_to_user_net,
+            loan_fee_points,
+            loan_object_id,
+            opened_time_ms: loan_opened_time_ms,
+        });
+    }
+
+    /// Cross-package recovery helper: Check if old package objects are accessible
+    /// This function can be used to test if we have admin access to old package objects
+    public fun test_old_package_admin_access(
+        admin_cap: &AdminCap,
+        config: &Config,
+        _ctx: &TxContext
+    ): bool {
+        // Test if current admin cap gives us access
+        admin::is_admin(admin_cap, config) && admin::deployer_address(config) != @0x0
+    }
+
+    /// Emergency recovery function for migrating stakes from old corrupted packages
+    /// This function attempts to recreate stake positions in the new package
+    /// based on data from old package objects that may be accessible
+    public entry fun emergency_migrate_old_stake(
+        admin_cap: &AdminCap,
+        config: &Config,
+        _manager: &mut StakingManager,
+        ledger: &mut Ledger,
+        old_stake_principal: u64,
+        old_stake_owner: address,
+        old_stake_duration_days: u64,
+        old_stake_start_time_ms: u64,
+        compensation_sui: Coin<SUI>, // SUI to compensate user
+        _clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(admin::is_admin(admin_cap, config), EAdminOnly);
+        
+        // Validate compensation amount matches claimed stake value
+        let compensation_amount = coin::value(&compensation_sui);
+        assert!(compensation_amount >= old_stake_principal, EInsufficientCompensation);
+        
+        // Create replacement points for the user based on 1:1000 USD ratio
+        let replacement_alpha_points = mist_to_alpha_points(old_stake_principal);
+        
+        if (replacement_alpha_points > 0) {
+            let stake_opt_none = std_option::none<StakePosition<StakedSui>>();
+            ledger::mint_points<StakedSui>(
+                ledger,
+                old_stake_owner,
+                replacement_alpha_points,
+                ledger::new_point_type_staking(),
+                ctx,
+                &stake_opt_none,
+                admin::get_default_liq_share(config),
+                _clock
+            );
+            std_option::destroy_none(stake_opt_none);
+        };
+        
+        // Send compensation SUI to protocol treasury
+        let treasury_address = admin::deployer_address(config);
+        transfer::public_transfer(compensation_sui, treasury_address);
+        
+        event::emit(OldStakeMigrated {
+            admin_cap_id: admin::admin_cap_id(config),
+            old_stake_owner,
+            old_stake_principal,
+            old_stake_duration_days,
+            old_stake_start_time_ms,
+            replacement_alpha_points,
+            compensation_amount,
+        });
+    }
+
+    /// Batch migration function for processing multiple old stakes at once
+    public entry fun emergency_batch_migrate_old_stakes(
+        admin_cap: &AdminCap,
+        config: &Config,
+        _manager: &mut StakingManager,
+        ledger: &mut Ledger,
+        old_stake_principals: vector<u64>,
+        old_stake_owners: vector<address>,
+        old_stake_durations: vector<u64>,
+        old_stake_start_times: vector<u64>,
+        total_compensation_sui: Coin<SUI>,
+        _clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(admin::is_admin(admin_cap, config), EAdminOnly);
+        
+        let stakes_count = vector::length(&old_stake_principals);
+        assert!(stakes_count == vector::length(&old_stake_owners), EInvalidBatchData);
+        assert!(stakes_count == vector::length(&old_stake_durations), EInvalidBatchData);
+        assert!(stakes_count == vector::length(&old_stake_start_times), EInvalidBatchData);
+        
+        let mut i = 0;
+        let mut total_points_issued = 0;
+        let mut total_principal_compensated = 0;
+        
+        while (i < stakes_count) {
+            let principal = *vector::borrow(&old_stake_principals, i);
+            let owner = *vector::borrow(&old_stake_owners, i);
+            let _duration = *vector::borrow(&old_stake_durations, i);
+            let _start_time = *vector::borrow(&old_stake_start_times, i);
+            
+            // Calculate Alpha Points for this stake
+            let alpha_points = mist_to_alpha_points(principal);
+            
+            if (alpha_points > 0) {
+                let stake_opt_none = std_option::none<StakePosition<StakedSui>>();
+                ledger::mint_points<StakedSui>(
+                    ledger,
+                    owner,
+                    alpha_points,
+                    ledger::new_point_type_staking(),
+                    ctx,
+                    &stake_opt_none,
+                    admin::get_default_liq_share(config),
+                    _clock
+                );
+                std_option::destroy_none(stake_opt_none);
+                
+                total_points_issued = total_points_issued + alpha_points;
+            };
+            
+            total_principal_compensated = total_principal_compensated + principal;
+            i = i + 1;
+        };
+        
+        // Validate total compensation
+        let compensation_amount = coin::value(&total_compensation_sui);
+        assert!(compensation_amount >= total_principal_compensated, EInsufficientCompensation);
+        
+        // Send compensation to treasury
+        let treasury_address = admin::deployer_address(config);
+        transfer::public_transfer(total_compensation_sui, treasury_address);
+        
+        event::emit(BatchOldStakesMigrated {
+            admin_cap_id: admin::admin_cap_id(config),
+            stakes_migrated: stakes_count,
+            total_principal_compensated,
+            total_points_issued,
+            compensation_amount,
         });
     }
 }

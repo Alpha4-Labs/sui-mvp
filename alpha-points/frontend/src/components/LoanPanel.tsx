@@ -47,11 +47,10 @@ export const LoanPanel: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [slidesPerView, setSlidesPerView] = useState(1);
 
-  // Use the same price constants as MarketplacePage for consistency
-  // These should ideally be imported from a shared config if they become more complex
+  // FIXED: Use correct 1:1000 ratio (1 USD = 1000 Alpha Points)
   const SUI_PRICE_USD_FOR_LOAN = 3.28;
-  const ALPHA_POINT_PRICE_USD_FOR_LOAN = 3.28 / 1191360; // Matches MarketplacePage target rate for 1,191,360 aP / SUI
-  const ALPHA_POINTS_PER_SUI_FOR_LOAN = SUI_PRICE_USD_FOR_LOAN / ALPHA_POINT_PRICE_USD_FOR_LOAN; // Should be ~1,191,360
+  const ALPHA_POINTS_PER_USD = 1000; // Fixed ratio: 1 USD = 1000 Alpha Points
+  const ALPHA_POINTS_PER_SUI_FOR_LOAN = SUI_PRICE_USD_FOR_LOAN * ALPHA_POINTS_PER_USD; // 3.28 * 1000 = 3,280 AP per SUI
 
   // Loan-to-Value ratio (70%)
   const LTV_RATIO = 0.7;

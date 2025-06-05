@@ -130,4 +130,9 @@ module alpha_points::staking_manager {
         let native_stake = table::borrow(&manager.native_stakes, stake_id);
         staked_sui_amount(native_stake)
     }
+
+    /// Returns the total count of stakes managed by this StakingManager
+    public fun get_total_stakes_count(manager: &StakingManager): u64 {
+        table::length(&manager.native_stakes)
+    }
 }
