@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { PartnerCapInfo } from '../hooks/usePartnerDetection';
 import { Button } from './ui/Button';
@@ -93,6 +93,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const { partnerCaps, refreshData, setPartnerCaps } = useAlphaContext();
   const { currentWallet } = useCurrentWallet();
   const { detectPartnerCaps } = usePartnerDetection();
+  const navigate = useNavigate();
   
   // Portal Tooltip Component
   const PortalTooltip: React.FC<{ children: React.ReactNode; show: boolean; position: { x: number; y: number } }> = ({ children, show, position }) => {
@@ -1295,7 +1296,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 </div>
               </div>
               <button
-                onClick={() => window.location.hash = '#settings'}
+                onClick={() => navigate('/partners/settings')}
                 className="px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white text-xs rounded font-medium transition-colors"
               >
                 Configure Now
@@ -1360,7 +1361,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 </div>
               </div>
               <button
-                onClick={() => window.location.hash = '#settings'}
+                onClick={() => navigate('/partners/settings')}
                 className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded font-medium transition-colors"
               >
                 Fix Settings
@@ -1402,7 +1403,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 </div>
               </div>
               <button
-                onClick={() => window.location.hash = '#settings'}
+                onClick={() => navigate('/partners/settings')}
                 className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded font-medium transition-colors"
               >
                 Go to Settings
