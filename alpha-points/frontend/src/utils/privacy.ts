@@ -20,6 +20,19 @@ export function hashMetadata(value: string, salt: string): string {
 }
 
 /**
+ * Verify if a Discord ID matches a stored hash
+ * @param discordId - The Discord ID to check
+ * @param storedHash - The hash stored on-chain
+ * @param salt - The salt used for hashing (optional, uses default if not provided)
+ * @returns true if the Discord ID matches the hash
+ */
+export function verifyDiscordIdHash(discordId: string, storedHash: string, salt?: string): boolean {
+  const usedSalt = salt || DEFAULT_SALT;
+  const computedHash = hashMetadata(discordId, usedSalt);
+  return computedHash === storedHash;
+}
+
+/**
  * Legacy Discord ID hashing (backward compatibility)
  * @param discordId - Discord user ID to hash
  * @returns Hashed Discord ID
@@ -202,4 +215,23 @@ export function shouldHashMetadata(metadataType: string): boolean {
   
   return hashableTypes.includes(metadataType.toLowerCase()) || 
          metadataType.toLowerCase().endsWith('_hash');
+}
+
+/**
+ * Create a verification payload for Discord bot integration
+ * @param discordId - The Discord ID to hash
+ * @param salt - The salt to use for hashing
+ * @returns Object with hash, timestamp, and verification info
+ */
+export function createDiscordVerificationPayload(discordId: string, salt?: string) {
+  const usedSalt = salt || DEFAULT_SALT;
+  const hash = hashMetadata(discordId, usedSalt);
+  const timestamp = Date.now();
+  
+  return {
+    hash,
+    timestamp,
+    // Verification helper for Discord bots
+    verify: (userDiscordId: string) => verifyDiscordIdHash(userDiscordId, hash, usedSalt)
+  };
 } 

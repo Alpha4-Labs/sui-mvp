@@ -6,6 +6,7 @@ import { buildClaimPerkTransaction, buildClaimPerkWithMetadataTransaction } from
 import { hashMetadata } from '../utils/privacy';
 import { PerkFilterModal } from './PerkFilterModal';
 import { MetadataCollectionModal } from './MetadataCollectionModal';
+import { DiscordHandleModal } from './DiscordHandleModal';
 import type { MetadataField } from '../hooks/usePartnerSettings';
 import { toast } from 'react-toastify';
 import { requestCache } from '../utils/cache';
@@ -47,6 +48,10 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   const [perkMetadataFields, setPerkMetadataFields] = useState<MetadataField[]>([]);
   const [partnerSalt, setPartnerSalt] = useState<string>('');
   const [perkPurchaseLoading, setPerkPurchaseLoading] = useState(false);
+
+  // Discord modal state
+  const [isDiscordModalOpen, setIsDiscordModalOpen] = useState(false);
+  const [selectedDiscordPerk, setSelectedDiscordPerk] = useState<PerkDefinition | null>(null);
 
   // Filtering state
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
@@ -259,7 +264,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       if (isDiscordPerk) {
         // Legacy Discord integration
         return {
-          salt: process.env.REACT_APP_DISCORD_SALT || 'alpha4-default-salt-2024',
+          salt: import.meta.env['VITE_DISCORD_SALT'] || import.meta.env['VITE_METADATA_SALT'] || 'alpha4-default-salt-2024',
           fields: [
             {
               key: 'discord_id',
@@ -311,6 +316,14 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       return;
     }
 
+    // Validate metadata exists
+    const metadataKeys = Object.keys(metadata);
+    const metadataValues = Object.values(metadata);
+    if (metadataKeys.length === 0 || !metadataValues[0]) {
+      toast.error("Missing metadata information.");
+      return;
+    }
+
     setPerkPurchaseLoading(true);
     setTransactionLoading(true);
 
@@ -320,8 +333,8 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       const transaction = buildClaimPerkWithMetadataTransaction(
         selectedPerkForMetadata.id,
         selectedPerkForMetadata.creator_partner_cap_id,
-        Object.keys(metadata)[0], // Use first metadata key
-        Object.values(metadata)[0] // Use first metadata value
+        metadataKeys[0],
+        metadataValues[0] as string
       );
 
       const result = await signAndExecute({
@@ -414,17 +427,89 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
 
   // Removed handleSubnameInputSubmit - no longer needed
 
-  // Determine if a perk requires metadata collection
+  // Open Discord modal for Discord-tagged perks
+  const openDiscordModal = (perk: PerkDefinition) => {
+    setSelectedDiscordPerk(perk);
+    setIsDiscordModalOpen(true);
+  };
+
+  // Handle Discord modal submission
+  const handleDiscordModalSubmit = async (discordId: string) => {
+    if (!currentAccount?.address || !selectedDiscordPerk) {
+      toast.error("Missing account or perk information.");
+      return;
+    }
+
+    setPerkPurchaseLoading(true);
+    setTransactionLoading(true);
+
+    try {
+      console.log('🔐 Discord: Processing Discord ID for role assignment');
+
+      // Hash the Discord ID for privacy
+      const hashedDiscordId = hashMetadata(discordId, import.meta.env['VITE_DISCORD_SALT'] || 'alpha4-default-salt-2024');
+
+      const transaction = buildClaimPerkWithMetadataTransaction(
+        selectedDiscordPerk.id,
+        selectedDiscordPerk.creator_partner_cap_id,
+        'discord_id_hash',
+        hashedDiscordId
+      );
+
+      const result = await signAndExecute({
+        transaction,
+        chain: 'sui:testnet',
+      });
+
+      if (result?.digest) {
+        toast.success(
+          `✅ Successfully purchased "${selectedDiscordPerk.name}"!\n\n🔗 Transaction: ${result.digest.substring(0, 8)}...`,
+          {
+            onClick: () => window.open(`https://suiscan.xyz/testnet/tx/${result.digest}`, '_blank'),
+            style: { whiteSpace: 'pre-line', cursor: 'pointer' }
+          }
+        );
+
+        // Refresh data
+        refreshData();
+        refreshPerkData();
+
+        // Call optional callback
+        if (onPerkPurchase) {
+          onPerkPurchase(selectedDiscordPerk);
+        }
+
+        // Close modal
+        setIsDiscordModalOpen(false);
+        setSelectedDiscordPerk(null);
+      }
+    } catch (error: any) {
+      console.error('Failed to purchase Discord perk:', error);
+      toast.error(error.message || 'Failed to purchase Discord perk.');
+    } finally {
+      setPerkPurchaseLoading(false);
+      setTransactionLoading(false);
+    }
+  };
+
+  // Determine if a perk requires Discord input specifically
+  const requiresDiscordInput = (perk: PerkDefinition) => {
+    return perk.tags?.some(tag => tag.toLowerCase().includes('discord')) ||
+           perk.name.toLowerCase().includes('discord');
+  };
+
+  // Determine if a perk requires other metadata collection (non-Discord)
   const requiresMetadata = (perk: PerkDefinition) => {
     return perk.generates_unique_claim_metadata || 
            perk.name.toLowerCase().includes('alpha4 og role') || 
-           perk.name.toLowerCase().includes('discord') ||
            perk.name.toLowerCase().includes('role');
   };
 
-  // Handle perk purchase click - check if it requires metadata
+  // Handle perk purchase click - route to appropriate modal
   const handlePerkClick = (perk: PerkDefinition) => {
-    if (requiresMetadata(perk)) {
+    if (requiresDiscordInput(perk)) {
+      openDiscordModal(perk);
+    } else if (requiresMetadata(perk)) {
       openMetadataModal(perk);
     } else {
       handleRegularPerkPurchase(perk);
@@ -705,6 +790,21 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
           perkCost={`${getCorrectAlphaPointsPrice(selectedPerkForMetadata).toLocaleString()} αP`}
           isLoading={perkPurchaseLoading}
           partnerSalt={partnerSalt}
+        />
+      )}
+
+      {/* Discord Handle Modal */}
+      {isDiscordModalOpen && selectedDiscordPerk && (
+        <DiscordHandleModal
+          isOpen={isDiscordModalOpen}
+          onClose={() => {
+            setIsDiscordModalOpen(false);
+            setSelectedDiscordPerk(null);
+          }}
+          onSubmit={handleDiscordModalSubmit}
+          perkName={selectedDiscordPerk.name}
+          perkCost={`${getCorrectAlphaPointsPrice(selectedDiscordPerk).toLocaleString()} αP`}
+          isLoading={perkPurchaseLoading}
         />
       )}
     </div>
