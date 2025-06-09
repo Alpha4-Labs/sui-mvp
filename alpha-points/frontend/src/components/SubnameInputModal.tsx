@@ -34,7 +34,7 @@ export const SubnameInputModal: React.FC<SubnameInputModalProps> = ({
   // You may want to move this to context or props if you already have one
   const suinsClient = new SuinsClient({
     client: suiClient,
-    network: import.meta.env.VITE_SUI_NETWORK || 'testnet',
+    network: import.meta.env['VITE_SUI_NETWORK'] || 'testnet',
   });
   const parentDomain = 'alpha4.sui';
 
@@ -58,7 +58,7 @@ export const SubnameInputModal: React.FC<SubnameInputModalProps> = ({
           setIsAvailable(true); // Available
         }
       } catch (e: any) {
-        console.log('[SuiNS Debug] Error from getNameRecord:', e);
+
         if (e.message && e.message.toLowerCase().includes('not found')) {
           setIsAvailable(true); // Available
         } else {

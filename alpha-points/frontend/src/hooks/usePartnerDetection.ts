@@ -143,7 +143,7 @@ export function usePartnerDetection() {
 
             // REMOVED DEBUG SPAM: Only log in development
             if (process.env.NODE_ENV === 'development') {
-              console.log('🔍 Processing partner cap object:', obj.data.objectId);
+
             }
 
             const fields = (obj.data.content as any).fields;
@@ -199,7 +199,7 @@ export function usePartnerDetection() {
             
             // REDUCED LOGGING: Only in development
             if (process.env.NODE_ENV === 'development') {
-              console.log('✅ Created PartnerCapInfo:', partnerCapInfo.partnerName);
+
             }
             
             return partnerCapInfo;

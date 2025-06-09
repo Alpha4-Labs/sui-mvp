@@ -68,6 +68,12 @@ interface AlphaContextType {
   logout: () => void;
   removeOrphanedStake: (stakedSuiObjectId: string) => void; // Keeps its utility for signaling UI change
   version: number;
+
+  // Add new selective refresh methods
+  refreshCriticalData: () => Promise<void>;
+  refreshSecondaryData: () => Promise<void>;
+  refreshLoansData: () => Promise<void>;
+  refreshStakePositions: () => Promise<void>; // New method for lazy loading stake positions
 }
 
 // Create context with a proper initial value that matches the type
@@ -108,6 +114,10 @@ const defaultContext: AlphaContextType = {
   logout: () => {},
   removeOrphanedStake: () => {},
   version: 0,
+  refreshCriticalData: () => Promise.resolve(),
+  refreshSecondaryData: () => Promise.resolve(),
+  refreshLoansData: () => Promise.resolve(),
+  refreshStakePositions: () => Promise.resolve(),
 };
 
 const AlphaContext = createContext<AlphaContextType>(defaultContext);
@@ -124,15 +134,17 @@ const DEFAULT_DURATIONS: DurationOption[] = [
   { days: 365, label: '365 days', apy: 25.0 },
 ];
 
+// Removed complex request queue - using simpler approach
+
 export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const currentAccount = useCurrentAccount();
   const zkLogin = useZkLogin();
   const { mutate: disconnectWalletDappKit } = useDisconnectWallet();
   const suiClient = useSuiClient();
 
-  const { points, loading: loadingPoints, error: errorPoints, refetch: refetchPoints } = useAlphaPoints();
-  const { positions: stakePositions, loading: loadingPositions, error: errorPositions, refetch: refetchPositions } = useStakePositions();
-  const { loans, loading: loadingLoans, error: errorLoans, refetch: refetchLoans } = useLoans();
+  const { points, loading: loadingPoints, error: errorPoints, refetch: refetchPoints } = useAlphaPoints(); // Already conditional
+  const { positions: stakePositions, loading: loadingPositions, error: errorPositions, refetch: refetchPositions } = useStakePositions(false); // Don't auto-load positions
+  const { loans, loading: loadingLoans, error: errorLoans, refetch: refetchLoans } = useLoans(false); // Don't auto-load loans
   
   // Use the new hook
   const activeAddress = zkLogin.address || currentAccount?.address;
@@ -141,7 +153,7 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     loading: loadingAllUserStakes, 
     error: errorAllUserStakes, 
     refetch: refetchAllUserStakes 
-  } = useAllUserStakes(activeAddress);
+  } = useAllUserStakes(activeAddress, false); // Disable auto-loading
 
   // Partner detection - REMOVED from here, moved to MainLayout
   // const {
@@ -174,6 +186,10 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Get current partner capabilities - REMOVED
   // const isPartner = hasPartnerCap();
   // const partnerCap = getPrimaryPartnerCap();
+
+  // Add loading state granularity
+  const [criticalDataLoaded, setCriticalDataLoaded] = useState(false);
+  const [secondaryDataLoaded, setSecondaryDataLoaded] = useState(false);
 
   // --- Calculate Orphaned Stakes --- 
   useEffect(() => {
@@ -232,51 +248,96 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [suiClient]);
 
-  const refreshData = useCallback(async () => {
-    const currentActiveAddress = zkLogin.address || currentAccount?.address;
-    if (currentActiveAddress) {
-      try {
-        // Sequential execution to avoid overwhelming the RPC endpoint
-        await fetchSuiBalance(currentActiveAddress);
-        await refetchPoints(currentActiveAddress);
-        await refetchPositions(currentActiveAddress);
-        
-        // Add delay before additional requests
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        await refetchAllUserStakes(currentActiveAddress);
-        await refetchLoans(currentActiveAddress);
-        
-        // Add delay before partner detection
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // await detectPartnerCaps();
-      } catch (error) {
-        console.error('[AlphaContext] Error during data refresh:', error);
-      }
-    } else {
-      // Clear data if no user - also sequential to avoid rate limits
-      try {
-        await fetchSuiBalance(undefined);
-        await refetchPoints(undefined);
-        await refetchPositions(undefined);
-        await refetchAllUserStakes(undefined);
-        await refetchLoans(undefined);
-      } catch (error) {
-        console.error('[AlphaContext] Error during data clearing:', error);
-      }
+     // PRIORITY 1: Critical data needed immediately (ONLY points + SUI balance)
+   const refreshCriticalData = useCallback(async () => {
+     if (!activeAddress) return;
+     
+     try {
+       // Load ONLY essential data - points and SUI balance
+       await refetchPoints(activeAddress);
+       await new Promise(resolve => setTimeout(resolve, 500)); // Small delay
+       await fetchSuiBalance(activeAddress);
+       
+       setCriticalDataLoaded(true);
+     } catch (error) {
+       console.error('Error loading critical data:', error);
+     }
+   }, [activeAddress, refetchPoints, fetchSuiBalance]);
+
+  // PRIORITY 2: Secondary data (can be delayed) - DISABLED to prevent API spam
+  const refreshSecondaryData = useCallback(async () => {
+    if (!activeAddress || !criticalDataLoaded) return;
+    
+    try {
+      // Skip all secondary data loading to prevent API spam
+      console.log('Secondary data loading disabled to prevent API spam');
+      setSecondaryDataLoaded(true);
+    } catch (error) {
+      console.error('Error loading secondary data:', error);
     }
-    setVersion(v => v + 1);
-    setAuthLoadingState(false);
-  }, [
-    fetchSuiBalance, refetchPoints, refetchPositions, refetchAllUserStakes, refetchLoans, 
-    currentAccount?.address, zkLogin.address
-  ]);
+  }, [activeAddress, criticalDataLoaded]);
+
+  // PRIORITY 3: Loans data (only when needed)
+  const refreshLoansData = useCallback(async () => {
+    if (!activeAddress) return;
+    
+    try {
+      await refetchLoans(activeAddress);
+    } catch (error) {
+      console.error('Error loading loans data:', error);
+    }
+  }, [activeAddress, refetchLoans]);
+
+  // PRIORITY 4: Stake positions (lazy loaded when dashboard accessed)
+  const refreshStakePositions = useCallback(async () => {
+    if (!activeAddress) return;
+    
+    try {
+      await refetchPositions(activeAddress);
+    } catch (error) {
+      console.error('Error loading stake positions:', error);
+    }
+  }, [activeAddress, refetchPositions]);
+
+  // Modified main refresh function
+  const refreshData = useCallback(async () => {
+    if (!activeAddress) {
+      console.warn('No address available for refresh');
+      return;
+    }
+
+    try {
+      // Step 1: Load critical data immediately
+      await refreshCriticalData();
+      
+      // Step 2: Skip secondary data loading for now to prevent API spam
+      // setTimeout(() => {
+      //   refreshSecondaryData();
+      // }, 10000);
+      
+    } catch (error) {
+      console.error('Error in data refresh:', error);
+    }
+    // Note: Loading state is now controlled by video duration, not data completion
+  }, [activeAddress, refreshCriticalData, refreshSecondaryData]);
 
   useEffect(() => {
-    setAuthLoadingState(true);
-    refreshData();
-  }, [currentAccount?.address, zkLogin.address]); // Removed refreshData from deps, it's stable
+    if (activeAddress) {
+      setAuthLoadingState(true);
+      
+      // Start loading data immediately in parallel
+      refreshData();
+      
+      // Show loading screen for full video duration (6 seconds) regardless of data loading speed
+      const videoTimeout = setTimeout(() => {
+        setAuthLoadingState(false);
+      }, 6000); // 6 seconds for full video playback
+      
+      return () => clearTimeout(videoTimeout);
+    } else {
+      setAuthLoadingState(false);
+    }
+  }, [activeAddress]); // Removed refreshData from deps, it's stable
 
   const logout = useCallback(() => {
     if (zkLogin.isAuthenticated) {
@@ -326,6 +387,10 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     logout,
     removeOrphanedStake,
     version,
+    refreshCriticalData,
+    refreshSecondaryData,
+    refreshLoansData,
+    refreshStakePositions,
   };
 
   return <AlphaContext.Provider value={value}>{children}</AlphaContext.Provider>;

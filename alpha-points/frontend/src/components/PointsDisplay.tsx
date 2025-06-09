@@ -33,6 +33,7 @@ export const PointsDisplay: React.FC = () => {
   const [currentEpoch, setCurrentEpoch] = useState<bigint | null>(null);
   const [nextEpochTime, setNextEpochTime] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<string>("Calculating...");
+  const [debugInfo, setDebugInfo] = useState<string>("");
 
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
   const suiClient = useSuiClient();
@@ -40,10 +41,6 @@ export const PointsDisplay: React.FC = () => {
 
   const EPOCHS_PER_YEAR = 365;
   const SUI_TO_MIST_CONVERSION = 1_000_000_000n;
-  // FIXED: Using correct 1:1000 USD ratio (1 SUI = 3.28 USD = 3,280 AP)
-  // At 100% APY: 3,280 AP per year = 9 AP per epoch per SUI
-  // Scaling factor = 9 (not 25) to match 1:1000 USD ratio
-  const APY_POINT_SCALING_FACTOR = 1n; // Will calculate directly without scaling
   const MS_PER_DAY = 86_400_000;
   const SUI_PRICE_USD = 3.28;
   const ALPHA_POINTS_PER_USD = 1000;
@@ -109,20 +106,27 @@ export const PointsDisplay: React.FC = () => {
   useEffect(() => {
     if (!currentEpoch || loading.positions || !stakePositions) { 
       setTotalClaimablePoints(0n);
+      setDebugInfo("Waiting for epoch or position data...");
       return;
     }
+    
     if (stakePositions.length === 0) {
-        setTotalClaimablePoints(0n);
+      setTotalClaimablePoints(0n);
+      setDebugInfo("No stake positions found");
       return;
     }
     
     setLoadingClaimable(true);
     let accumulatedPoints = 0n;
+    let positionsProcessed = 0;
+    let positionsWithClaimable = 0;
 
     stakePositions.forEach((pos: StakePosition, index: number) => {
-      if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined' || typeof pos.assetType === 'undefined') {
+      if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined') {
         return; 
       }
+      
+      positionsProcessed++;
       const lastClaimEpochBigInt = BigInt(pos.lastClaimEpoch);
       
       if (currentEpoch <= lastClaimEpochBigInt) {
@@ -135,36 +139,30 @@ export const PointsDisplay: React.FC = () => {
       const stakeApyBps = BigInt(getApyBpsForDurationDays(durationDays));
 
       if (stakeApyBps === 0n) {
-          return;
+        return;
       }
 
       // FIXED: Correct calculation using 1:1000 USD ratio
-      // Formula: (principal_sui * sui_price_usd * alpha_points_per_usd * apy_percentage) / epochs_per_year
       const principalSui = principalMist; // Keep in MIST for precision
       const alphaPointsPerSui = BigInt(Math.floor(SUI_PRICE_USD * ALPHA_POINTS_PER_USD)); // 3,280 AP per SUI
       const annualPoints = (principalSui * alphaPointsPerSui * stakeApyBps) / (SUI_TO_MIST_CONVERSION * 10000n); // 10000 = 100 * 100 (bps conversion)
       const pointsPerEpoch = annualPoints / BigInt(EPOCHS_PER_YEAR);
       const epochsPassed = currentEpoch - lastClaimEpochBigInt;
       
-      if (epochsPassed > 0n) {
+      if (epochsPassed > 0n && pointsPerEpoch > 0n) {
         const pointsToAdd = pointsPerEpoch * epochsPassed;
         accumulatedPoints += pointsToAdd;
+        positionsWithClaimable++;
       }
     });
 
     setTotalClaimablePoints(accumulatedPoints);
+    setDebugInfo(`${positionsProcessed} positions, ${positionsWithClaimable} with rewards`);
     setLoadingClaimable(false);
   }, [currentEpoch, stakePositions, loading.positions]);
 
   const handleClaim = async () => {
-    console.log("SHARED_OBJECTS for claim:", SHARED_OBJECTS);
-    console.log("CLOCK_ID for claim:", CLOCK_ID);
     if (!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || !stakePositions || stakePositions.length === 0) {
-      console.warn("Claim prerequisites not met:", {
-        currentAccount,
-        totalClaimablePoints,
-        stakePositions
-      });
       return;
     }
 
@@ -194,12 +192,6 @@ export const PointsDisplay: React.FC = () => {
                 const pointsPerEpoch = annualPoints / BigInt(EPOCHS_PER_YEAR);
                 const epochsPassed = currentEpoch - lastClaimEpochBigInt;
                 if (pointsPerEpoch * epochsPassed > 0n) {
-                    console.log(`Adding claim for position: ${pos.id}, assetType: ${pos.assetType || SUI_TYPE}`);
-                    console.log("Config ID:", SHARED_OBJECTS.config);
-                    console.log("Ledger ID:", SHARED_OBJECTS.ledger);
-                    console.log("Position ID:", pos.id);
-                    console.log("Clock ID:", CLOCK_ID);
-                    
                     tx.moveCall({
                         target: `${PACKAGE_ID}::integration::claim_accrued_points`,
                         typeArguments: [pos.assetType || SUI_TYPE],
@@ -217,12 +209,12 @@ export const PointsDisplay: React.FC = () => {
       }
 
       if (claimsAdded === 0) {
-        console.warn("No claims were added to the transaction.");
+
         setTransactionLoading(false);
         return;
       }
       
-      console.log("Executing transaction with claimsAdded:", claimsAdded);
+
       await signAndExecute({ transaction: tx }, { onSuccess: () => refreshData() });
     } catch (error) {
       console.error('Error claiming points:', error);
@@ -233,57 +225,121 @@ export const PointsDisplay: React.FC = () => {
 
   if (loading.points || loadingClaimable) {
     return (
-      <div className="bg-background-card rounded-lg p-6 shadow-lg animate-pulse">
-        <div className="h-8 bg-gray-700 rounded w-3/4 mb-4"></div>
-        <div className="h-10 bg-gray-700 rounded w-1/2 mb-6"></div>
-        <div className="h-6 bg-gray-700 rounded w-full mb-2"></div>
-        <div className="h-8 bg-gray-700 rounded w-2/3"></div>
+      <div className="card-modern p-6 animate-pulse">
+        <div className="h-6 bg-gray-700/50 rounded-lg w-3/4 mb-4"></div>
+        <div className="h-10 bg-gray-700/50 rounded-lg w-1/2 mb-6"></div>
+        <div className="h-4 bg-gray-700/30 rounded w-full mb-2"></div>
+        <div className="h-8 bg-gray-700/30 rounded w-2/3"></div>
       </div>
     );
   }
 
   return (
-    <div className="bg-background-card rounded-lg pt-6 pr-6 pl-6 pb-3 shadow-lg">
-      {/* Header Section - Title and Timer on one line */}
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-semibold text-white">Alpha Points Balance</h2>
-        <div className="text-xs text-gray-400 tabular-nums">
-           Next Epoch In: <span className="font-medium text-gray-300">{timeLeft}</span>
+    <div className="card-modern p-4 animate-fade-in">
+      {/* Header Section */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-lg flex items-center justify-center shadow-lg">
+            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-white">Alpha Points</h3>
+            <p className="text-xs text-gray-400">Available balance</p>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="flex items-center space-x-2 text-xs text-gray-400">
+            <div className="status-indicator-active"></div>
+            <span>Next Epoch: {timeLeft}</span>
+          </div>
         </div>
       </div>
       
-      {/* New Single-Line: [Balance Number] | [+Accrued Number] | [Claim All] */}
-      <div className="bg-background/50 rounded-lg p-1 flex items-baseline justify-between mb-1">
-        {/* Available Points Number */}
-        <span className="text-3xl font-bold text-secondary">
-          {formatPoints(points.available)}
-        </span>
-        
-        {/* Accrued Points Number (with +) - Conditionally Rendered */}
-        {totalClaimablePoints > 0n && (
-          <span className="text-yellow-400 text-xl font-semibold">
-            +{formatPoints(totalClaimablePoints.toString())}
-          </span>
-        )}
-        
-        {/* Claim Button */}
-        <button 
-          onClick={handleClaim}
-          disabled={!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || loading.transaction || loadingClaimable}
-          className="bg-yellow-500 hover:bg-yellow-600 text-white py-0.5 px-2 rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
-        >
-          {loading.transaction ? 'Claiming...' : 'Claim All'}
-        </button>
+      {/* Main Balance Display */}
+      <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-4 mb-3">
+        <div className="flex items-center justify-between">
+          {/* Left: Available Points */}
+          <div>
+            <div className="text-2xl font-bold text-white mb-1">
+              {formatPoints(points.available)}
+            </div>
+            <div className="text-xs text-gray-400">Available αP</div>
+          </div>
+          
+          {/* Center: Accrued Rewards - Always Show */}
+          <div className="flex items-center space-x-3">
+            <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg ${
+              totalClaimablePoints > 0n 
+                ? 'bg-green-500/10 border border-green-500/20' 
+                : 'bg-gray-500/5'
+            }`}>
+              <div className={`w-4 h-4 rounded flex items-center justify-center ${
+                totalClaimablePoints > 0n 
+                  ? 'bg-green-500/20' 
+                  : 'bg-gray-500/20'
+              }`}>
+                <svg className={`w-2 h-2 ${
+                  totalClaimablePoints > 0n 
+                    ? 'text-green-400' 
+                    : 'text-gray-400'
+                }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                </svg>
+              </div>
+              <div className="text-center">
+                <div className={`text-sm font-semibold ${
+                  totalClaimablePoints > 0n 
+                    ? 'text-green-400' 
+                    : 'text-gray-400'
+                }`}>
+                  +{formatPoints(totalClaimablePoints.toString())}
+                </div>
+                <div className="text-xs text-gray-500">Accrued</div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Right: Claim Button */}
+          <button 
+            onClick={handleClaim}
+            disabled={!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || loading.transaction || loadingClaimable}
+            className={`btn-modern-primary text-sm ${totalClaimablePoints === 0n ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {loading.transaction ? (
+              <div className="flex items-center space-x-2">
+                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Claiming...</span>
+              </div>
+            ) : (
+              'Claim All'
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Locked Points Display (if any, shown below the main line) */}
+      {/* Locked Points Display (if any) */}
       {points.locked > 0 && (
-        <div className="text-right">
-          <div className="text-lg font-bold text-yellow-500">
-            {formatPoints(points.locked)}
-          </div>
-          <div className="text-xs text-gray-400">
-            Locked (Loans)
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="w-5 h-5 bg-amber-500/20 rounded flex items-center justify-center">
+                <svg className="w-3 h-3 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-amber-300">Locked Points</div>
+                <div className="text-xs text-amber-400/70">Used as loan collateral</div>
+              </div>
+            </div>
+            <div className="text-base font-bold text-amber-300">
+              {formatPoints(points.locked)}
+            </div>
           </div>
         </div>
       )}

@@ -17,7 +17,7 @@ export interface GenericStakedSui {
  * Fetches all '0x3::staking_pool::StakedSui' objects owned by the given address.
  * @param address The Sui address of the user.
  */
-export function useAllUserStakes(address: string | undefined) {
+export function useAllUserStakes(address: string | undefined, autoLoad: boolean = false) {
   const suiClient = useSuiClient();
   const [allStakedSuiObjects, setAllStakedSuiObjects] = useState<GenericStakedSui[]>([]);
   const [loading, setLoading] = useState(false);
@@ -92,8 +92,10 @@ export function useAllUserStakes(address: string | undefined) {
   }, [suiClient]);
 
   useEffect(() => {
-    fetchAllUserStakes(address);
-  }, [address, fetchAllUserStakes]);
+    if (autoLoad) {
+      fetchAllUserStakes(address);
+    }
+  }, [address, fetchAllUserStakes, autoLoad]);
 
   const refetch = useCallback((addr?: string) => {
      fetchAllUserStakes(addr || address);

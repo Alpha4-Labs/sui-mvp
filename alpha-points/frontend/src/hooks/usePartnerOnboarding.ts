@@ -7,7 +7,9 @@ import { toast } from 'react-toastify';
 import { 
   buildCreateProxyCapTransaction, 
   buildCreatePartnerCapTransaction,
-  buildCreatePartnerCapFlexTransaction 
+  buildCreatePartnerCapFlexTransaction,
+  buildCreatePartnerCapFlexWithUSDCTransaction,
+  buildCreatePartnerCapFlexWithNFTTransaction
 } from '../utils/transaction';
 
 /*
@@ -81,7 +83,7 @@ export function usePartnerOnboarding() {
       });
 
       if (result?.digest) {
-        console.log('PartnerCapFlex creation successful:', result);
+
         setTransactionDigest(result.digest);
         
         const txUrl = `https://suiscan.xyz/testnet/tx/${result.digest}`;
@@ -135,7 +137,7 @@ export function usePartnerOnboarding() {
       });
 
       if (result?.digest) {
-        console.log('Legacy PartnerCap creation successful:', result);
+
         setTransactionDigest(result.digest);
         
         const txUrl = `https://suiscan.xyz/testnet/tx/${result.digest}`;
@@ -205,9 +207,130 @@ export function usePartnerOnboarding() {
     }
   };
 
+  /**
+   * Creates a PartnerCapFlex with USDC stable collateral (100% LTV)
+   * Provides stable collateral backing with full value utilization
+   */
+  const createPartnerCapFlexWithUSDC = async (partnerName: string, usdcCoinId: string) => {
+    if (!currentWallet) {
+      setError('Wallet not connected.');
+      toast.error('Wallet not connected. Please connect your wallet.');
+      return;
+    }
+
+    if (!usdcCoinId) {
+      setError('USDC coin ID is required.');
+      toast.error('Please provide a valid USDC coin ID.');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setTransactionDigest(null);
+
+    try {
+      const transaction = buildCreatePartnerCapFlexWithUSDCTransaction(
+        partnerName,
+        usdcCoinId,
+        undefined // No sponsorship - user pays gas
+      );
+
+      const result = await signAndExecuteTransaction({
+        transaction,
+        chain: 'sui:testnet',
+      });
+
+      if (result?.digest) {
+
+        setTransactionDigest(result.digest);
+        
+        const txUrl = `https://suiscan.xyz/testnet/tx/${result.digest}`;
+        const shortDigest = result.digest.substring(0, 8);
+        
+        toast.success(`PartnerCapFlex with USDC collateral created successfully! View on Suiscan: ${shortDigest}... (${txUrl})`);
+      }
+
+    } catch (error: any) {
+      console.error('PartnerCapFlex USDC creation error:', error);
+      const errorMessage = error.message || 'Failed to create PartnerCapFlex with USDC collateral. Please try again.';
+      setError(errorMessage);
+      toast.error(`Failed to create PartnerCapFlex with USDC: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Creates a PartnerCapFlex with NFT bundle collateral (70% LTV)
+   * Provides NFT collection backing with kiosk owner capabilities
+   */
+  const createPartnerCapFlexWithNFT = async (
+    partnerName: string, 
+    kioskId: string, 
+    collectionType: string, 
+    estimatedFloorValueUsdc: number
+  ) => {
+    if (!currentWallet) {
+      setError('Wallet not connected.');
+      toast.error('Wallet not connected. Please connect your wallet.');
+      return;
+    }
+
+    if (!kioskId || !collectionType) {
+      setError('Kiosk ID and collection type are required.');
+      toast.error('Please provide valid kiosk ID and NFT collection type.');
+      return;
+    }
+
+    if (estimatedFloorValueUsdc <= 0) {
+      setError('Estimated floor value must be greater than 0.');
+      toast.error('Please provide a valid estimated floor value in USDC.');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setTransactionDigest(null);
+
+    try {
+      const transaction = buildCreatePartnerCapFlexWithNFTTransaction(
+        partnerName,
+        kioskId,
+        collectionType,
+        estimatedFloorValueUsdc,
+        undefined // No sponsorship - user pays gas
+      );
+
+      const result = await signAndExecuteTransaction({
+        transaction,
+        chain: 'sui:testnet',
+      });
+
+      if (result?.digest) {
+
+        setTransactionDigest(result.digest);
+        
+        const txUrl = `https://suiscan.xyz/testnet/tx/${result.digest}`;
+        const shortDigest = result.digest.substring(0, 8);
+        
+        toast.success(`PartnerCapFlex with NFT collateral created successfully! View on Suiscan: ${shortDigest}... (${txUrl})`);
+      }
+
+    } catch (error: any) {
+      console.error('PartnerCapFlex NFT creation error:', error);
+      const errorMessage = error.message || 'Failed to create PartnerCapFlex with NFT collateral. Please try again.';
+      setError(errorMessage);
+      toast.error(`Failed to create PartnerCapFlex with NFT: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return {
     // New TVL-backed system (recommended)
     createPartnerCapFlex,
+    createPartnerCapFlexWithUSDC,
+    createPartnerCapFlexWithNFT,
     
     // Legacy system (deprecated but functional)
     createPartnerCap,

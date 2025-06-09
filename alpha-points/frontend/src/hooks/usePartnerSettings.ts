@@ -9,6 +9,55 @@ import {
   alphaPointsToUSDViaOracle,
   usdToAlphaPointsForSettingsViaOracle
 } from '../utils/conversionUtils';
+import { generatePartnerSalt } from '../utils/privacy';
+
+// Helper functions for persistent salt storage
+const getStoredSalt = (partnerCapId: string): string | null => {
+  try {
+    if (!partnerCapId) return null;
+    return localStorage.getItem(`alpha4_partner_salt_${partnerCapId}`);
+  } catch (err) {
+    console.warn('Failed to retrieve stored salt:', err);
+    return null;
+  }
+};
+
+const storeSalt = (partnerCapId: string, salt: string): void => {
+  try {
+    if (!partnerCapId || !salt) return;
+    localStorage.setItem(`alpha4_partner_salt_${partnerCapId}`, salt);
+  } catch (err) {
+    console.warn('Failed to store partner salt:', err);
+  }
+};
+
+const getOrCreateSalt = (partnerCapId: string): string => {
+  try {
+    // Validate partner cap ID
+    if (!partnerCapId || typeof partnerCapId !== 'string' || partnerCapId.length < 10) {
+      console.warn(`Invalid partner cap ID for salt generation: ${partnerCapId}`);
+      return generatePartnerSalt(); // Return fallback salt without storing
+    }
+
+    let salt = getStoredSalt(partnerCapId);
+    if (!salt) {
+      salt = generatePartnerSalt();
+      storeSalt(partnerCapId, salt);
+    } else {
+    }
+    return salt;
+  } catch (error) {
+    console.error('Error in salt management:', error);
+    return generatePartnerSalt(); // Return fallback salt on any error
+  }
+};
+
+export interface MetadataField {
+  key: string;
+  type: string;
+  required: boolean;
+  description?: string;
+}
 
 export interface PartnerSettings {
   maxPerksPerPartner: number;
@@ -24,6 +73,9 @@ export interface PartnerSettings {
   allowedTags: string[];
   blacklistedPerkTypes: string[];
   blacklistedTags: string[];
+  // New privacy and metadata fields
+  partnerSalt?: string;
+  metadataSchema?: MetadataField[];
 }
 
 export interface UsePartnerSettingsReturn {
@@ -45,6 +97,12 @@ export interface UsePartnerSettingsReturn {
   fetchSettings: (partnerCapId: string) => Promise<PartnerSettings | null>;
   refreshSettings: () => Promise<void>;
   resetFormToCurrentSettings: () => void;
+  
+  // Privacy and metadata management
+  generateNewSalt: () => void;
+  addMetadataField: (field: MetadataField) => void;
+  removeMetadataField: (fieldKey: string) => void;
+  updateMetadataField: (fieldKey: string, updatedField: MetadataField) => void;
 }
 
 const DEFAULT_SETTINGS: PartnerSettings = {
@@ -61,6 +119,8 @@ const DEFAULT_SETTINGS: PartnerSettings = {
   allowedTags: [],
   blacklistedPerkTypes: [],
   blacklistedTags: [],
+  partnerSalt: '', // Will be set when partner cap ID is available
+  metadataSchema: [],
 };
 
 export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsReturn {
@@ -77,11 +137,17 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
   const fetchSettings = useCallback(async (partnerCapId: string): Promise<PartnerSettings | null> => {
     if (!client || !partnerCapId) return null;
 
+    // Validate partner cap ID format before making expensive blockchain calls
+    if (typeof partnerCapId !== 'string' || partnerCapId.length < 20 || !partnerCapId.startsWith('0x')) {
+      console.warn(`Invalid partner cap ID format: ${partnerCapId}`);
+      return null;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
-      console.log('🔍 Fetching settings for Partner Cap ID:', partnerCapId);
+
       
       // First, get the specific PartnerCapFlex object by ID
       const partnerCapObject = await client.getObject({
@@ -92,7 +158,7 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
         },
       });
 
-      console.log('🔍 Raw partner cap object response:', partnerCapObject);
+
 
       if (partnerCapObject?.data?.content && partnerCapObject.data.content.dataType === 'moveObject') {
         const fields = (partnerCapObject.data.content as any).fields;
@@ -110,28 +176,13 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
         // Look for perk_control_settings in the PartnerCapFlex fields
         let perkControlSettings = fields.perk_control_settings;
         
-        // Debug logging for troubleshooting TRC-Crypto settings
-        console.log('🔍 Partner Settings Debug for', partnerCapId, ':', {
-          partnerCapType: objectType,
-          isPartnerCapFlex,
-          fieldsKeys: Object.keys(fields),
-          perkControlSettingsExists: !!perkControlSettings,
-          perkControlSettingsType: typeof perkControlSettings,
-          perkControlSettingsFields: perkControlSettings?.fields ? Object.keys(perkControlSettings.fields) : 'no fields',
-          rawPerkControlSettings: perkControlSettings
-        });
+
         
         // The perk_control_settings is a structured object of type PerkControlSettings
         // We need to access its .fields property to get the actual values
         if (perkControlSettings && perkControlSettings.fields) {
           perkControlSettings = perkControlSettings.fields;
-          console.log('🔍 After accessing .fields:', {
-            fieldsKeys: Object.keys(perkControlSettings),
-            maxCostPerPerk: perkControlSettings.max_cost_per_perk,
-            maxPerksPerPartner: perkControlSettings.max_perks_per_partner,
-            minPartnerShare: perkControlSettings.min_partner_share_percentage,
-            maxPartnerShare: perkControlSettings.max_partner_share_percentage
-          });
+
         }
 
         if (perkControlSettings) {
@@ -155,9 +206,12 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
             allowedTags: perkControlSettings.allowed_tags || [],
             blacklistedPerkTypes: perkControlSettings.blacklisted_perk_types || [],
             blacklistedTags: perkControlSettings.blacklisted_tags || [],
+            // Privacy fields (stored off-chain for now, will be added to blockchain later)
+            partnerSalt: getOrCreateSalt(partnerCapId), // Get or create persistent salt
+            metadataSchema: [], // Default to empty schema
           };
           
-          console.log('🔍 Constructed settings for', partnerCapId, ':', settings);
+
           
           setCurrentSettings(settings);
           
@@ -168,7 +222,7 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
 
           return settings;
         } else {
-          console.log('❌ No perkControlSettings found for', partnerCapId, '- partner cap may not be configured yet');
+
         }
 
       }
@@ -179,7 +233,11 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
 
     } catch (err: any) {
       console.error('❌ Error fetching PartnerCapFlex settings:', err);
-      setError(err.message || 'Failed to fetch settings');
+      const errorMessage = err.message || 'Failed to fetch settings';
+      setError(errorMessage);
+      
+      // Don't let settings errors interfere with other systems
+      // Return null gracefully and let the UI handle the error state
       return null;
     } finally {
       setIsLoading(false);
@@ -198,9 +256,60 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
     if (currentSettings) {
       setFormSettings(currentSettings);
     } else {
-      setFormSettings(DEFAULT_SETTINGS);
+      // Initialize with default settings but use persistent salt if available
+      const defaultWithSalt = {
+        ...DEFAULT_SETTINGS,
+        partnerSalt: partnerCapId ? getOrCreateSalt(partnerCapId) : ''
+      };
+      setFormSettings(defaultWithSalt);
     }
-  }, [currentSettings]);
+  }, [currentSettings, partnerCapId]);
+
+  // Privacy and metadata management functions
+  const generateNewSalt = useCallback(() => {
+    if (!partnerCapId) {
+      console.warn('Cannot generate new salt: no partner cap ID available');
+      return;
+    }
+    
+    const newSalt = generatePartnerSalt();
+    storeSalt(partnerCapId, newSalt);
+
+    
+    setFormSettings(prev => ({
+      ...prev,
+      partnerSalt: newSalt
+    }));
+    
+    // Also update current settings if they exist
+    setCurrentSettings(prev => prev ? ({
+      ...prev,
+      partnerSalt: newSalt
+    }) : null);
+  }, [partnerCapId]);
+
+  const addMetadataField = useCallback((field: MetadataField) => {
+    setFormSettings(prev => ({
+      ...prev,
+      metadataSchema: [...(prev.metadataSchema || []), field]
+    }));
+  }, []);
+
+  const removeMetadataField = useCallback((fieldKey: string) => {
+    setFormSettings(prev => ({
+      ...prev,
+      metadataSchema: (prev.metadataSchema || []).filter(field => field.key !== fieldKey)
+    }));
+  }, []);
+
+  const updateMetadataField = useCallback((fieldKey: string, updatedField: MetadataField) => {
+    setFormSettings(prev => ({
+      ...prev,
+      metadataSchema: (prev.metadataSchema || []).map(field =>
+        field.key === fieldKey ? updatedField : field
+      )
+    }));
+  }, []);
 
   // Auto-fetch on mount and when partnerCapId changes
   useEffect(() => {
@@ -219,5 +328,9 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
     fetchSettings,
     refreshSettings,
     resetFormToCurrentSettings,
+    generateNewSalt,
+    addMetadataField,
+    removeMetadataField,
+    updateMetadataField,
   };
 } 

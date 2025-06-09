@@ -8,6 +8,7 @@ import { useZkLogin } from '../hooks/useZkLogin';
 import { useAlphaContext } from '../context/AlphaContext';
 import { useNavigate } from 'react-router-dom';
 import alphaPointsLogo from '../assets/alpha4-logo.svg'; // Verify this path
+import neonLogoVideo from '../assets/Neon_Logo_01.mp4'; // Import the video
 import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
@@ -28,7 +29,7 @@ export const WelcomePage: React.FC = () => {
     if (alphaContext.authLoading) return; 
 
     if (alphaContext.isConnected) {
-      //console.log("WelcomePage: Already connected (checked via AlphaContext), navigating to /dashboard.");
+
       navigate('/dashboard');
     }
   }, [alphaContext.isConnected, alphaContext.authLoading, navigate]);
@@ -58,94 +59,151 @@ export const WelcomePage: React.FC = () => {
 
   if (alphaContext.authLoading && !alphaContext.isConnected) { // Show loading only if not yet connected, otherwise it might flash if already connected and just loading data
     return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
-            <p>Loading...</p> {/* Or a spinner component */}
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-purple-900 text-white p-4">
+        <div className="flex flex-col items-center animate-fade-in">
+          <video 
+            autoPlay 
+            muted 
+            loop 
+            className="w-32 h-32 mb-6 animate-pulse"
+            style={{ filter: 'drop-shadow(0 0 20px rgba(168, 85, 247, 0.4))' }}
+          >
+                         <source src={neonLogoVideo} type="video/mp4" />
+            {/* Fallback for browsers that don't support video */}
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+          </video>
+          <p className="text-gray-300 animate-pulse">Experience the full Alpha Points journey</p>
         </div>
+      </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white p-4">
-      <ToastContainer />
-      <div className="w-full max-w-6xl flex flex-col items-center">
-        <div className="text-center mb-8">
-          <img
-            src={alphaPointsLogo}
-            alt="Alpha Points Logo"
-            className="w-24 h-24 md:w-32 md:h-32 mb-8 mx-auto"
-          />
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-purple-900 text-white p-4 pb-16 relative overflow-hidden">
+      {/* Background Effects */}
+      <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 to-blue-900/20 opacity-50"></div>
+      <div className="absolute top-20 left-20 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
+      <div className="absolute top-40 right-20 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
+      <div className="absolute -bottom-8 left-40 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
 
-          <h1 className="text-3xl md:text-4xl font-bold mb-4
-                       bg-gradient-to-r from-purple-400 via-pink-500 to-red-500
-                       text-transparent bg-clip-text">
-            Welcome to Alpha Points
+      <ToastContainer />
+      
+      <div className="w-full max-w-6xl flex flex-col items-center relative z-10 flex-1 justify-center">
+        <div className="text-center mb-8 animate-fade-in">
+          {/* Logo Container */}
+          <div className="relative mb-6">
+            <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full blur-2xl opacity-50 animate-pulse"></div>
+            <div className="relative bg-black/20 backdrop-blur-lg border border-white/10 rounded-2xl p-4 shadow-2xl">
+              <img
+                src={alphaPointsLogo}
+                alt="Alpha Points Logo"
+                className="w-12 h-12 md:w-16 md:h-16 mx-auto filter drop-shadow-lg"
+              />
+            </div>
+          </div>
+
+          <h1 className="text-3xl md:text-5xl font-bold mb-4 animate-slide-up">
+            <span className="bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 text-transparent bg-clip-text">
+              Welcome to
+            </span>
+            <br />
+            <span className="bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 text-transparent bg-clip-text">
+              Alpha Points
+            </span>
           </h1>
 
-          <p className="text-gray-400 mb-8 text-sm md:text-base max-w-xs md:max-w-sm mx-auto">
-            Connect your wallet or sign in to track your points and stake ALPHA.
+          <p className="text-gray-300 mb-8 text-base md:text-lg max-w-2xl mx-auto leading-relaxed animate-slide-up animation-delay-200">
+            Connect your wallet to start earning and staking Alpha Points.
+            <br className="hidden md:block" />
+            <span className="text-purple-400">Your journey to financial freedom begins here.</span>
           </p>
         </div>
 
-        <div className="w-full max-w-md">
-          <div className="space-y-4">
+        <div className="w-full max-w-md animate-slide-up animation-delay-400">
+          <div className="card-modern p-6 space-y-6">
             <div>
-              <p className="text-sm text-gray-400 mb-2 text-center">Available wallets:</p>
+              <h2 className="text-lg font-semibold mb-4 text-center">Choose Your Wallet</h2>
               {wallets.length === 0 ? (
-                <div className="text-center text-gray-500 text-sm py-2">
-                  No wallets detected
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-400">No wallets detected</p>
+                  <p className="text-sm text-gray-500 mt-2">Please install a SUI wallet extension</p>
                 </div>
               ) : (
-                <div className="flex flex-col gap-2">
-                  {wallets.map((wallet) => (
+                <div className="space-y-3">
+                  {wallets.map((wallet, index) => (
                     <button
                       key={wallet.name}
                       onClick={async () => {
-                        //console.log('Attempting to disconnect wallet first:', wallet.name);
+
                         try {
                           await disconnectWallet();
                           console.log('Disconnect call completed.');
                         } catch (disconnectError) {
-                          //console.error('Error during pre-emptive disconnect:', disconnectError);
+
                         }
 
                         console.log('Attempting to connect to wallet:', wallet.name, wallet);
                         try {
                           await connectWallet({ wallet });
-                          //console.log('connectWallet call completed (this does not mean success, check wallet prompt/errors).'); 
+ 
                         } catch (err) {
-                          //console.error('Error explicitly caught from connectWallet call:', err);
+                          
                         }
                       }}
-                      className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white py-3 px-6 rounded-lg transition-colors flex items-center justify-center font-medium"
+                      className="w-full btn-modern-primary group animate-fade-in flex items-center justify-between"
+                      style={{ animationDelay: `${600 + index * 100}ms` }}
                     >
-                      {wallet.icon && (
-                        <img src={wallet.icon} alt={`${wallet.name} icon`} className="w-5 h-5 mr-2" />
-                      )}
-                      Connect to {wallet.name}
+                      <div className="flex items-center">
+                        {wallet.icon && (
+                          <img src={wallet.icon} alt={`${wallet.name} icon`} className="w-5 h-5 mr-3 group-hover:scale-110 transition-transform duration-300" />
+                        )}
+                        <span>Connect to {wallet.name}</span>
+                      </div>
+                      <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                      </svg>
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* === COMMENT OUT ZKLOGIN BUTTON ===
-            <button
-              onClick={() => login('google')}
-              disabled={zkLoginLoading || alphaContext.isConnected}
-              className="w-full bg-white text-gray-700 py-2.5 px-6 rounded-lg font-medium transition-colors hover:bg-gray-200 disabled:opacity-60 flex items-center justify-center border border-gray-300 shadow-sm text-sm"
-            >
-              <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="#4285F4">
-                <path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"/>
-              </svg>
-              Sign in with Google
-            </button>
-            === END COMMENT OUT ZKLOGIN BUTTON === */}
+            {/* Features Preview */}
+            <div className="pt-4 border-t border-white/10">
+              <p className="text-center text-sm text-gray-400 mb-3">What you'll get access to:</p>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="flex items-center space-x-2 text-gray-300">
+                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                  <span>Stake & Earn</span>
+                </div>
+                <div className="flex items-center space-x-2 text-gray-300">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  <span>Track Points</span>
+                </div>
+                <div className="flex items-center space-x-2 text-gray-300">
+                  <div className="w-2 h-2 bg-pink-500 rounded-full"></div>
+                  <span>Marketplace</span>
+                </div>
+                <div className="flex items-center space-x-2 text-gray-300">
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                  <span>Partnerships</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <footer className="absolute bottom-0 left-0 right-0 p-4 text-center text-gray-600 text-xs">
-        Alpha4 MVP © 2025 - Testnet
+      <footer className="relative z-10 p-4 text-center text-gray-500 text-sm">
+        <div className="flex justify-center items-center space-x-2">
+          <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
+          <span>Alpha4 MVP © 2025 - Testnet Environment</span>
+        </div>
       </footer>
     </div>
   );

@@ -99,18 +99,14 @@ export const StakeCard: React.FC = () => {
     provider: alphaProvider,
     suiBalance,
     loading: { suiBalance: isLoadingBalance },
+    stakePositions,
   } = useAlphaContext();
 
   const suiClient = useSuiClient();
 
   const [amount, setAmount] = useState('');
-  const [currentlyStaked] = useState('0');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-
-  // State for validator selection
-  // const [validatorSelectionMode, setValidatorSelectionMode] = useState<'auto' | 'manual'>('auto');
-  // const [selectedValidatorAddress, setSelectedValidatorAddress] = useState<string>(validators[0].address);
 
   // State for multi-stage staking process
   const [stakingStage, setStakingStage] = useState<StakingStage>('idle');
@@ -124,8 +120,8 @@ export const StakeCard: React.FC = () => {
   // Revert to default useSignAndExecuteTransaction (no custom execute)
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction(); 
 
-  // Correctly find the index of the current selectedDuration
-  const selectedDurationIndex = durations.findIndex(d => d.days === selectedDuration.days);
+  // Correctly find the index of the current selectedDuration - add null check
+  const selectedDurationIndex = selectedDuration ? durations.findIndex(d => d.days === selectedDuration.days) : -1;
 
   const handleDurationSliderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const sliderIndex = parseInt(event.target.value, 10);
@@ -174,6 +170,18 @@ export const StakeCard: React.FC = () => {
     return stakedSuiObject ? stakedSuiObject.objectId : null;
   };
 
+  // Handler to navigate to staked positions
+  const handleViewStakedPositions = () => {
+    // Scroll to the staked positions section or navigate to it
+    const stakedPositionsElement = document.querySelector('[data-section="staked-positions"]');
+    if (stakedPositionsElement) {
+      stakedPositionsElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      // If no element found, just scroll down a bit to find the staked positions
+      window.scrollBy({ top: 400, behavior: 'smooth' });
+    }
+  };
+
   // --- Primary Stake Function ---
 
   const handleStake = async () => {
@@ -186,6 +194,7 @@ export const StakeCard: React.FC = () => {
 
     if (!alphaIsConnected || !alphaAddress) return setError("Please connect your wallet or sign in.");
     if (stakingStage !== 'idle' && stakingStage !== 'failed' && stakingStage !== 'success') return;
+    if (!selectedDuration) return setError("Please select a staking duration.");
 
     const amountFloat = parseFloat(amount);
     if (isNaN(amountFloat) || amountFloat <= 0) return setError("Please enter a valid positive amount");
@@ -200,7 +209,9 @@ export const StakeCard: React.FC = () => {
 
     // Randomly select a validator from the list
     const randomIndex = Math.floor(Math.random() * validators.length);
-    const validatorAddressToUse = validators[randomIndex].address;
+    const selectedValidator = validators[randomIndex];
+    if (!selectedValidator) throw new Error("Failed to select a validator");
+    const validatorAddressToUse = selectedValidator.address;
    
     setStakingStage('requestingStake');
     let tx1Digest: string | null = null; 
@@ -248,7 +259,7 @@ export const StakeCard: React.FC = () => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${import.meta.env.VITE_ENOKI_KEY}`,
+                    'Authorization': `Bearer ${import.meta.env['VITE_ENOKI_KEY']}`,
                     'zklogin-jwt': jwt, 
                 },
                 body: JSON.stringify(enokiZkpRequest)
@@ -351,7 +362,7 @@ export const StakeCard: React.FC = () => {
     let tx2Digest: string | null = null;
 
     try {
-      const tx2 = buildRegisterStakeTransaction(newStakedSuiId, selectedDuration.days);
+      const tx2 = buildRegisterStakeTransaction(newStakedSuiId, selectedDuration!.days);
 
       if (alphaProvider === 'google') {
         tx2.setSender(alphaAddress);
@@ -387,7 +398,7 @@ export const StakeCard: React.FC = () => {
         
         setStakingStage('fetchingProof');
 
-        const VITE_ENOKI_KEY_TX2 = import.meta.env.VITE_ENOKI_KEY;
+        const VITE_ENOKI_KEY_TX2 = import.meta.env['VITE_ENOKI_KEY'];
         if (!VITE_ENOKI_KEY_TX2) {
             console.error("VITE_ENOKI_KEY not found for Tx2.");
             setError("Configuration error: Enoki API Key missing for Tx2.");
@@ -503,27 +514,75 @@ export const StakeCard: React.FC = () => {
 
   // --- JSX Rendering --- 
   return (
-    <div className="bg-background-card rounded-lg shadow-lg p-6">
-      {/* Container for Title and Error Message */}
-      <div className="flex justify-between items-center mb-3">
-        <h2 className="text-xl font-semibold text-white flex-shrink-0 m-0">Manage Stake</h2>
-        {/* Error Message - always rendered, fixed height, no jump */}
-        <div className={`min-h-[32px] flex items-center bg-red-900/30 border border-red-700 rounded-md text-red-400 text-xs break-words max-w-sm ml-4 m-0 transition-all duration-150 ${error ? '' : 'opacity-0 pointer-events-none'}`}>
-          {error || <span>&nbsp;</span>}
+    <div className="card-modern p-4 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg flex items-center justify-center shadow-lg">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-white">Manage Stake</h2>
+            <p className="text-xs text-gray-400">Stake SUI to earn Alpha Points</p>
+          </div>
+        </div>
+
+        {/* Total Staked Summary */}
+        <div className="text-right">
+          <p className="text-xs text-gray-400">Total Staked</p>
+          <p className="text-xs font-semibold text-white">
+            {(() => {
+              // Calculate total staked from stakePositions
+              const totalStaked = stakePositions.reduce((sum, position) => {
+                const principal = parseFloat(position.principal || '0');
+                return sum + (principal / 1_000_000_000); // Convert MIST to SUI
+              }, 0);
+              return formatSui((totalStaked * 1_000_000_000).toString());
+            })()} <span className="text-blue-400">SUI</span>
+          </p>
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-300 text-sm animate-fade-in">
+          {error}
+        </div>
+      )}
+
+      {/* Success Message */}
+      {success && (
+        <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-300 text-sm animate-fade-in">
+          {success}
+        </div>
+      )}
 
       {/* Toast container for react-toastify */}
       <ToastContainer />
 
-      <div>
-        {/* Amount and Duration Slider Side-by-Side */}
-        <div className="flex flex-col md:flex-row md:space-x-6 md:space-y-0 md:items-stretch mt-0">
-          {/* Stake Amount Input - md:w-1/2 */}
-          <div className="md:w-1/2 flex flex-col justify-between">
-            {/* Top part: Label and Max button */}
+      <div className="space-y-4">
+        {/* Amount and Duration Section */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Stake Amount Input */}
+          <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <label htmlFor="stake-amount" className="text-gray-400 text-sm">Amount to Stake (SUI)</label>
+              <div className="flex items-center space-x-2">
+                <label htmlFor="stake-amount" className="text-sm font-medium text-gray-300">
+                  Amount to Stake
+                </label>
+                {/* Tooltip Icon */}
+                <div className="relative group">
+                  <svg className="w-4 h-4 text-gray-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-black/90 backdrop-blur-lg border border-white/20 rounded-lg text-xs text-white whitespace-nowrap opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                    Minimum SUI to stake = 1
+                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-black/90"></div>
+                  </div>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -540,14 +599,14 @@ export const StakeCard: React.FC = () => {
                     }
                   }
                 }}
-                className="text-xs text-primary hover:text-primary-dark transition-colors"
+                className="text-xs text-purple-400 hover:text-purple-300 transition-colors font-medium"
                 disabled={!alphaIsConnected || isLoadingBalance || contextLoading.transaction}
               >
                 Max
               </button>
             </div>
-            {/* Middle part: Input field */}
-            <div className="relative flex-grow flex items-center">
+            
+            <div className="relative">
               <input
                 id="stake-amount"
                 type="text"
@@ -556,93 +615,110 @@ export const StakeCard: React.FC = () => {
                 value={amount}
                 onChange={(e) => {
                   const value = e.target.value.replace(',', '.');
-                  if (value === '' || /^\d*\.?\d*$/.test(value)) setAmount(value);
+                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                    setAmount(value);
+                  }
                 }}
-                placeholder="0.0"
-                className="w-full bg-background-input rounded p-3 text-white border border-gray-600 focus:border-primary focus:ring-primary pr-12"
+                placeholder="1"
+                className="w-full bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-gray-400 focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 transition-all duration-300 pr-12"
                 aria-label="Amount to Stake in SUI"
                 disabled={!alphaIsConnected || contextLoading.transaction}
               />
-              <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm">SUI</span>
-            </div>
-            {/* Bottom part: Helper text (will be used for alignment) */}
-            <div className="flex justify-between text-xs text-gray-500 pt-1">
-              <span>SUI Staked: {formatSui(currentlyStaked)}</span>
-              <span>Min: 1.00 SUI</span>
+              <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-medium">
+                SUI
+              </span>
             </div>
           </div>
 
-          {/* Duration Selection Slider - md:w-1/2 */}
-          <div className="md:w-1/2 flex flex-col justify-between">
-            {/* Top part: Label (needs to align with "Amount to Stake" label) */}
+          {/* Duration Selection */}
+          <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <label className="block text-gray-400 text-sm">Stake Duration: <span className="text-white font-medium">{selectedDuration.label}</span></label>
+              <label className="text-sm font-medium text-gray-300">
+                Stake Duration
+              </label>
+              <span className="text-sm text-purple-400 font-medium">
+                {selectedDuration?.label || 'Select duration'}
+              </span>
             </div>
-            {/* Middle part: Slider - wrapped in flex-grow flex items-center */}
-            <div className="flex-grow flex items-center">
+            
+            <div className="relative">
               <input
                 type="range"
                 min="0"
                 max={durations.length - 1}
                 value={selectedDurationIndex > -1 ? selectedDurationIndex : 0}
                 onChange={handleDurationSliderChange}
-                className="w-full h-3 bg-gray-700 rounded-lg appearance-none cursor-pointer range-sm accent-primary focus:outline-none focus:ring-2 focus:ring-primary-focus disabled:opacity-50"
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500/20 disabled:opacity-50 
+                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
+                [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-purple-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0"
                 disabled={!alphaIsConnected || contextLoading.transaction}
+                style={{
+                  background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(selectedDurationIndex / (durations.length - 1)) * 100}%, #374151 ${(selectedDurationIndex / (durations.length - 1)) * 100}%, #374151 100%)`
+                }}
               />
             </div>
-            {/* Bottom part: Helper text (needs to align with "Min: 1.00 SUI") */}
-            <div className="flex justify-between text-xs text-gray-500 pt-1">
-              <span
-                className="cursor-pointer hover:text-primary transition-colors"
+            
+            <div className="flex justify-between text-xs text-gray-500">
+              <button
+                type="button"
+                className="hover:text-purple-400 transition-colors"
                 onClick={() => {
-                  if (durations && durations.length > 0) {
+                  if (durations && durations.length > 0 && durations[0]) {
                     setSelectedDuration(durations[0]);
                   }
                 }}
               >
                 Shortest
-              </span>
-              <span
-                className="cursor-pointer hover:text-primary transition-colors"
+              </button>
+              <button
+                type="button"
+                className="hover:text-purple-400 transition-colors"
                 onClick={() => {
-                  if (durations && durations.length > 0) {
+                  if (durations && durations.length > 0 && durations[durations.length - 1]) {
                     setSelectedDuration(durations[durations.length - 1]);
                   }
                 }}
               >
                 Longest
-              </span>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* APY and Rewards Estimation - now a full-width section */}
-        <div className="w-full space-y-2">
-          <div className="mt-1 p-3 bg-background rounded-lg">
-            <div className="flex justify-between mb-1">
-              <span className="text-gray-400 text-sm">Est. APY Rate:</span>
-              <span className="text-green-400 text-sm font-medium">{selectedDuration.apy}%</span>
+        {/* APY and Rewards Estimation */}
+        <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-3">
+          <div className="flex items-center justify-center mb-3">
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-400">APY Rate:</span>
+                <span className="text-sm font-bold text-emerald-400">{selectedDuration?.apy || 0}%</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-400">Duration:</span>
+                <span className="text-sm font-bold text-blue-400">{selectedDuration?.days || 0} days</span>
+              </div>
             </div>
-            {/* Always render the rewards estimation line, with a default message if amount is not valid */}
-            <div className="flex justify-between">
-              <span className="text-gray-400 text-sm">Est. Rewards:</span>
-              <span className="text-white text-sm">
+          </div>
+          
+          <div className="border-t border-white/10 pt-2">
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-gray-400">Estimated Rewards:</span>
+              <span className="text-xs font-medium text-white">
                 {(() => {
                   const amountNum = parseFloat(amount);
-                  if (!isNaN(amountNum) && amountNum > 0) {
-                    // Use the new utility function here
+                  if (!isNaN(amountNum) && amountNum > 0 && selectedDuration) {
                     const pointsPerDayPerSui = calculateAlphaPointsPerDayPerSui(selectedDuration.apy);
-                    const EPOCHS_PER_DAY = 1; // Assuming 1 epoch per day for this estimation, consistent with pointsPerDayPerSui
+                    const EPOCHS_PER_DAY = 1;
                     const durationDays = selectedDuration.days;
 
                     const totalEpochs = durationDays * EPOCHS_PER_DAY;
-                    const totalAlphaPointsRewards = amountNum * pointsPerDayPerSui * totalEpochs; // totalEpochs is essentially durationDays
-                    const alphaPointsPerEpoch = amountNum * pointsPerDayPerSui; // This is now points per day
+                    const totalAlphaPointsRewards = amountNum * pointsPerDayPerSui * totalEpochs;
+                    const alphaPointsPerEpoch = amountNum * pointsPerDayPerSui;
 
                     const formattedTotalAlphaPoints = totalAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
                     const formattedAlphaPointsPerEpoch = alphaPointsPerEpoch.toLocaleString(undefined, {maximumFractionDigits: 0});
 
-                    return `~${formattedTotalAlphaPoints} αP (${formattedAlphaPointsPerEpoch} αP/day)`; // Changed from /epoch to /day
+                    return `~${formattedTotalAlphaPoints} αP (${formattedAlphaPointsPerEpoch} αP/day)`;
                   }
                   return 'Enter an amount to see rewards';
                 })()}
@@ -651,46 +727,33 @@ export const StakeCard: React.FC = () => {
           </div>
         </div>
 
-        {/* Action Buttons - now a full-width section below rewards */}
-        <div className="w-full pt-2 md:pt-0">
-          {/* Button group styled like validator selection */}
-          <div className="flex items-stretch space-x-2 p-1 bg-background-input rounded-md border border-gray-600">
-            {/* Stake SUI Button */}
-            <button
-              onClick={handleStake}
-              disabled={ 
-                  !alphaIsConnected || 
-                  !amount || 
-                  !(parseFloat(amount) >= 1.0) ||
-                  isLoadingBalance ||
-                  (stakingStage !== 'idle' && stakingStage !== 'failed' && stakingStage !== 'success') // Disable if mid-process
-              }
-              className="flex-1 bg-primary hover:bg-primary-dark text-white py-2 px-3 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative"
-            >
-              {(stakingStage === 'requestingStake' || stakingStage === 'registeringStake' || stakingStage === 'fetchingProof') ? (
-                <>
-                  <span className="opacity-0">{getButtonLabel()}</span> 
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span className="ml-2">{getButtonLabel()}</span>
-                  </span>
-                </>
-              ) : (
-                getButtonLabel()
-              )}
-            </button>
-
-            {/* Unstake button - styled like an inactive validator button, but disabled */}
-            <button
-              disabled
-              className="flex-1 bg-gray-700 text-gray-300 py-2 px-3 rounded-md text-sm font-medium transition-colors hover:bg-gray-600 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-gray-700"
-            >
-              Unstake
-            </button>
-          </div>
+        {/* Action Button */}
+        <div>
+          <button
+            onClick={handleStake}
+            disabled={ 
+                !alphaIsConnected || 
+                (!amount || !(parseFloat(amount) >= 1.0)) ||
+                isLoadingBalance ||
+                (stakingStage !== 'idle' && stakingStage !== 'failed' && stakingStage !== 'success')
+            }
+            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-semibold py-2 px-6 rounded-lg transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 relative"
+          >
+            {(stakingStage === 'requestingStake' || stakingStage === 'registeringStake' || stakingStage === 'fetchingProof') ? (
+              <>
+                <span className="opacity-0">{getButtonLabel()}</span> 
+                <span className="absolute inset-0 flex items-center justify-center">
+                  <svg className="animate-spin h-4 w-4 text-white mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>{getButtonLabel()}</span>
+                </span>
+              </>
+            ) : (
+              'Stake SUI'
+            )}
+          </button>
         </div>
       </div>
     </div>

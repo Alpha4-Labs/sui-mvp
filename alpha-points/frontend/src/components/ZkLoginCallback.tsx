@@ -21,7 +21,7 @@ export const ZkLoginCallback: React.FC = () => {
       // Optional: You can decode and display some info from the JWT
       try {
         const decoded = jwtDecode(idToken) as any;
-        console.log('JWT decoded:', decoded);
+
       } catch (err) {
         console.error('Failed to decode JWT:', err);
       }
@@ -34,7 +34,7 @@ export const ZkLoginCallback: React.FC = () => {
   // New useEffect to handle navigation after authentication
   useEffect(() => {
     if (isAuthenticated) {
-      console.log("ZkLoginCallback: isAuthenticated is true, navigating to /dashboard.");
+
       navigate('/dashboard');
     }
   }, [isAuthenticated, navigate]);

@@ -235,21 +235,21 @@ export const LoanPanel: React.FC = () => {
 
   // --- JSX Rendering ---
   return (
-    <div className="bg-background-card rounded-lg shadow-lg">
+    <div className="card-modern">
       {/* "Loan Against Stake" Section (Previously Borrow Section) */}
-      <div className="border-b border-gray-700 p-4 md:px-6 md:py-4">
+      <div className="border-b border-white/10 p-4">
         {eligiblePositions.length > 0 ? (
           <div className="flex flex-col md:flex-row md:items-end md:gap-x-2 w-full space-y-2 md:space-y-0">
             {/* Title */}
             <div className="flex-shrink-0 self-center md:self-end mb-1 md:mb-0">
-              <h2 className="text-lg md:text-xl font-semibold text-white whitespace-nowrap">Loan Against Stake</h2>
+              <h2 className="text-base font-semibold text-white whitespace-nowrap">Loan Against Stake</h2>
             </div>
             {/* Dropdown */}
             <div className="md:flex-1 min-w-0"> 
               <select
                 value={selectedStakeId}
                 onChange={(e) => setSelectedStakeId(e.target.value)}
-                className="w-full bg-background-input rounded px-2 py-1.5 text-white border border-gray-600 focus:border-primary focus:ring-primary text-sm"
+                className="w-full bg-black/20 backdrop-blur-lg border border-white/10 rounded-lg px-3 py-2 text-white focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 transition-all duration-300 text-sm"
               >
                 <option value="">-- Select a position --</option>
                 {eligiblePositions.map((pos: any) => (
@@ -272,7 +272,7 @@ export const LoanPanel: React.FC = () => {
                   handleLoanAmountChange(rawValue);
                 }}
                 placeholder={`Max ${formatPoints(maxLoanAmount.toString())} αP`}
-                className="w-full bg-background-input rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary text-sm"
+                className="w-full bg-black/20 backdrop-blur-lg border border-white/10 rounded-lg px-3 py-2 text-white placeholder:text-gray-400 focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 transition-all duration-300 text-sm"
                 aria-label="Loan Amount (Alpha Points)"
               />
               {/* {loanAmount && parseInt(loanAmount) > 0 && (
@@ -287,10 +287,10 @@ export const LoanPanel: React.FC = () => {
                 <button
                   key={percentage}
                   onClick={() => handlePercentageSelect(percentage)}
-                  className={`py-1 px-1.5 md:px-2 rounded text-xs transition-colors min-w-[32px] md:min-w-[36px] ${
+                  className={`py-1 px-2 rounded-lg text-xs transition-all duration-200 min-w-[36px] ${
                     selectedPercentage === percentage
-                      ? 'bg-primary text-white'
-                      : 'bg-background-input text-gray-300 hover:bg-gray-700'
+                      ? 'bg-purple-500 text-white shadow-lg'
+                      : 'bg-black/30 text-gray-300 hover:bg-black/50 border border-white/10'
                   }`}
                 >
                   {percentage}%
@@ -302,26 +302,23 @@ export const LoanPanel: React.FC = () => {
               <button
                 onClick={handleCreateLoan}
                 disabled={!selectedStakeId || !loanAmount || parseInt(loanAmount, 10) <= 0 || parseInt(loanAmount, 10) > maxLoanAmount}
-                className="w-full md:w-auto py-2 px-3 md:px-4 bg-primary hover:bg-primary-dark text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                className="w-full md:w-auto py-2 px-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 text-white rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-lg hover:shadow-xl"
               >
                 Create Loan
               </button>
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2 p-2">
-            <h2 className="text-xl font-semibold text-white">Loan Against Stake</h2>
-            <p className="text-gray-400 mb-0">
-              You don't have any eligible staked positions to borrow against.
-            </p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-white">Loan Against Stake</h2>
           </div>
         )}
       </div>
       {/* Active Loans Section */}
-      <div className="p-6">
+      <div className="p-4">
         <div className="flex flex-col gap-2">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
-            <h2 className="text-xl font-semibold text-white">Active Loans</h2>
+            <h2 className="text-base font-semibold text-white">Active Loans</h2>
           </div>
           {loans.length === 0 ? (
             <p className="text-gray-400">You don't have any active loans.</p>
@@ -342,18 +339,18 @@ export const LoanPanel: React.FC = () => {
                 className="h-full pb-10"
               >
                 {loans.map((loan: any) => (
-                  <SwiperSlide key={loan.id} className="bg-background rounded-lg p-1 self-stretch h-full min-h-0">
+                  <SwiperSlide key={loan.id} className="self-stretch h-full min-h-0">
                     <a
                       href={`https://testnet.suivision.xyz/object/${loan.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="border border-gray-700 rounded-lg p-4 text-sm h-full flex flex-col justify-between bg-gray-800/30 hover:bg-gray-800/60 transition-colors cursor-pointer no-underline"
+                      className="border border-white/10 rounded-lg p-4 text-sm h-full flex flex-col justify-between bg-black/20 backdrop-blur-lg hover:bg-black/30 transition-all duration-300 cursor-pointer no-underline"
                       title="View on Suivision"
                     >
                       <div>
                         <div className="flex justify-between items-center mb-3">
                           <span className="text-gray-400 font-mono text-xs" title={loan.id}>{formatAddress(loan.id)}</span>
-                          <span className="px-2 py-0.5 rounded-md text-xs font-medium bg-blue-900/40 text-blue-300">Active</span>
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">Active</span>
                         </div>
                         <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mb-3 text-xs">
                           <span className="text-gray-400">Borrowed:</span>
@@ -371,7 +368,7 @@ export const LoanPanel: React.FC = () => {
                             // Pass loan.principalPoints to handleRepayLoan
                             handleRepayLoan(loan.id, loan.stakeId, loan.principalPoints); 
                           }}
-                          className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors text-xs"
+                          className="w-full py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg transition-all duration-300 text-xs font-medium shadow-lg hover:shadow-xl"
                         >
                           Repay Loan
                         </button>
@@ -390,7 +387,7 @@ export const LoanPanel: React.FC = () => {
                 return (
                   <div className="flex items-center justify-center gap-1.5 mt-2">
                     <button
-                      className="p-1 rounded-full bg-background-card/50 hover:bg-background-card/80 text-white transition-colors"
+                      className="p-1.5 rounded-full bg-black/30 hover:bg-black/50 text-white transition-all duration-200 border border-white/10"
                       aria-label="Previous slide"
                       onClick={() => swiperInstance && swiperInstance.slidePrev()}
                     >
@@ -400,8 +397,8 @@ export const LoanPanel: React.FC = () => {
                       {Array.from({ length: numPages }).map((_, idx) => (
                         <button
                           key={idx}
-                          className={`w-5 h-5 flex items-center justify-center rounded-full text-xs font-semibold transition-colors
-                            ${currentPage === idx ? 'bg-primary text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                          className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold transition-all duration-200
+                            ${currentPage === idx ? 'bg-purple-500 text-white shadow-lg' : 'bg-black/30 text-gray-300 hover:bg-black/50 border border-white/10'}`}
                           onClick={() => {
                             if (swiperInstance) {
                               // Use slideTo instead of slideToLoop when not in loop mode
@@ -420,7 +417,7 @@ export const LoanPanel: React.FC = () => {
                       ))}
                     </div>
                     <button
-                      className="p-1 rounded-full bg-background-card/50 hover:bg-background-card/80 text-white transition-colors"
+                      className="p-1.5 rounded-full bg-black/30 hover:bg-black/50 text-white transition-all duration-200 border border-white/10"
                       aria-label="Next slide"
                       onClick={() => swiperInstance && swiperInstance.slideNext()}
                     >

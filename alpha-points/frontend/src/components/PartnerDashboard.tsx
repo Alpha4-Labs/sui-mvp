@@ -8,10 +8,21 @@ import { ErrorToast, SuccessToast } from './ui/ErrorToast';
 import { toast } from 'react-toastify';
 import { useAlphaContext } from '../context/AlphaContext';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
-import { usePartnerSettings } from '../hooks/usePartnerSettings';
+import { usePartnerSettings, type MetadataField } from '../hooks/usePartnerSettings';
+import { MetadataFieldModal } from './MetadataFieldModal';
 import { usePartnerDetection } from '../hooks/usePartnerDetection';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
-import { buildCreatePerkDefinitionTransaction, buildSetPerkActiveStatusTransaction, buildUpdatePerkControlSettingsTransaction, buildUpdatePerkTypeListsTransaction, buildUpdatePerkTagListsTransaction } from '../utils/transaction';
+import { 
+  buildCreatePerkDefinitionTransaction, 
+  buildSetPerkActiveStatusTransaction, 
+  buildUpdatePerkControlSettingsTransaction, 
+  buildUpdatePerkTypeListsTransaction, 
+  buildUpdatePerkTagListsTransaction,
+  buildAddSuiCollateralTransaction,
+  buildCreateInitialSuiVaultTransaction,
+  buildAddUsdcCollateralTransaction,
+  buildAddNftCollateralTransaction,
+} from '../utils/transaction';
 // import { SPONSOR_CONFIG } from '../config/contract'; // Commented out - will re-enable for sponsored transactions later
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
@@ -26,10 +37,18 @@ import {
   usdToAlphaPointsDisplay,
   formatAlphaPoints as formatAP
 } from '../utils/conversionUtils';
+import { formatSui } from '../utils/format';
+import suiLogo from '../assets/sui-logo.jpg';
 
 // Import Swiper React components
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Navigation, Pagination, A11y } from 'swiper/modules';
+
+// Import Recharts components
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, 
+  Tooltip as RechartsTooltip, ResponsiveContainer
+} from 'recharts';
 
 // Import Swiper styles
 // @ts-ignore
@@ -90,7 +109,7 @@ interface PartnerDashboardProps {
 }
 
 export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, currentTab = 'overview', onPartnerCreated }: PartnerDashboardProps) {
-  const { partnerCaps, refreshData, setPartnerCaps } = useAlphaContext();
+  const { partnerCaps, refreshData, setPartnerCaps, suiBalance, loading } = useAlphaContext();
   const { currentWallet } = useCurrentWallet();
   const { detectPartnerCaps } = usePartnerDetection();
   const navigate = useNavigate();
@@ -144,7 +163,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     error: settingsError,
     refreshSettings,
     fetchSettings,
-    resetFormToCurrentSettings
+    resetFormToCurrentSettings,
+    generateNewSalt,
+    addMetadataField,
+    removeMetadataField,
+    updateMetadataField
   } = usePartnerSettings(selectedPartnerCapId);
   
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
@@ -220,6 +243,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     lifetimeQuota: false,
   });
 
+  // Analytics time range state
+  const [analyticsTimeRange, setAnalyticsTimeRange] = useState<'7d' | '30d' | '90d'>('7d');
+
   // Example set navigation for perks tab
   const [currentExampleSet, setCurrentExampleSet] = useState(0);
 
@@ -241,6 +267,118 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     icon: '🎁',
   });
   const [isUpdatingPerk, setIsUpdatingPerk] = useState(false);
+
+  // Collateral management modal state
+  const [showCollateralModal, setShowCollateralModal] = useState<{
+    type: 'topup' | 'add' | null;
+    isOpen: boolean;
+  }>({ type: null, isOpen: false });
+
+  // Metadata field modal state
+  const [showMetadataFieldModal, setShowMetadataFieldModal] = useState(false);
+  const [editingMetadataField, setEditingMetadataField] = useState<MetadataField | null>(null);
+  
+  // Salt visibility state
+  const [showSalt, setShowSalt] = useState(false);
+  
+  // Enhanced salt regeneration state
+  const [saltRegenerationFlow, setSaltRegenerationFlow] = useState({
+    step: 0, // 0: closed, 1: warning, 2: confirmation, 3: typing verification
+    confirmationText: '',
+    showModal: false
+  });
+
+  // Metadata schema swiper state
+  const [metadataSwiperInstance, setMetadataSwiperInstance] = useState<any>(null);
+  const [metadataActiveIndex, setMetadataActiveIndex] = useState(0);
+
+  // Copy partner salt to clipboard
+  const copySalt = async () => {
+    if (!perkSettings.partnerSalt) {
+      toast.error('No salt to copy');
+      return;
+    }
+    
+    try {
+      await navigator.clipboard.writeText(perkSettings.partnerSalt);
+      toast.success('Partner salt copied to clipboard!', { autoClose: 2000 });
+    } catch (error) {
+      console.error('Failed to copy salt:', error);
+      toast.error('Failed to copy salt to clipboard');
+    }
+  };
+
+  // Download salt as backup file
+  const downloadSalt = () => {
+    if (!perkSettings.partnerSalt) {
+      toast.error('No salt to download');
+      return;
+    }
+
+    try {
+      const saltData = {
+        partnerId: partnerCap.id,
+        partnerName: partnerCap.partnerName,
+        salt: perkSettings.partnerSalt,
+        createdAt: new Date().toISOString(),
+        version: '1.0',
+        description: 'Alpha4 Partner Salt Backup - Keep this file secure and private!'
+      };
+
+      const blob = new Blob([JSON.stringify(saltData, null, 2)], { 
+        type: 'application/json' 
+      });
+      
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `alpha4-salt-backup-${partnerCap.partnerName.replace(/\s+/g, '-')}-${Date.now()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success('Salt backup downloaded successfully!', { autoClose: 3000 });
+    } catch (error) {
+      console.error('Failed to download salt:', error);
+      toast.error('Failed to download salt backup');
+    }
+  };
+
+  // Enhanced salt regeneration with multiple confirmations
+  const handleSaltRegeneration = () => {
+    setSaltRegenerationFlow({
+      step: 1,
+      confirmationText: '',
+      showModal: true
+    });
+  };
+
+  const proceedSaltRegeneration = () => {
+    if (saltRegenerationFlow.step === 1) {
+      // Move to typing confirmation
+      setSaltRegenerationFlow(prev => ({
+        ...prev,
+        step: 2,
+        confirmationText: ''
+      }));
+    } else if (saltRegenerationFlow.step === 2) {
+      // Check if they typed the confirmation correctly
+      const expectedText = 'REGENERATE MY SALT';
+      if (saltRegenerationFlow.confirmationText.trim().toUpperCase() === expectedText) {
+        // Actually regenerate the salt
+        generateNewSalt();
+        setSaltRegenerationFlow({ step: 0, confirmationText: '', showModal: false });
+        toast.success('🔑 New salt generated! Please update all your integrations.', { autoClose: 5000 });
+      } else {
+        toast.error(`Please type exactly: "${expectedText}"`, { autoClose: 3000 });
+      }
+    }
+  };
+
+  const cancelSaltRegeneration = () => {
+    setSaltRegenerationFlow({ step: 0, confirmationText: '', showModal: false });
+  };
 
   // Get the currently selected partner cap
   const partnerCap = partnerCaps.find(cap => cap.id === selectedPartnerCapId) || initialPartnerCap;
@@ -317,22 +455,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   }, [partnerCaps, selectedPartnerCapId]);
 
-  // Debug log current partner cap state
-  useEffect(() => {
-    // Only log in development for debugging
-    if (import.meta.env.DEV) {
-      console.log('🔍 Partner Cap Debug:', {
-        selectedPartnerCapId,
-        partnerCapsCount: partnerCaps.length,
-        partnerCapNames: partnerCaps.map(cap => cap.partnerName),
-        currentPartnerCap: partnerCap ? {
-          id: partnerCap.id,
-          name: partnerCap.partnerName,
-          tvl: partnerCap.currentEffectiveUsdcValue
-        } : 'undefined'
-      });
-    }
-  }, [selectedPartnerCapId, partnerCaps, partnerCap]);
+
 
   // Tag handling functions
   const addTag = (tag: string) => {
@@ -481,8 +604,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       await refreshSettings();
       
       // Build the blockchain transaction
-      console.log('🔍 Building transaction with partner cap:', partnerCap.id);
-      console.log('🔍 Partner cap object:', partnerCap);
+
       
       // Validate partner cap ID format
       const validationResult = validatePartnerCapId(partnerCap.id);
@@ -499,12 +621,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         return;
       }
       
-      console.log('✅ Partner cap ID validation passed:', {
-        id: partnerCap.id,
-        validation: validationResult,
-        partnerName: partnerCap.partnerName,
-        packageId: partnerCap.packageId
-      });
+
       
       // 🔍 VERIFY PARTNER CAP EXISTS ON-CHAIN
       toast.info('🔍 Verifying partner cap exists on blockchain...');
@@ -518,7 +635,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           }
         });
         
-        console.log('🔍 Partner cap object from blockchain:', partnerCapObject);
+
         
         if (!partnerCapObject.data) {
           toast.error(
@@ -554,12 +671,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         }
         
         const onChainFields = (partnerCapObject.data.content as any).fields;
-        console.log('✅ Partner cap verified on-chain:', {
-          id: partnerCap.id,
-          name: onChainFields.partner_name,
-          address: onChainFields.partner_address,
-          type: partnerCapObject.data.type
-        });
+
         
         toast.success('✅ Partner cap verified on blockchain');
         
@@ -580,39 +692,29 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       
       const transaction = buildCreatePerkDefinitionTransaction(
         partnerCap.id,
-        newPerkName.trim(),
-        newPerkDescription.trim(),
-        newPerkType, // FIXED: Use single perk type instead of joined tags
-        usdcPrice,
-        parseInt(newPerkPartnerShare),
-        undefined, // maxUsesPerClaim
-        undefined, // expirationTimestampMs
-        false, // generatesUniqueClaimMetadata
-        newPerkTags, // tags
-        undefined, // maxClaims
-        [], // metadataKeys - TODO: Add 'icon' key when smart contract supports it
-        [], // metadataValues - TODO: Add newPerkIcon value when smart contract supports it
-        true, // isActive
-        undefined // deployer sponsored transaction
+        {
+          name: newPerkName.trim(),
+          description: newPerkDescription.trim(),
+          perkType: newPerkType,
+          usdcPrice: usdcPrice,
+          partnerSharePercentage: parseInt(newPerkPartnerShare),
+          maxUsesPerClaim: undefined,
+          expirationTimestampMs: undefined,
+          generatesUniqueClaimMetadata: false,
+          tags: newPerkTags,
+          maxClaims: undefined,
+          initialDefinitionMetadataKeys: [], // TODO: Add 'icon' key when smart contract supports it
+          initialDefinitionMetadataValues: [], // TODO: Add newPerkIcon value when smart contract supports it
+          isActive: true
+        }
       );
 
-      console.log('🔍 Transaction built successfully:', transaction);
+
 
       // 🔍 PRE-SIMULATION: Check transaction before signature
       toast.info('🔍 Validating transaction...');
       
-      // Log the exact values being sent for debugging revenue split issues
-      console.log('🔍 Transaction values being sent:', {
-        partnerSharePercent: parseInt(newPerkPartnerShare),
-        reinvestmentPercent: newPerkReinvestmentPercent,
-        usdcPrice: usdcPrice,
-        calculatedPartnerShare: calculatePartnerShare(newPerkReinvestmentPercent),
-        partnerSettings: {
-          maxCostPerPerkUsd: perkSettings.maxCostPerPerkUsd,
-          minPartnerSharePercentage: perkSettings.minPartnerSharePercentage,
-          maxPartnerSharePercentage: perkSettings.maxPartnerSharePercentage
-        }
-      });
+
       
       const simulation = await simulateTransaction(client, transaction, senderAddress);
       
@@ -1077,26 +1179,49 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     return (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {/* TVL Backing Card */}
-        <div className="bg-background-card rounded-lg p-6">
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-2">TVL Backing</h3>
-          <div className="text-3xl font-bold text-primary mb-1">
+          <div className="text-3xl font-bold text-blue-400 mb-1">
             ${tvlBackingUsd.toLocaleString()}
           </div>
           <div className="text-sm text-gray-400">Current Effective USD Value</div>
           <div className="text-xs text-gray-500 mt-2">
             Rate: $1 USD = 1,000 Alpha Points lifetime quota
           </div>
+          
+          {/* Collateral Management Actions */}
+          <div className="mt-4 pt-3 border-t border-gray-700">
+            <div className="space-y-2">
+              <Button 
+                className="w-full text-sm btn-modern-primary"
+                onClick={() => setShowCollateralModal({ type: 'topup', isOpen: true })}
+              >
+                <span className="mr-2">⬆️</span>
+                Top Up Current Collateral
+              </Button>
+              <Button 
+                className="w-full text-sm bg-green-600 hover:bg-green-700"
+                onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
+              >
+                <span className="mr-2">➕</span>
+                Add Different Backing
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2 text-center">
+              Increase your quota by adding more collateral
+            </p>
+          </div>
         </div>
         
         {/* Daily Quota Card */}
-        <div className="bg-background-card rounded-lg p-6">
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-2">Daily Quota</h3>
           <div className="text-2xl font-bold text-white mb-1">
             {availableDaily.toLocaleString()} / {dailyQuota.toLocaleString()}
           </div>
           <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
             <div 
-              className="bg-primary h-2 rounded-full transition-all duration-300" 
+              className="bg-blue-400 h-2 rounded-full transition-all duration-300" 
               style={{ width: `${Math.min(dailyUsedPercent, 100)}%` }}
             ></div>
           </div>
@@ -1107,14 +1232,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         </div>
         
         {/* Lifetime Quota Card */}
-        <div className="bg-background-card rounded-lg p-6">
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-2">Lifetime Quota</h3>
           <div className="text-2xl font-bold text-white mb-1">
             {remainingLifetime.toLocaleString()} / {lifetimeQuota.toLocaleString()}
           </div>
           <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
             <div 
-              className="bg-primary h-2 rounded-full transition-all duration-300" 
+              className="bg-blue-400 h-2 rounded-full transition-all duration-300" 
               style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
             ></div>
           </div>
@@ -1133,10 +1258,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Partner Status Card */}
-        <div className="bg-background-card rounded-lg p-6">
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Partner Status</h3>
           <div className="space-y-4">
-            <div className="flex justify-between items-center p-3 bg-background rounded-lg">
+            <div className="flex justify-between items-center p-3 bg-gray-900/50 rounded-lg">
               <div>
                 <div className="text-white font-medium">Perks Created</div>
                 <div className="text-sm text-gray-400">Total marketplace perks</div>
@@ -1158,6 +1283,33 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 Enhanced
               </div>
             </div>
+
+            <div className="flex justify-between items-center p-3 bg-background rounded-lg">
+              <div>
+                <div className="text-white font-medium">Your SUI Balance</div>
+                <div className="text-sm text-gray-400">Available wallet balance</div>
+              </div>
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center text-primary font-semibold">
+                  {loading.suiBalance ? (
+                    <div className="w-6 h-6 bg-gray-700 rounded animate-pulse mr-2"></div>
+                  ) : (
+                    <>
+                      {formatSui(suiBalance)}
+                      <img src={suiLogo} alt="Sui Logo" className="w-5 h-5 rounded-full object-cover ml-2" />
+                    </>
+                  )}
+                </div>
+                <a
+                  href="https://faucet.testnet.sui.io/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-cyan-500 hover:bg-cyan-600 text-white py-1.5 px-3 rounded-md transition-colors text-xs font-medium"
+                >
+                  Get Testnet SUI
+                </a>
+              </div>
+            </div>
           </div>
         </div>
         
@@ -1171,12 +1323,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
               </Button>
             </Link>
             <Link to="/partners/analytics" className="block">
-              <Button className="w-full bg-gray-700 hover:bg-gray-600">
+              <Button className="w-full btn-modern-secondary">
                 View Analytics
               </Button>
             </Link>
             <Button 
-              className="w-full bg-gray-700 hover:bg-gray-600"
+                              className="w-full btn-modern-secondary"
               onClick={onRefresh}
             >
               Refresh Data
@@ -1331,18 +1483,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       const allowedTags = currentSettings!.allowedTags;
       const maxPerks = currentSettings!.maxPerksPerPartner;
       
-      // Debug logging for troubleshooting (only in development)
-      if (import.meta.env.DEV) {
-        console.log('🔍 Compliance Check Debug for', partnerCap.partnerName, ':', {
-          maxCost,
-          minShare,
-          maxShare,
-          allowedTypes: allowedTypes.length,
-          allowedTags: allowedTags.length,
-          maxPerks,
-          currentSettings: currentSettings
-        });
-      }
+
       
       // Check if the settings are configured but have invalid/zero values
       // FIXED: Only consider settings invalid if maxCost is 0 AND no range is set
@@ -1351,9 +1492,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       
       if (hasInvalidSettings) {
         return (
-          <div className="bg-blue-600/10 border border-blue-600/30 rounded-lg p-4">
+          <div className="card-modern p-4">
             <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
               <div className="flex-1">
                 <div className="text-blue-400 font-medium text-sm">Settings Need Configuration</div>
                 <div className="text-blue-300 text-xs mt-1">
@@ -1362,7 +1502,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
               </div>
               <button
                 onClick={() => navigate('/partners/settings')}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded font-medium transition-colors"
+                className="btn-modern-primary text-xs px-3 py-1"
               >
                 Fix Settings
               </button>
@@ -1393,9 +1533,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       
       if (isUnconfigured) {
         return (
-          <div className="bg-blue-600/10 border border-blue-600/30 rounded-lg p-4">
+          <div className="card-modern p-4">
             <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
               <div className="flex-1">
                 <div className="text-blue-400 font-medium text-sm">Settings Configuration Required</div>
                 <div className="text-blue-300 text-xs mt-1">
@@ -1404,7 +1543,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
               </div>
               <button
                 onClick={() => navigate('/partners/settings')}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded font-medium transition-colors"
+                className="btn-modern-primary text-xs px-3 py-1"
               >
                 Go to Settings
               </button>
@@ -1721,7 +1860,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     value={newPerkType}
                     onChange={(e) => setNewPerkType(e.target.value)}
                     disabled={isCreatingPerk}
-                    className="w-full h-10 bg-background-input border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500"
+                    className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500"
                     title="Select the primary type/category for this perk"
                   >
                     <option value="Access">Access</option>
@@ -1751,7 +1890,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   {/* Streamlined Tag Selector */}
                   <div className="relative tag-selector" title="Select up to 5 tags to categorize your perk and make it discoverable">
                     <div 
-                      className="min-h-[40px] border border-gray-600 rounded-md bg-background-input px-3 py-2 cursor-pointer"
+                      className="min-h-[40px] border border-gray-600 rounded-md bg-gray-900/50 px-3 py-2 cursor-pointer"
                       onClick={() => setShowTagDropdown(!showTagDropdown)}
                     >
                       {newPerkTags.length > 0 ? (
@@ -1778,7 +1917,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     </div>
                     
                     {showTagDropdown && (
-                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-background-card border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-gray-800/95 backdrop-blur-lg border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
                         {/* Custom tag input */}
                         <div className="p-2 border-b border-gray-600">
                           <div className="flex gap-1">
@@ -1788,14 +1927,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                               value={tagInput}
                               onChange={(e) => setTagInput(e.target.value)}
                               onKeyPress={(e) => e.key === 'Enter' && handleCustomTag()}
-                              className="flex-1 px-2 py-1 text-xs bg-background-input border border-gray-600 rounded"
+                              className="flex-1 px-2 py-1 text-xs bg-gray-900/50 border border-gray-600 rounded"
                               maxLength={20}
                             />
                             <button
                               type="button"
                               onClick={handleCustomTag}
                               disabled={!tagInput.trim() || newPerkTags.length >= 5}
-                              className="px-2 py-1 text-xs bg-blue-600 text-white rounded disabled:bg-gray-600"
+                              className="btn-modern-primary text-xs px-2 py-1"
                             >
                               Add
                             </button>
@@ -1879,7 +2018,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 {/* RIGHT COLUMN: Alpha Points Display */}
                 <div className="flex flex-col justify-center">
                   {newPerkUsdcPrice && parseFloat(newPerkUsdcPrice) > 0 ? (
-                    <div className="text-center p-4 bg-background-input rounded-lg border border-gray-600">
+                    <div className="text-center p-4 bg-gray-900/50 rounded-lg border border-gray-600">
                       <div className="text-sm text-gray-400 mb-2">Alpha Points Cost</div>
                       <div className={`font-bold text-green-400 mb-2 ${
                         (() => {
@@ -2187,12 +2326,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
               <div className="relative">
                 <Swiper
                   modules={[Navigation, Pagination, A11y]}
-                  spaceBetween={16}
-                  slidesPerView={3}
-                  slidesPerGroup={3}
-                  loop={currentPartnerPerks.length > 3} // Enable looping when there are more than 3 perks
+                  spaceBetween={12}
+                  slidesPerView={4}
+                  slidesPerGroup={4}
+                  loop={true} // Enable looping for continuous navigation
                   onSwiper={setPerkSwiperInstance}
-                  onSlideChange={(swiper) => setPerkActiveIndex(swiper.realIndex)}
+                  onSlideChange={(swiper) => setPerkActiveIndex(swiper.activeIndex)}
                   pagination={false} 
                   navigation={false}
                   className="h-full"
@@ -2201,7 +2340,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                       slidesPerView: 1,
                       slidesPerGroup: 1,
                     },
-                    768: {
+                    640: {
                       slidesPerView: 2,
                       slidesPerGroup: 2,
                     },
@@ -2209,14 +2348,18 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                       slidesPerView: 3,
                       slidesPerGroup: 3,
                     },
+                    1280: {
+                      slidesPerView: 4,
+                      slidesPerGroup: 4,
+                    },
                   }}
                 >
                   {currentPartnerPerks.map((perk) => (
                     <SwiperSlide key={perk.id} className="h-auto">
-                      <div className="bg-background rounded-lg p-3 border border-gray-700 h-full flex flex-col">
+                      <div className="bg-gray-900/50 rounded-lg p-2 border border-gray-700 h-full flex flex-col">
                         {/* Perk Header */}
-                        <div className="flex items-start space-x-3 mb-2">
-                          <div className="w-8 h-8 flex items-center justify-center bg-background-card rounded-full text-lg flex-shrink-0">
+                        <div className="flex items-start space-x-2 mb-1.5">
+                          <div className="w-6 h-6 flex items-center justify-center bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-full text-sm flex-shrink-0">
                             {perk.icon || 
                              (perk.perk_type === 'Access' ? '🔑' :
                            perk.perk_type === 'Digital Asset' ? '🖼️' :
@@ -2225,10 +2368,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                               perk.perk_type === 'Physical' ? '📦' : '🎁')}
                         </div>
                           <div className="min-w-0 flex-1">
-                            <div className="font-medium text-white truncate">{perk.name}</div>
+                            <div className="font-medium text-white truncate text-sm">{perk.name}</div>
                             <div className="text-xs text-gray-400">{perk.perk_type}</div>
-                            <div className="flex items-center space-x-2 mt-1">
-                        <div className={`w-2 h-2 rounded-full ${
+                            <div className="flex items-center space-x-1.5 mt-0.5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${
                           perk.is_active ? 'bg-green-500' : 'bg-yellow-500'
                         }`} />
                               <span className={`text-xs font-medium ${
@@ -2241,7 +2384,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     </div>
                     
                         {/* Perk Details Grid */}
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mb-2 flex-grow">
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs mb-1.5 flex-grow">
                           <div className="flex justify-between">
                             <span className="text-gray-400">USDC:</span>
                             <span className="text-green-400 font-medium">${perk.usdc_price.toFixed(2)}</span>
@@ -2262,25 +2405,25 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                           
                         {/* Tags */}
                               {perk.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-2">
-                            {perk.tags.slice(0, 3).map((tag, index) => (
-                              <span key={index} className="text-xs bg-gray-600/50 text-gray-300 px-1.5 py-0.5 rounded">
+                          <div className="flex flex-wrap gap-0.5 mb-1">
+                            {perk.tags.slice(0, 2).map((tag, index) => (
+                              <span key={index} className="text-xs bg-gray-600/50 text-gray-300 px-1 py-0.5 rounded">
                                 {tag}
                               </span>
                             ))}
-                            {perk.tags.length > 3 && (
-                              <span className="text-xs text-gray-400">+{perk.tags.length - 3}</span>
+                            {perk.tags.length > 2 && (
+                              <span className="text-xs text-gray-400">+{perk.tags.length - 2}</span>
                               )}
                             </div>
                           )}
                           
                         {/* Description */}
-                        <div className="text-xs text-gray-500 mb-2 line-clamp-2">{perk.description}</div>
+                        <div className="text-xs text-gray-500 mb-1.5 line-clamp-1">{perk.description}</div>
 
                         {/* Action Buttons */}
-                        <div className="flex gap-2 mt-auto">
+                        <div className="flex gap-1 mt-auto">
                             <button 
-                            className={`flex-1 px-3 py-1 rounded text-xs font-medium transition-colors ${
+                            className={`flex-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
                                 perk.is_active 
                                   ? 'bg-yellow-600 hover:bg-yellow-700 text-white' 
                                   : 'bg-green-600 hover:bg-green-700 text-white'
@@ -2294,7 +2437,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                             </button>
                           
                           <button 
-                            className="flex-1 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded font-medium transition-colors"
+                            className="flex-1 btn-modern-primary text-xs px-2 py-1"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleEditPerk(perk);
@@ -2304,7 +2447,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                           </button>
                           
                           <button 
-                            className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs rounded font-medium transition-colors"
+                            className="btn-modern-secondary text-xs px-2 py-1"
                             onClick={() => {
                               const perkUrl = `https://suiscan.xyz/testnet/object/${perk.id}`;
                               window.open(perkUrl, '_blank');
@@ -2316,7 +2459,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                           </div>
 
                         {/* Perk ID */}
-                        <div className="text-xs text-gray-500 mt-2 text-center">
+                        <div className="text-xs text-gray-500 mt-1 text-center">
                           ID: {perk.id.substring(0, 8)}...
                         </div>
                       </div>
@@ -2324,11 +2467,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   ))}
                 </Swiper>
                 
-                {/* Navigation Controls - Only show when there are more than 3 perks */}
-                {currentPartnerPerks.length > 3 && (
+                {/* Navigation Controls - Only show when there are more than 4 perks */}
+                {currentPartnerPerks.length > 4 && (
                   <div className="flex items-center justify-center gap-2 mt-4">
                     <button
-                      className="p-2 rounded-full bg-background-card hover:bg-gray-700 text-white transition-colors disabled:opacity-50"
+                      className="p-2 rounded-full bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 hover:bg-gray-700 text-white transition-colors disabled:opacity-50"
                       aria-label="Previous perks"
                       onClick={() => perkSwiperInstance?.slidePrev()}
                       disabled={!perkSwiperInstance}
@@ -2339,23 +2482,18 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     </button>
                     
                     <div className="flex gap-1">
-                      {Array.from({ length: Math.ceil(currentPartnerPerks.length / 3) }, (_, idx) => (
+                      {Array.from({ length: Math.ceil(currentPartnerPerks.length / 4) }, (_, idx) => (
                         <button
                           key={idx}
                           className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-semibold transition-colors ${
-                            Math.floor(perkActiveIndex / 3) === idx 
-                              ? 'bg-primary text-white' 
+                            Math.floor(perkActiveIndex / 4) === idx 
+                              ? 'bg-blue-500 text-white' 
                               : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                           }`}
                           onClick={() => {
                             if (perkSwiperInstance) {
-                              const targetSlide = idx * 3;
-                              // Always use slideToLoop when loop is enabled
-                              if (currentPartnerPerks.length > 3) {
-                                perkSwiperInstance.slideToLoop(targetSlide);
-                              } else {
-                                perkSwiperInstance.slideTo(targetSlide);
-                              }
+                              const targetSlide = idx * 4;
+                              perkSwiperInstance.slideTo(targetSlide);
                             }
                           }}
                           aria-label={`Go to perk group ${idx + 1}`}
@@ -2366,7 +2504,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     </div>
                     
                     <button
-                      className="p-2 rounded-full bg-background-card hover:bg-gray-700 text-white transition-colors disabled:opacity-50"
+                      className="p-2 rounded-full bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 hover:bg-gray-700 text-white transition-colors disabled:opacity-50"
                       aria-label="Next perks"
                       onClick={() => perkSwiperInstance?.slideNext()}
                       disabled={!perkSwiperInstance}
@@ -2419,7 +2557,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     <select
                       value={editForm.icon}
                       onChange={(e) => setEditForm(prev => ({ ...prev, icon: e.target.value }))}
-                      className="w-full h-10 bg-background-input border border-gray-600 rounded text-center text-lg cursor-pointer hover:border-gray-500"
+                      className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded text-center text-lg cursor-pointer hover:border-gray-500"
                     >
                       <option value="🎁">🎁 Gift</option>
                       <option value="🔑">🔑 Access</option>
@@ -2541,14 +2679,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
               <div className="flex justify-end space-x-3 mt-6">
                 <Button
                   onClick={handleCancelEdit}
-                  className="bg-gray-600 hover:bg-gray-700"
+                  className="btn-modern-secondary"
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleUpdatePerk}
                   disabled={isUpdatingPerk}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="btn-modern-primary"
                 >
                   {isUpdatingPerk ? 'Updating...' : 'Update Perk'}
                 </Button>
@@ -2573,17 +2711,144 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       setAnalyticsToggles((prev) => ({ ...prev, [key]: !prev[key] }));
     };
 
+    const handleTimeRangeChange = (range: '7d' | '30d' | '90d') => {
+      setAnalyticsTimeRange(range);
+    };
+
     return (
       <div>
         {/* Analytics Chart */}
-        <div className="bg-background-card rounded-lg p-6 mb-6">
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6 mb-6">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
             <div className="lg:col-span-3 w-full h-64">
-              <div className="h-full bg-background rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <div className="text-4xl mb-4">📈</div>
-                  <div className="text-gray-400 mb-2">Analytics Dashboard</div>
-                  <div className="text-sm text-gray-500">Revenue tracking and TVL growth metrics coming soon</div>
+              <div className="h-full bg-gray-900/50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white">Current Performance Snapshot</h3>
+                  <div className="flex items-center text-sm text-amber-300">
+                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    Real-Time Only
+                  </div>
+                </div>
+                <div className="h-[200px]">
+                  {(() => {
+                    // Generate chart data - only show real current data
+                    const generateChartData = () => {
+                      // We only have real data for today - don't generate fake historical data
+                      const data = [];
+                      
+                      // EXACT current values from PartnerCap
+                      const currentTvl = partnerCap.currentEffectiveUsdcValue || 0;
+                      const pointsMintedToday = partnerCap.pointsMintedToday || 0;
+                      
+                      // Calculate EXACT current metrics
+                      const lifetimeQuota = Math.floor(currentTvl * 1000);
+                      const dailyQuota = Math.floor(lifetimeQuota * 0.03);
+                      const currentQuotaUsage = dailyQuota > 0 ? (pointsMintedToday / dailyQuota * 100) : 0;
+                      
+                      // Get actual perk metrics
+                      const perkMetrics = getPartnerPerkMetrics(partnerCap.id);
+                      const currentPerkRevenue = perkMetrics.totalRevenue || 0;
+                      
+                      // Only show today's REAL data
+                      const today = new Date();
+                      data.push({
+                        day: today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                        tvlBacking: currentTvl,
+                        pointsMinted: pointsMintedToday,
+                        dailyQuotaUsage: Math.round(currentQuotaUsage * 10) / 10,
+                        perkRevenue: currentPerkRevenue,
+                      });
+                      
+                      return data;
+                    };
+                    
+                                         const chartData = generateChartData();
+                     
+                     const CustomTooltip = ({ active, payload, label }: any) => {
+                       if (active && payload && payload.length) {
+                         return (
+                           <div className="bg-gray-800 bg-opacity-95 backdrop-blur-sm border border-gray-600 p-3 rounded-lg shadow-lg text-sm">
+                             <p className="text-gray-300 mb-2">{label}</p>
+                             {payload.map((entry: any, idx: number) => (
+                               <p key={idx} style={{ color: entry.stroke }}>
+                                 {entry.name}: {entry.value.toLocaleString()}
+                                 {entry.dataKey === 'tvlBacking' ? ' USD' : 
+                                  entry.dataKey === 'dailyQuotaUsage' ? '%' : ' AP'}
+                               </p>
+                             ))}
+                           </div>
+                         );
+                       }
+                       return null;
+                     };
+                    
+                    return (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#4b5563" />
+                          <XAxis 
+                            dataKey="day" 
+                            stroke="#9ca3af" 
+                            tick={{ fontSize: 12 }} 
+                            axisLine={false} 
+                            tickLine={false} 
+                          />
+                          <YAxis 
+                            stroke="#9ca3af" 
+                            tick={{ fontSize: 12 }} 
+                            axisLine={false} 
+                            tickLine={false} 
+                            width={50}
+                          />
+                          <RechartsTooltip content={<CustomTooltip />} />
+                          
+                                                     {/* Show different metrics based on analytics toggles */}
+                           {analyticsToggles['tvlBacking'] && (
+                             <Line
+                               type="monotone"
+                               dataKey="tvlBacking"
+                               stroke="#10b981"
+                               strokeWidth={2}
+                               dot={{ r: 4 }}
+                               name="TVL Backing"
+                             />
+                           )}
+                           {analyticsToggles['pointsMinted'] && (
+                             <Line
+                               type="monotone"
+                               dataKey="pointsMinted"
+                               stroke="#f59e42"
+                               strokeWidth={2}
+                               dot={{ r: 4 }}
+                               name="Points Minted"
+                             />
+                           )}
+                           {analyticsToggles['dailyQuotaUsage'] && (
+                             <Line
+                               type="monotone"
+                               dataKey="dailyQuotaUsage"
+                               stroke="#3b82f6"
+                               strokeWidth={2}
+                               dot={{ r: 4 }}
+                               name="Daily Quota Usage"
+                             />
+                           )}
+                           {analyticsToggles['perkRevenue'] && (
+                             <Line
+                               type="monotone"
+                               dataKey="perkRevenue"
+                               stroke="#a21caf"
+                               strokeWidth={2}
+                               dot={{ r: 4 }}
+                               name="Perk Revenue"
+                             />
+                           )}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -2612,16 +2877,16 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   ))}
                 </div>
                 
-                <h4 className="text-sm font-medium text-gray-200 mb-2">Time Range</h4>
-                <div className="flex gap-1">
-                  {['7d', '30d', '90d'].map((range) => (
-                    <button
-                      key={range}
-                      className="flex-1 px-2 py-1 rounded border text-xs font-medium transition-colors bg-background-input text-gray-300 border-gray-600 hover:bg-gray-700"
-                    >
-                      {range}
-                    </button>
-                  ))}
+                <h4 className="text-sm font-medium text-gray-200 mb-2">Data Status</h4>
+                <div className="text-xs text-gray-400 bg-gray-800/50 rounded p-2">
+                  <div className="flex items-center mb-1">
+                    <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
+                    Real-time metrics
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-2 h-2 bg-gray-500 rounded-full mr-2"></div>
+                    Historical data pending
+                  </div>
                 </div>
               </div>
             </div>
@@ -2630,7 +2895,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Current Metrics */}
-          <div className="bg-background-card rounded-lg p-4">
+          <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-4">
             <div className="grid grid-cols-2 gap-x-6 gap-y-0.5">
               <div className="flex justify-between py-0.5">
                 <span className="text-gray-400 text-sm">TVL Backing</span>
@@ -2693,7 +2958,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           </div>
           
           {/* Perk Performance Metrics */}
-          <div className="bg-background-card rounded-lg p-4">
+          <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-4">
             <h4 className="text-lg font-semibold text-white mb-3">Perk Performance</h4>
             {(() => {
               const metrics = getPartnerPerkMetrics(partnerCap.id);
@@ -2772,7 +3037,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     <div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Current Settings Display */}
-        <div className="bg-background-card rounded-lg p-6">
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold text-white">Current Settings</h3>
             {isLoadingSettings && (
@@ -2798,19 +3063,19 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           ) : currentSettings ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-background rounded-lg p-3">
+                <div className="bg-gray-900/50 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">Max Cost Per Perk</div>
                   <div className="text-lg font-semibold text-green-400">${currentSettings.maxCostPerPerkUsd.toFixed(2)}</div>
             </div>
-                <div className="bg-background rounded-lg p-3">
+                <div className="bg-gray-900/50 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">Max Perks Per Partner</div>
                   <div className="text-lg font-semibold text-blue-400">{currentSettings.maxPerksPerPartner}</div>
                 </div>
-                <div className="bg-background rounded-lg p-3">
+                <div className="bg-gray-900/50 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">Max Claims Per Perk</div>
                   <div className="text-lg font-semibold text-purple-400">{currentSettings.maxClaimsPerPerk.toLocaleString()}</div>
               </div>
-                <div className="bg-background rounded-lg p-3">
+                <div className="bg-gray-900/50 rounded-lg p-3">
                   <div className="text-sm text-gray-400 mb-1">Partner Share Range</div>
                   <div className="text-lg font-semibold text-yellow-400">{currentSettings.minPartnerSharePercentage}% - {currentSettings.maxPartnerSharePercentage}%</div>
             </div>
@@ -2831,36 +3096,100 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 </div>
               </div>
               
-              <div className="bg-background rounded-lg p-3">
-                <div className="text-sm text-gray-400 mb-2">Allowed Perk Types ({currentSettings.allowedPerkTypes.length})</div>
-                <div className="flex flex-wrap gap-1">
-                  {currentSettings.allowedPerkTypes.length > 0 ? (
-                    currentSettings.allowedPerkTypes.map((type, index) => (
-                      <span key={index} className="text-xs bg-blue-600/20 text-blue-300 px-2 py-1 rounded">
-                        {type}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-gray-500">None configured</span>
-                  )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-900/50 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-2">Allowed Perk Types ({currentSettings.allowedPerkTypes.length})</div>
+                  <div className="flex flex-wrap gap-1">
+                    {currentSettings.allowedPerkTypes.length > 0 ? (
+                      currentSettings.allowedPerkTypes.map((type, index) => (
+                        <span key={`perk-type-${index}`} className="text-xs bg-blue-600/20 text-blue-300 px-2 py-1 rounded">
+                          {type}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-gray-500">None configured</span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="bg-gray-900/50 rounded-lg p-3">
+                  <div className="text-sm text-gray-400 mb-2">Allowed Tags ({currentSettings.allowedTags.length})</div>
+                  <div className="flex flex-wrap gap-1">
+                    {currentSettings.allowedTags.length > 0 ? (
+                      currentSettings.allowedTags.slice(0, 8).map((tag, index) => (
+                        <span key={`tag-${index}`} className="text-xs bg-green-600/20 text-green-300 px-2 py-1 rounded">
+                          {tag}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-gray-500">None configured</span>
+                    )}
+                    {currentSettings.allowedTags.length > 8 && (
+                      <span className="text-xs text-gray-400">+{currentSettings.allowedTags.length - 8} more</span>
+                    )}
+                  </div>
                 </div>
               </div>
               
+              {/* Partner Salt Section */}
               <div className="bg-background rounded-lg p-3">
-                <div className="text-sm text-gray-400 mb-2">Allowed Tags ({currentSettings.allowedTags.length})</div>
-                <div className="flex flex-wrap gap-1">
-                  {currentSettings.allowedTags.length > 0 ? (
-                    currentSettings.allowedTags.slice(0, 8).map((tag, index) => (
-                      <span key={index} className="text-xs bg-green-600/20 text-green-300 px-2 py-1 rounded">
-                        {tag}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-gray-500">None configured</span>
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <div className="text-sm text-gray-400 font-medium">Partner Salt</div>
+                    <div className="text-xs text-gray-500">Used for privacy-preserving metadata hashing</div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <Button 
+                      onClick={downloadSalt}
+                      className="bg-green-600 hover:bg-green-700 text-xs px-2 py-1"
+                      title="Download salt backup file"
+                    >
+                      💾 Download
+                    </Button>
+                    <Button 
+                      onClick={handleSaltRegeneration}
+                      className="bg-red-600 hover:bg-red-700 text-xs px-2 py-1"
+                      title="⚠️ DANGER: This will invalidate all existing metadata"
+                    >
+                      🚨 Regenerate
+                    </Button>
+                  </div>
+                </div>
+                <div className="bg-gray-800 rounded p-2 font-mono text-xs text-gray-300 break-all relative flex items-center">
+                  <span className="flex-1">
+                    {perkSettings.partnerSalt 
+                      ? (showSalt ? perkSettings.partnerSalt : '*'.repeat(perkSettings.partnerSalt.length))
+                      : 'No salt generated'
+                    }
+                  </span>
+                  {perkSettings.partnerSalt && (
+                    <div className="flex space-x-1 ml-2">
+                      <button
+                        onClick={() => setShowSalt(!showSalt)}
+                        className="bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded text-xs transition-colors"
+                        title={showSalt ? 'Hide salt' : 'Show salt'}
+                      >
+                        {showSalt ? '👁️' : '👁️‍🗨️'}
+                      </button>
+                      <button
+                        onClick={copySalt}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors"
+                        title="Copy salt to clipboard"
+                      >
+                        📋
+                      </button>
+                      <button
+                        onClick={downloadSalt}
+                        className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors"
+                        title="Download salt backup file"
+                      >
+                        💾
+                      </button>
+                    </div>
                   )}
-                  {currentSettings.allowedTags.length > 8 && (
-                    <span className="text-xs text-gray-400">+{currentSettings.allowedTags.length - 8} more</span>
-                  )}
+                </div>
+                <div className="text-xs text-gray-400 mt-2">
+                  🔐 This salt is automatically generated and persisted for your partner account. <strong>Download a backup</strong> to protect against data loss. Share this salt with your custom frontends and bots to verify user data. Once set, metadata hashed with this salt will only work with the same salt value.
                 </div>
               </div>
             </div>
@@ -2876,7 +3205,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         </div>
 
         {/* Settings Configuration Form */}
-        <div className="bg-background-card rounded-lg p-6">
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold text-white">Configure Settings</h3>
             {currentSettings && (
@@ -2890,10 +3219,6 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           </div>
           
           <div className="space-y-4">
-            {/* Basic Limits */}
-          <div className="space-y-3">
-              <h4 className="text-lg font-medium text-white border-b border-gray-700 pb-2">Basic Limits</h4>
-              
             <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">Max Cost Per Perk (USD)</label>
                   <Input
@@ -2942,11 +3267,6 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   />
                 </div>
               </div>
-            </div>
-
-            {/* Permissions */}
-            <div className="space-y-3">
-              <h4 className="text-lg font-medium text-white border-b border-gray-700 pb-2">Permissions</h4>
               
               <div className="flex flex-wrap gap-4">
                 <label className="flex items-center">
@@ -2988,17 +3308,132 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   <span className="text-sm text-gray-300">Allow Unique Metadata</span>
                   </label>
               </div>
-              <div className="text-xs text-gray-400 mt-2">
-                Revenue split is controlled per-perk when creating. You always get 90% total (10% to platform).
+            
+            <div className="space-y-3">
+              <div className="bg-gray-900/50 rounded-lg p-3">
+                <div className="flex justify-between items-center mb-2">
+                  <div>
+                    <div className="text-sm text-gray-300 font-medium">Metadata Schema</div>
+                    <div className="text-xs text-gray-500">Define what information your perks collect</div>
+                  </div>
+                  <Button 
+                    onClick={() => {
+                      setEditingMetadataField(null);
+                      setShowMetadataFieldModal(true);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1"
+                  >
+                    Add Field
+                  </Button>
+                </div>
+                
+                {perkSettings.metadataSchema && perkSettings.metadataSchema.length > 0 ? (
+                  <div className="relative">
+                    {/* Navigation arrows for metadata fields */}
+                    {perkSettings.metadataSchema.length > 3 && (
+                      <>
+                        <button
+                          onClick={() => metadataSwiperInstance?.slidePrev()}
+                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-gray-700 hover:bg-gray-600 text-white p-1 rounded-full transition-colors"
+                          style={{ marginLeft: '-12px' }}
+                        >
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => metadataSwiperInstance?.slideNext()}
+                          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-gray-700 hover:bg-gray-600 text-white p-1 rounded-full transition-colors"
+                          style={{ marginRight: '-12px' }}
+                        >
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                    
+                    <Swiper
+                      modules={[Navigation, A11y]}
+                      spaceBetween={12}
+                      slidesPerView={Math.min(3, perkSettings.metadataSchema.length)}
+                      slidesPerGroup={3}
+                      onSwiper={setMetadataSwiperInstance}
+                      onSlideChange={(swiper) => setMetadataActiveIndex(swiper.activeIndex)}
+                      className="metadata-schema-swiper"
+                    >
+                      {perkSettings.metadataSchema.map((field, index) => (
+                        <SwiperSlide key={field.key}>
+                          <div className="bg-gray-800 rounded p-3 h-24 flex flex-col justify-between">
+                            <div className="flex-1 min-h-0">
+                              <div className="text-sm text-white font-medium flex items-center gap-2 truncate">
+                                <span className="flex-shrink-0">{field.key}</span>
+                                {field.required && (
+                                  <span className="text-yellow-400 text-xs flex-shrink-0">Required</span>
+                                )}
+                                {field.description && (
+                                  <span className="text-gray-400 text-xs truncate">
+                                    - {field.description}
+                                  </span>
+                                )}
+                                {!field.description && (
+                                  <span className="text-gray-500 text-xs flex-shrink-0">No description</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex space-x-1 mt-2">
+                              <Button 
+                                onClick={() => {
+                                  setEditingMetadataField(field);
+                                  setShowMetadataFieldModal(true);
+                                }}
+                                className="bg-gray-600 hover:bg-gray-700 text-xs px-2 py-1 flex-1"
+                              >
+                                Edit
+                              </Button>
+                              <Button 
+                                onClick={() => removeMetadataField(field.key)}
+                                className="bg-red-600 hover:bg-red-700 text-xs px-2 py-1 flex-1"
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        </SwiperSlide>
+                      ))}
+                    </Swiper>
+                    
+                    {/* Pagination dots for metadata fields */}
+                    {perkSettings.metadataSchema.length > 3 && (
+                      <div className="flex justify-center mt-3 space-x-1">
+                        {Array.from({ length: Math.ceil(perkSettings.metadataSchema.length / 3) }).map((_, pageIndex) => (
+                          <button
+                            key={pageIndex}
+                            onClick={() => metadataSwiperInstance?.slideTo(pageIndex * 3)}
+                            className={`w-2 h-2 rounded-full transition-colors ${
+                              Math.floor(metadataActiveIndex / 3) === pageIndex 
+                                ? 'bg-blue-500' 
+                                : 'bg-gray-600 hover:bg-gray-500'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500 text-center py-4">
+                    No metadata fields configured. Add fields to collect user information with your perks.
+                  </div>
+                )}
               </div>
             </div>
-            
+
             {/* Save Button */}
             <div className="pt-4 border-t border-gray-700">
               <Button 
                 onClick={handleUpdatePerkSettings}
                 disabled={isUpdatingSettings}
-                className="w-full bg-primary hover:bg-primary-dark"
+                className="w-full bg-blue-500 hover:bg-blue-600"
               >
                 {isUpdatingSettings ? 'Updating Settings...' : 'Update Partner Settings'}
               </Button>
@@ -3036,8 +3471,560 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   };
 
+  // Collateral Management Modal Component
+  const [modalCollateralType, setModalCollateralType] = useState<'USDC' | 'NFT'>('USDC');
+  
+  // Modal form state
+  const [additionalSuiAmount, setAdditionalSuiAmount] = useState('');
+  const [usdcCoinIdToAdd, setUsdcCoinIdToAdd] = useState('');
+  const [nftKioskId, setNftKioskId] = useState('');
+  const [nftCollectionType, setNftCollectionType] = useState('');
+  const [nftFloorValue, setNftFloorValue] = useState('');
+  const [isProcessingCollateral, setIsProcessingCollateral] = useState(false);
+  
+  // Clear modal form when closing or switching types
+  const clearCollateralForm = () => {
+    setAdditionalSuiAmount('');
+    setUsdcCoinIdToAdd('');
+    setNftKioskId('');
+    setNftCollectionType('');
+    setNftFloorValue('');
+  };
+  
+  // Collateral transaction handlers
+  const handleTopUpSuiCollateral = async () => {
+    if (!additionalSuiAmount || !partnerCap.id) {
+      toast.error('Please enter a valid SUI amount');
+      return;
+    }
+
+    const suiAmountNumber = parseFloat(additionalSuiAmount);
+    if (isNaN(suiAmountNumber) || suiAmountNumber <= 0) {
+      toast.error('Please enter a valid SUI amount');
+      return;
+    }
+
+    setIsProcessingCollateral(true);
+
+    try {
+      const suiAmountMist = BigInt(Math.floor(suiAmountNumber * Math.pow(10, 9)));
+      
+      // Fetch fresh partner cap data to avoid caching issues
+      const freshPartnerCap = await client.getObject({
+        id: partnerCap.id,
+        options: { showContent: true, showType: true }
+      });
+      
+      // Check if partner already has a SUI vault using fresh data
+      // In Sui Move, Option<T> appears as null for None, or {vec: [value]} for Some(value)
+      const lockedSuiCoinId = (freshPartnerCap.data?.content as any)?.fields?.locked_sui_coin_id;
+      const hasSuiVault = lockedSuiCoinId && (
+        // Option<T> can be returned as direct string value
+        (typeof lockedSuiCoinId === 'string' && lockedSuiCoinId.length > 0) ||
+        // Or as array format
+        (Array.isArray(lockedSuiCoinId) && lockedSuiCoinId.length > 0) || 
+        // Or as object with vec format
+        (typeof lockedSuiCoinId === 'object' && lockedSuiCoinId.vec && lockedSuiCoinId.vec.length > 0)
+      );
+      
+      
+      
+      let tx;
+      if (hasSuiVault) {
+        // Partner has existing SUI vault - add to it
+        // Extract vault ID from Option<T> format
+        let vaultId;
+        if (typeof lockedSuiCoinId === 'string') {
+          vaultId = lockedSuiCoinId; // Direct string value
+        } else if (Array.isArray(lockedSuiCoinId) && lockedSuiCoinId.length > 0) {
+          vaultId = lockedSuiCoinId[0]; // Array format
+        } else if (lockedSuiCoinId.vec && lockedSuiCoinId.vec.length > 0) {
+          vaultId = lockedSuiCoinId.vec[0]; // Object with vec format
+        } else {
+          vaultId = lockedSuiCoinId; // Fallback
+        }
+        
+        tx = buildAddSuiCollateralTransaction(partnerCap.id, vaultId, suiAmountMist);
+      } else {
+        // Partner doesn't have SUI vault yet - create initial vault
+        tx = buildCreateInitialSuiVaultTransaction(partnerCap.id, suiAmountMist);
+      }
+      
+      const result = await signAndExecuteTransaction({
+        transaction: tx,
+      });
+
+      if (result?.digest) {
+        toast.success(
+          <div>
+            <div>Successfully added {additionalSuiAmount} SUI collateral!</div>
+            <a 
+              href={`https://suiexplorer.com/txblock/${result.digest}?network=testnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-300 hover:text-blue-200 underline text-sm"
+            >
+              View transaction
+            </a>
+          </div>
+        );
+        
+        setAdditionalSuiAmount('');
+        setShowCollateralModal({ type: null, isOpen: false });
+        onRefresh(); // Refresh partner data
+      }
+    } catch (error) {
+      console.error('Failed to add SUI collateral:', error);
+      toast.error(`Failed to add SUI collateral: ${error}`);
+    } finally {
+      setIsProcessingCollateral(false);
+    }
+  };
+
+  const handleAddUsdcCollateral = async () => {
+    if (!usdcCoinIdToAdd || !partnerCap.id) {
+      toast.error('Please enter a valid USDC coin ID');
+      return;
+    }
+
+    setIsProcessingCollateral(true);
+
+    try {
+      const tx = buildAddUsdcCollateralTransaction(partnerCap.id, usdcCoinIdToAdd);
+      
+      const result = await signAndExecuteTransaction({
+        transaction: tx,
+      });
+
+      if (result?.digest) {
+        toast.success(
+          <div>
+            <div>Successfully added USDC collateral!</div>
+            <a 
+              href={`https://suiexplorer.com/txblock/${result.digest}?network=testnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-300 hover:text-blue-200 underline text-sm"
+            >
+              View transaction
+            </a>
+          </div>
+        );
+        
+        setUsdcCoinIdToAdd('');
+        setShowCollateralModal({ type: null, isOpen: false });
+        onRefresh();
+      }
+    } catch (error) {
+      console.error('Failed to add USDC collateral:', error);
+      toast.error(`Failed to add USDC collateral: ${error}`);
+    } finally {
+      setIsProcessingCollateral(false);
+    }
+  };
+
+  const handleAddNftCollateral = async () => {
+    if (!nftKioskId || !nftCollectionType || !nftFloorValue || !partnerCap.id) {
+      toast.error('Please fill in all NFT collateral fields');
+      return;
+    }
+
+    const floorValue = parseFloat(nftFloorValue);
+    if (isNaN(floorValue) || floorValue <= 0) {
+      toast.error('Please enter a valid floor value');
+      return;
+    }
+
+    setIsProcessingCollateral(true);
+
+    try {
+      const tx = buildAddNftCollateralTransaction(partnerCap.id, nftKioskId, nftCollectionType, floorValue);
+      
+      const result = await signAndExecuteTransaction({
+        transaction: tx,
+      });
+
+      if (result?.digest) {
+        toast.success(
+          <div>
+            <div>Successfully added NFT collateral!</div>
+            <a 
+              href={`https://suiexplorer.com/txblock/${result.digest}?network=testnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-300 hover:text-blue-200 underline text-sm"
+            >
+              View transaction
+            </a>
+          </div>
+        );
+        
+        setNftKioskId('');
+        setNftCollectionType('');
+        setNftFloorValue('');
+        setShowCollateralModal({ type: null, isOpen: false });
+        onRefresh();
+      }
+    } catch (error) {
+      console.error('Failed to add NFT collateral:', error);
+      toast.error(`Failed to add NFT collateral: ${error}`);
+    } finally {
+      setIsProcessingCollateral(false);
+    }
+  };
+  
+  const renderCollateralModal = () => {
+    if (!showCollateralModal.isOpen) return null;
+
+    const modalType = showCollateralModal.type;
+    const isTopUp = modalType === 'topup';
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-background-card rounded-lg p-6 w-full max-w-2xl mx-4">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-bold text-white">
+              {isTopUp ? 'Top Up Current Collateral' : 'Add Different Backing'}
+            </h2>
+            <button
+              onClick={() => {
+                setShowCollateralModal({ type: null, isOpen: false });
+                clearCollateralForm();
+              }}
+              className="text-gray-400 hover:text-white text-2xl"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="space-y-6">
+            {isTopUp ? (
+              // Top up current collateral form
+              <div>
+                <div className="mb-4 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
+                  <h3 className="text-blue-300 font-medium mb-2">Current Collateral</h3>
+                  <div className="text-sm text-gray-300">
+                    <div>Type: <span className="text-blue-400">SUI</span> (Detected from current backing)</div>
+                    <div>Current Value: <span className="text-blue-400">${(partnerCap.currentEffectiveUsdcValue || 0).toLocaleString()}</span></div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Additional SUI Amount
+                  </label>
+                  <Input
+                    type="number"
+                    placeholder="e.g., 50"
+                    step="any"
+                    min="1"
+                    value={additionalSuiAmount}
+                    onChange={(e) => setAdditionalSuiAmount(e.target.value)}
+                    className="w-full text-base"
+                    disabled={isProcessingCollateral}
+                  />
+                  <p className="text-xs text-gray-400 mt-2">
+                    This will be added to your existing SUI collateral, increasing your quota.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <Button 
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    onClick={handleTopUpSuiCollateral}
+                    disabled={isProcessingCollateral || !additionalSuiAmount}
+                  >
+                    {isProcessingCollateral ? (
+                      <div className="flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Adding SUI...
+                      </div>
+                    ) : 'Add SUI Collateral'}
+                  </Button>
+                  <Button 
+                    className="px-6 bg-gray-600 hover:bg-gray-700"
+                    onClick={() => {
+                      setShowCollateralModal({ type: null, isOpen: false });
+                      clearCollateralForm();
+                    }}
+                    disabled={isProcessingCollateral}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              // Add different backing form
+              <div>
+                <div className="mb-4 p-4 bg-green-900/20 border border-green-700 rounded-lg">
+                  <h3 className="text-green-300 font-medium mb-2">Diversify Your Backing</h3>
+                  <p className="text-sm text-gray-300">
+                    Add additional collateral types to increase your quota and reduce risk.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <label className="cursor-pointer">
+                    <input
+                      type="radio"
+                      name="newCollateralType"
+                      value="USDC"
+                      checked={modalCollateralType === 'USDC'}
+                      onChange={() => setModalCollateralType('USDC')}
+                      className="sr-only"
+                    />
+                    <div className={`p-4 rounded-lg border text-center transition-colors ${
+                      modalCollateralType === 'USDC' 
+                        ? 'border-green-500 bg-green-900/20' 
+                        : 'border-gray-600 hover:border-green-500 hover:bg-green-900/10'
+                    }`}>
+                      <div className="text-2xl mb-2">💲</div>
+                      <div className={`text-sm font-medium ${modalCollateralType === 'USDC' ? 'text-green-300' : 'text-gray-300'}`}>USDC</div>
+                      <div className="text-xs text-gray-400 mt-1">100% LTV</div>
+                      <div className={`text-xs mt-1 ${modalCollateralType === 'USDC' ? 'text-green-400' : 'text-gray-500'}`}>Stable Value</div>
+                    </div>
+                  </label>
+                  
+                  <label className="cursor-pointer">
+                    <input
+                      type="radio"
+                      name="newCollateralType"
+                      value="NFT"
+                      checked={modalCollateralType === 'NFT'}
+                      onChange={() => setModalCollateralType('NFT')}
+                      className="sr-only"
+                    />
+                    <div className={`p-4 rounded-lg border text-center transition-colors ${
+                      modalCollateralType === 'NFT' 
+                        ? 'border-purple-500 bg-purple-900/20' 
+                        : 'border-gray-600 hover:border-purple-500 hover:bg-purple-900/10'
+                    }`}>
+                      <div className="text-2xl mb-2">🎨</div>
+                      <div className={`text-sm font-medium ${modalCollateralType === 'NFT' ? 'text-purple-300' : 'text-gray-300'}`}>NFT</div>
+                      <div className="text-xs text-gray-400 mt-1">70% LTV</div>
+                      <div className={`text-xs mt-1 ${modalCollateralType === 'NFT' ? 'text-purple-400' : 'text-gray-500'}`}>Collection</div>
+                    </div>
+                  </label>
+                </div>
+
+                {modalCollateralType === 'USDC' ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      USDC Coin Object ID
+                    </label>
+                    <Input
+                      type="text"
+                      placeholder="0x123...abc (USDC coin object ID)"
+                      value={usdcCoinIdToAdd}
+                      onChange={(e) => setUsdcCoinIdToAdd(e.target.value)}
+                      className="w-full text-base"
+                      disabled={isProcessingCollateral}
+                    />
+                    <p className="text-xs text-gray-400 mt-2">
+                      USDC provides 100% LTV ratio with stable value backing.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Kiosk Object ID
+                      </label>
+                      <Input
+                        type="text"
+                        placeholder="0x123...abc (Kiosk containing NFTs)"
+                        value={nftKioskId}
+                        onChange={(e) => setNftKioskId(e.target.value)}
+                        className="w-full text-base"
+                        disabled={isProcessingCollateral}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        NFT Collection Type
+                      </label>
+                      <Input
+                        type="text"
+                        placeholder="e.g., 0x123::nft::MyNFT"
+                        value={nftCollectionType}
+                        onChange={(e) => setNftCollectionType(e.target.value)}
+                        className="w-full text-base"
+                        disabled={isProcessingCollateral}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Estimated Floor Value (USDC)
+                      </label>
+                      <Input
+                        type="number"
+                        placeholder="e.g., 1000"
+                        step="any"
+                        min="1"
+                        value={nftFloorValue}
+                        onChange={(e) => setNftFloorValue(e.target.value)}
+                        className="w-full text-base"
+                        disabled={isProcessingCollateral}
+                      />
+                      <p className="text-xs text-gray-400 mt-2">
+                        NFT collateral provides 70% LTV ratio with kiosk owner capabilities.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-4">
+                  <Button 
+                    className={`flex-1 ${modalCollateralType === 'USDC' ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                    onClick={modalCollateralType === 'USDC' ? handleAddUsdcCollateral : handleAddNftCollateral}
+                    disabled={isProcessingCollateral || (modalCollateralType === 'USDC' ? !usdcCoinIdToAdd : (!nftKioskId || !nftCollectionType || !nftFloorValue))}
+                  >
+                    {isProcessingCollateral ? (
+                      <div className="flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Adding {modalCollateralType}...
+                      </div>
+                    ) : `Add ${modalCollateralType} Backing`}
+                  </Button>
+                  <Button 
+                    className="px-6 bg-gray-600 hover:bg-gray-700"
+                    onClick={() => {
+                      setShowCollateralModal({ type: null, isOpen: false });
+                      clearCollateralForm();
+                    }}
+                    disabled={isProcessingCollateral}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
+      <style>{`
+        .metadata-schema-swiper .swiper-wrapper {
+          align-items: stretch;
+        }
+        .metadata-schema-swiper .swiper-slide {
+          height: auto;
+        }
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+      `}</style>
+      
+      {renderCollateralModal()}
+      
+      {/* Metadata Field Modal */}
+      <MetadataFieldModal
+        isOpen={showMetadataFieldModal}
+        onClose={() => {
+          setShowMetadataFieldModal(false);
+          setEditingMetadataField(null);
+        }}
+        onSubmit={(field) => {
+          if (editingMetadataField) {
+            updateMetadataField(editingMetadataField.key, field);
+          } else {
+            addMetadataField(field);
+          }
+        }}
+        editingField={editingMetadataField}
+        existingKeys={perkSettings.metadataSchema?.map(f => f.key) || []}
+      />
+
+      {/* Enhanced Salt Regeneration Modal */}
+      {saltRegenerationFlow.showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-background-card rounded-lg p-6 max-w-md w-full mx-4">
+            {saltRegenerationFlow.step === 1 && (
+              <>
+                <div className="text-center mb-6">
+                  <div className="text-4xl mb-3">🚨</div>
+                  <h3 className="text-xl font-bold text-red-400 mb-2">DANGER: Salt Regeneration</h3>
+                  <div className="text-sm text-gray-300 text-left space-y-2">
+                    <p className="text-red-300 font-medium">⚠️ This action will PERMANENTLY DESTROY all existing metadata relationships!</p>
+                    <p><strong>What will break:</strong></p>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-gray-400 ml-2">
+                      <li>All user metadata collected with current salt becomes unusable</li>
+                      <li>Custom frontends and bots will stop working</li>
+                      <li>Existing integrations must be updated manually</li>
+                      <li>Users lose access to previously verified information</li>
+                    </ul>
+                    <p className="text-yellow-300 font-medium mt-3">💡 Consider downloading a backup first!</p>
+                  </div>
+                </div>
+                <div className="flex space-x-3">
+                  <Button 
+                    onClick={cancelSaltRegeneration}
+                    className="flex-1 bg-gray-600 hover:bg-gray-700"
+                  >
+                    Cancel (Recommended)
+                  </Button>
+                  <Button 
+                    onClick={proceedSaltRegeneration}
+                    className="flex-1 bg-red-600 hover:bg-red-700"
+                  >
+                    I Understand, Continue
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {saltRegenerationFlow.step === 2 && (
+              <>
+                <div className="text-center mb-6">
+                  <div className="text-4xl mb-3">⚠️</div>
+                  <h3 className="text-xl font-bold text-red-400 mb-4">Final Confirmation Required</h3>
+                  <div className="text-sm text-gray-300 mb-4">
+                    <p className="mb-3">To confirm you understand the consequences, please type:</p>
+                    <div className="bg-gray-800 p-2 rounded font-mono text-yellow-300 text-center">
+                      REGENERATE MY SALT
+                    </div>
+                  </div>
+                  <Input
+                    value={saltRegenerationFlow.confirmationText}
+                    onChange={(e) => setSaltRegenerationFlow(prev => ({
+                      ...prev,
+                      confirmationText: e.target.value
+                    }))}
+                    placeholder="Type the confirmation text..."
+                    className="w-full text-center"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex space-x-3">
+                  <Button 
+                    onClick={cancelSaltRegeneration}
+                    className="flex-1 bg-gray-600 hover:bg-gray-700"
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={proceedSaltRegeneration}
+                    className="flex-1 bg-red-600 hover:bg-red-700"
+                    disabled={saltRegenerationFlow.confirmationText.trim().toUpperCase() !== 'REGENERATE MY SALT'}
+                  >
+                    Regenerate Salt
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      
       <div className="container mx-auto p-4 text-white">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">

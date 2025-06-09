@@ -67,17 +67,17 @@ export function PartnersPage() {
   // Handler for when a partner cap is created - includes mode switching
   const handlePartnerCreated = async () => {
     try {
-      console.log('🔍 Partner created - starting enhanced detection...');
+
       
       // Use force detection with retries for newly created partner caps
       const detectedCaps = await forceDetectPartnerCaps(5, 3000); // 5 retries, 3 second delays
       
       if (detectedCaps.length > 0) {
-        console.log(`✅ Successfully detected ${detectedCaps.length} partner cap(s)`);
+
         // Update global state with fresh caps
         setPartnerCaps(detectedCaps);
       } else {
-        console.log('⚠️ Force detection found no caps, falling back to regular detection...');
+
         // Fallback to regular detection
         const fallbackCaps = await detectPartnerCaps();
         if (fallbackCaps.length > 0) {

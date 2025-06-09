@@ -82,7 +82,7 @@ export const useAlphaPoints = () => {
     setError(null);
     
     try {
-      // console.log(`Fetching Alpha Points for ${userAddress}`);
+
       
       const txb = new Transaction();
 
@@ -116,7 +116,7 @@ export const useAlphaPoints = () => {
         throw new Error(`Failed to fetch points: ${errorMsg}`);
       }
       
-      // console.debug('Alpha Points devInspect results:', inspectResult);
+
       
       if (!inspectResult.results || inspectResult.results.length < 2) {
         console.error('DevInspect results missing or incomplete:', inspectResult);
@@ -157,7 +157,7 @@ export const useAlphaPoints = () => {
         total: totalPoints,
       });
       
-      // console.log(`Alpha Points balances updated: Available=${available}, Locked=${locked}, Total=${totalPoints}`);
+
       setLastRefresh(Date.now());
       
     } catch (error: any) {

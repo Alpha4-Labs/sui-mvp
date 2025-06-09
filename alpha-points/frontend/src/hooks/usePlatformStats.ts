@@ -52,11 +52,15 @@ export const usePlatformStats = () => {
       let totalPartners = 0;
       let totalPartnerCollateral = 0;
 
-      console.log('🔍 Starting TVL calculation...');
+      if (import.meta.env.DEV) {
+        console.log('🔍 Starting TVL calculation...');
+      }
 
       // PHASE 1: Get staked SUI using direct object queries
       try {
-        console.log('📊 Phase 1: Calculating staked SUI...');
+        if (import.meta.env.DEV) {
+          console.log('📊 Phase 1: Calculating staked SUI...');
+        }
         
         let totalStakesFound = 0;
         

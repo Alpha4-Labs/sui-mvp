@@ -80,7 +80,7 @@ export const StakedPositionsList: React.FC = () => {
     refreshData, 
     setTransactionLoading,
     orphanedStakes = [], 
-    removeOrphanedStake = (id: string) => console.warn("removeOrphanedStake not implemented", id),
+    removeOrphanedStake = (id: string) => {},
     address: alphaAddress, 
     isConnected: alphaIsConnected, 
     provider: alphaProvider, 
@@ -337,44 +337,52 @@ export const StakedPositionsList: React.FC = () => {
   // --- Loading State ---
   if (isLoading) {
     return (
-      <div className="bg-background-card rounded-lg p-6 shadow-lg">
+      <div className="card-modern p-6 animate-fade-in">
         {/* Header skeleton - match exact structure */}
-        <div className="flex justify-between items-center mb-3">
-          <div className="h-6 bg-gray-700 rounded w-48 flex-shrink-0 m-0"></div>
-          {/* Invisible fixed-height container to match actual content */}
-          <div className="min-h-[32px] flex items-center max-w-sm ml-4 m-0 opacity-0 pointer-events-none">
-            <span>&nbsp;</span>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl flex items-center justify-center shadow-lg animate-pulse">
+              <div className="w-5 h-5 bg-white/30 rounded"></div>
+            </div>
+            <div>
+              <div className="h-5 bg-gray-700/50 rounded w-36 mb-2"></div>
+              <div className="h-3 bg-gray-700/30 rounded w-28"></div>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="status-indicator-active"></div>
+            <span className="text-xs text-gray-400">Live</span>
           </div>
         </div>
         
         <div>
           {/* Content skeleton */}
-          <div className="border border-gray-700 rounded-lg p-4 bg-gray-800/30">
-            <div className="flex justify-between items-center mb-3">
+          <div className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
               <div className="flex items-center space-x-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-gray-700"></div>
-                <div className="h-4 bg-gray-700 rounded w-32"></div>
+                <div className="w-2.5 h-2.5 rounded-full bg-gray-700/50 animate-pulse"></div>
+                <div className="h-4 bg-gray-700/50 rounded w-32"></div>
               </div>
-              <div className="h-5 bg-gray-700 rounded w-20"></div>
+              <div className="h-5 bg-gray-700/50 rounded w-20"></div>
             </div>
             
-            <div className="space-y-2 mb-4">
+            <div className="space-y-3 mb-6">
               <div className="flex justify-between">
-                <div className="h-3 bg-gray-700 rounded w-16"></div>
-                <div className="h-3 bg-gray-700 rounded w-20"></div>
+                <div className="h-3 bg-gray-700/50 rounded w-16"></div>
+                <div className="h-3 bg-gray-700/50 rounded w-20"></div>
               </div>
               <div className="flex justify-between">
-                <div className="h-3 bg-gray-700 rounded w-14"></div>
-                <div className="h-3 bg-gray-700 rounded w-24"></div>
+                <div className="h-3 bg-gray-700/50 rounded w-14"></div>
+                <div className="h-3 bg-gray-700/50 rounded w-24"></div>
               </div>
               <div className="flex justify-between">
-                <div className="h-3 bg-gray-700 rounded w-20"></div>
-                <div className="h-3 bg-gray-700 rounded w-28"></div>
+                <div className="h-3 bg-gray-700/50 rounded w-20"></div>
+                <div className="h-3 bg-gray-700/50 rounded w-28"></div>
               </div>
             </div>
             
             <div className="mt-auto">
-              <div className="h-8 bg-gray-700 rounded w-full"></div>
+              <div className="h-10 bg-gray-700/50 rounded-lg w-full"></div>
             </div>
           </div>
         </div>
@@ -384,32 +392,144 @@ export const StakedPositionsList: React.FC = () => {
 
   // --- Full JSX ---
   return (
-    <div className="bg-background-card rounded-lg p-6 shadow-lg">
-      {/* Header - match StakeCard structure */}
-      <div className="flex justify-between items-center mb-3">
-        <h2 className="text-xl font-semibold text-white flex-shrink-0 m-0">Staked Positions</h2>
-        {/* Status Message Container - fixed height like StakeCard error message */}
-        <div className={`min-h-[32px] flex items-center rounded-md text-xs break-words max-w-sm ml-4 m-0 transition-all duration-150 ${
-          errorMessage ? 'bg-red-900/30 border border-red-700 text-red-400' : 
-          successMessage ? 'bg-green-900/30 border border-green-700 text-green-400' : 
-          'opacity-0 pointer-events-none'
-        }`}>
-          {errorMessage || successMessage || <span>&nbsp;</span>}
+    <div className="card-modern p-4 animate-fade-in relative z-[51]">
+      {/* Header - modernized */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg flex items-center justify-center shadow-lg">
+            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-white">Staked Positions</h2>
+            <p className="text-xs text-gray-400">Your active stakes</p>
+          </div>
         </div>
+
+        {/* Inline Navigation */}
+        {combinedListItems.length > 1 && (
+          <div className="flex items-center gap-1">
+            <button
+              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300"
+              aria-label="Previous slide"
+              onClick={() => swiperInstance?.slidePrev()}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+            
+            <div className="flex gap-1 mx-1">
+              {(() => {
+                const totalPages = combinedListItems.length;
+                const maxVisible = 3;
+                
+                if (totalPages <= maxVisible) {
+                  // Show all pages if 3 or fewer
+                  return combinedListItems.map((_, idx) => (
+                    <button
+                      key={idx}
+                      className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300
+                        ${activeIndex === idx 
+                          ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25' 
+                          : 'bg-black/20 backdrop-blur-lg border border-white/10 text-gray-300 hover:bg-black/30 hover:border-white/20'
+                        }`}
+                      onClick={() => {
+                        if (swiperInstance) {
+                          if (combinedListItems.length >= 3) {
+                            swiperInstance.slideToLoop(idx);
+                          } else {
+                            swiperInstance.slideTo(idx);
+                          }
+                        }
+                      }}
+                      aria-label={`Go to slide ${idx + 1}`}
+                    >
+                      {idx + 1}
+                    </button>
+                  ));
+                } else {
+                  // Show truncated pagination for more than 3 pages
+                  const pages = [];
+                  
+                  if (activeIndex === 0) {
+                    // Show: [1] 2 3 ...
+                    pages.push(0, 1, 2);
+                  } else if (activeIndex === totalPages - 1) {
+                    // Show: ... n-2 n-1 [n]
+                    pages.push(totalPages - 3, totalPages - 2, totalPages - 1);
+                  } else {
+                    // Show: ... [current-1] current [current+1] ...
+                    pages.push(activeIndex - 1, activeIndex, activeIndex + 1);
+                  }
+                  
+                  return (
+                    <>
+                      {activeIndex > 1 && (
+                        <span className="text-xs text-gray-400 px-1">...</span>
+                      )}
+                      {pages.map(idx => (
+                        <button
+                          key={idx}
+                          className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300
+                            ${activeIndex === idx 
+                              ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25' 
+                              : 'bg-black/20 backdrop-blur-lg border border-white/10 text-gray-300 hover:bg-black/30 hover:border-white/20'
+                            }`}
+                          onClick={() => {
+                            if (swiperInstance) {
+                              if (combinedListItems.length >= 3) {
+                                swiperInstance.slideToLoop(idx);
+                              } else {
+                                swiperInstance.slideTo(idx);
+                              }
+                            }
+                          }}
+                          aria-label={`Go to slide ${idx + 1}`}
+                        >
+                          {idx + 1}
+                        </button>
+                      ))}
+                      {activeIndex < totalPages - 2 && (
+                        <span className="text-xs text-gray-400 px-1">...</span>
+                      )}
+                    </>
+                  );
+                }
+              })()}
+            </div>
+            
+            <button
+              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300"
+              aria-label="Next slide"
+              onClick={() => swiperInstance?.slideNext()}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
 
       <div>
         {/* Conditional Rendering: Empty State vs. List */}
         {combinedListItems.length === 0 && !isLoading ? (
           // --- Empty State ---
-          <div className="text-center py-8 bg-background rounded-lg flex flex-col items-center justify-center">
-            <div className="text-4xl text-gray-700 mb-3">📊</div>
-            <p className="text-gray-400 mb-1">No Staked Positions Found</p>
-            <p className="text-sm text-gray-500">Stake SUI in the 'Manage Stake' section to start earning.</p>
+          <div className="text-center py-8 bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl flex flex-col items-center justify-center">
+            <div className="w-12 h-12 bg-gradient-to-r from-gray-600 to-gray-700 rounded-xl flex items-center justify-center mb-3 shadow-lg">
+              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+              </svg>
+            </div>
+            <h3 className="text-base font-medium text-white mb-1">No Staked Positions</h3>
+            <p className="text-sm text-gray-400 mb-1">Ready to start earning?</p>
+            <p className="text-xs text-gray-500">Use the 'Manage Stake' section to create your first position</p>
           </div>
         ) : combinedListItems.length > 0 ? (
           // --- List of Combined Staked Positions (Swiper) ---
-          <div className="relative">
+          <div className="relative z-[55]">
             <Swiper
               modules={[Navigation, Pagination, A11y]}
               spaceBetween={20}
@@ -437,16 +557,16 @@ export const StakedPositionsList: React.FC = () => {
                 const canUnstake = isMature && !isEncumbered;
 
                 const cardClass = isOrphaned 
-                  ? "border border-red-700/70 rounded-lg p-4 text-sm h-full flex flex-col justify-between bg-red-900/20 hover:bg-red-900/40 transition-colors cursor-pointer no-underline"
-                  : "border border-gray-700 rounded-lg p-4 text-sm h-full flex flex-col justify-between bg-gray-800/30 hover:bg-gray-800/60 transition-colors cursor-pointer no-underline";
+                  ? "bg-red-900/20 backdrop-blur-lg border border-red-500/30 rounded-xl p-4 text-sm h-full flex flex-col justify-between hover:bg-red-900/30 hover:border-red-400/40 transition-all duration-300 cursor-pointer no-underline shadow-xl hover:shadow-red-500/10"
+                  : "bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl p-4 text-sm h-full flex flex-col justify-between hover:bg-black/30 hover:border-white/20 transition-all duration-300 cursor-pointer no-underline shadow-xl hover:shadow-purple-500/10";
 
                 const statusDotClass = isOrphaned
-                  ? "bg-red-500"
+                  ? "status-indicator-warning"
                   : isEncumbered 
-                    ? "bg-yellow-500" 
+                    ? "status-indicator-warning" 
                     : isMature 
-                      ? "bg-green-500" 
-                      : "bg-blue-500";
+                      ? "status-indicator-active" 
+                      : "status-indicator-info";
 
                 const statusText = isOrphaned
                   ? "Pending Registration"
@@ -457,12 +577,12 @@ export const StakedPositionsList: React.FC = () => {
                       : "Staking";
                 
                 const statusChipClass = isOrphaned
-                  ? "bg-red-900/50 text-red-300"
+                  ? "bg-red-900/50 text-red-300 border border-red-700/50"
                   : isEncumbered
-                    ? "bg-yellow-900/40 text-yellow-300"
+                    ? "bg-yellow-900/50 text-yellow-300 border border-yellow-700/50"
                     : isMature
-                      ? "bg-green-900/40 text-green-300"
-                      : "bg-blue-900/40 text-blue-300";
+                      ? "bg-green-900/50 text-green-300 border border-green-700/50"
+                      : "bg-blue-900/50 text-blue-300 border border-blue-700/50";
 
                 return (
                   <SwiperSlide key={displayId} className="bg-transparent rounded-lg p-1 self-stretch h-full min-h-0">
@@ -474,49 +594,62 @@ export const StakedPositionsList: React.FC = () => {
                       title={isOrphaned ? "View Native Stake on Suiscan" : "View Staked Position on Suiscan"}
                     >
                       <div>
-                        <div className="flex justify-between items-center mb-2">
+                        <div className="flex justify-between items-center mb-3">
                           <div className="flex items-center space-x-2">
-                            <div className={`w-2.5 h-2.5 rounded-full ${statusDotClass}`} title={statusText}></div>
-                            <span className="text-gray-400 font-mono text-xs" title={displayId}>
-                              {isOrphaned ? "Native Stake: " : "Position: "}{formatAddress(displayId)}
-                            </span>
+                            <div className={statusDotClass}></div>
+                            <div>
+                              <span className="text-gray-300 font-mono text-xs block" title={displayId}>
+                                {isOrphaned ? "Native Stake" : "Position"}
+                              </span>
+                              <span className="text-gray-500 text-xs">
+                                {formatAddress(displayId)}
+                              </span>
+                            </div>
                           </div>
-                          <div className={`px-2 py-0.5 rounded-md text-xs font-medium ${statusChipClass}`}>
+                          <div className={`px-2 py-1 rounded text-xs font-medium ${statusChipClass}`}>
                             {statusText}
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-x-3 gap-y-1 mb-2 text-xs">
-                          <span className="text-gray-400">Principal:</span>
-                          <span className="text-white text-right font-medium">
-                            {formatSui(principalDisplay)} SUI
-                          </span>
+                        <div className="space-y-2 mb-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-400 text-sm">Principal</span>
+                            <div className="text-right">
+                              <span className="text-white font-semibold">{formatSui(principalDisplay)}</span>
+                              <span className="text-blue-400 text-sm ml-1">SUI</span>
+                            </div>
+                          </div>
 
-                          <span className="text-gray-400">Duration:</span>
-                          <span className="text-white text-right">
-                            {formatDuration(durationDaysDisplay)} {isOrphaned ? "(Intended)" : `(${formattedUnlockDate})`}
-                          </span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-400 text-sm">Duration</span>
+                            <div className="text-right">
+                              <span className="text-white">{formatDuration(durationDaysDisplay)}</span>
+                              {!isOrphaned && (
+                                <div className="text-xs text-gray-500">{formattedUnlockDate}</div>
+                              )}
+                            </div>
+                          </div>
                           
                           {!isOrphaned && (
-                            <>
-                              <span className="text-gray-400">Est. Rewards:</span>
-                              <span className="text-green-400 text-right text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="text-gray-400 text-sm">Est. Rewards</span>
+                              <span className="text-emerald-400 text-sm font-medium">
                                 {calculateEstAlphaPointRewards(principalDisplay, String(durationDaysDisplay), (item as SwiperStakeItem).apy)}
                               </span>
-                            </>
+                            </div>
                           )}
                         </div>
 
                         {/* Progress Bar */}
                         {isOrphaned ? null : !isMature && !isEncumbered ? (
-                          <div className="mb-2">
-                            <div className="flex justify-between text-xs text-gray-400 mb-0.5">
+                          <div className="mb-3">
+                            <div className="flex justify-between text-xs text-gray-400 mb-1">
                               <span>Progress</span>
                               <span>{maturityPercentage.toFixed(1)}%</span>
                             </div>
-                            <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                            <div className="w-full bg-gray-700/50 rounded-full h-1.5 overflow-hidden">
                               <div
-                                className={`h-1.5 rounded-full bg-blue-500`}
+                                className="h-1.5 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
                                 style={{ width: `${maturityPercentage}%` }}
                               ></div>
                             </div>
@@ -525,7 +658,7 @@ export const StakedPositionsList: React.FC = () => {
                       </div> 
 
                       {/* Action Button / Status Info - positioned at the bottom */}
-                      <div className="mt-auto pt-2">
+                      <div className="mt-auto pt-3">
                         {isOrphaned ? (
                           <button
                             onClick={(e) => { 
@@ -536,11 +669,14 @@ export const StakedPositionsList: React.FC = () => {
                               }
                             }}
                             disabled={!item.isOrphaned || registrationInProgress === (item.isOrphaned ? item.stakedSuiObjectId : null) || loading.transaction}
-                            className="w-full py-2 bg-red-600 hover:bg-red-500 text-white rounded transition-colors text-xs font-medium disabled:opacity-70 disabled:cursor-not-allowed relative"
+                            className="w-full btn-modern-secondary relative z-[56]"
                           >
                             {registrationInProgress === (item.isOrphaned ? item.stakedSuiObjectId : null) ? (
                               <span className="absolute inset-0 flex items-center justify-center">
-                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
                               </span>
                             ) : 'Register Stake with Protocol'}
                           </button>
@@ -548,16 +684,19 @@ export const StakedPositionsList: React.FC = () => {
                           <button
                             onClick={e => { e.preventDefault(); e.stopPropagation(); handleUnstake(item.id, item.principal); }}
                             disabled={unstakeInProgress === item.id || loading.transaction}
-                            className="w-full py-2 bg-primary hover:bg-primary-dark text-white rounded transition-colors text-xs font-medium disabled:opacity-70 disabled:cursor-not-allowed relative"
+                            className="w-full btn-modern-primary relative z-[56]"
                           >
                             {unstakeInProgress === item.id ? (
                               <span className="absolute inset-0 flex items-center justify-center">
-                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
                               </span>
                             ) : 'Unstake'}
                           </button>
                         ) : isEncumbered ? (
-                          <div className="p-1.5 bg-yellow-900/30 border border-yellow-900/50 rounded text-yellow-400 text-xs text-center">
+                          <div className="p-2 bg-yellow-900/30 border border-yellow-700/50 rounded text-yellow-300 text-xs text-center backdrop-blur-sm">
                             This position is collateral. Repay loan to unstake.
                           </div>
                         ) : null}
@@ -568,50 +707,7 @@ export const StakedPositionsList: React.FC = () => {
               })}
             </Swiper>
             
-            {/* Custom Navigation & Pagination at the bottom */}
-            {combinedListItems.length > 1 && (
-              <div className="flex items-center justify-center gap-1 mt-2">
-                <button
-                  className="p-0.5 rounded-full bg-background-card/50 hover:bg-background-card/80 text-white transition-colors"
-                  aria-label="Previous slide"
-                  onClick={() => swiperInstance?.slidePrev()}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                  </svg>
-                </button>
-                <div className="flex gap-0.5 mx-1">
-                  {combinedListItems.map((_, idx) => (
-                    <button
-                      key={idx}
-                      className={`w-5 h-5 flex items-center justify-center rounded-full text-xs font-semibold transition-colors
-                        ${activeIndex === idx ? 'bg-primary text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                      onClick={() => {
-                        if (swiperInstance) {
-                          if (combinedListItems.length >= 3) {
-                            swiperInstance.slideToLoop(idx);
-                          } else {
-                            swiperInstance.slideTo(idx);
-                          }
-                        }
-                      }}
-                      aria-label={`Go to slide ${idx + 1}`}
-                    >
-                      {idx + 1}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  className="p-0.5 rounded-full bg-background-card/50 hover:bg-background-card/80 text-white transition-colors"
-                  aria-label="Next slide"
-                  onClick={() => swiperInstance?.slideNext()}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                  </svg>
-                </button>
-              </div>
-            )}
+
           </div>
         ) : <></>}
       </div>

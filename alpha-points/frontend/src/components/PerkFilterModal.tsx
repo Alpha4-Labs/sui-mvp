@@ -4,11 +4,11 @@ interface PerkFilterModalProps {
   isOpen: boolean;
   onClose: () => void;
   allTags: string[];
-  allCompanies: string[];
+  allCompanies?: string[];
   activeTags: Set<string>;
-  activeCompanies: Set<string>;
+  activeCompanies?: Set<string>;
   setActiveTags: (tags: Set<string>) => void;
-  setActiveCompanies: (companies: Set<string>) => void;
+  setActiveCompanies?: (companies: Set<string>) => void;
   modalTitle: string;
 }
 
@@ -16,17 +16,20 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
   isOpen,
   onClose,
   allTags,
-  allCompanies,
+  allCompanies = [],
   activeTags,
-  activeCompanies,
+  activeCompanies = new Set(),
   setActiveTags,
-  setActiveCompanies,
+  setActiveCompanies = () => {},
   modalTitle,
 }) => {
   const [activeTab, setActiveTab] = useState<'tags' | 'companies'>('tags');
   const [searchQuery, setSearchQuery] = useState('');
 
   if (!isOpen) return null;
+
+  // Hide companies tab if no companies are provided
+  const showCompaniesTab = allCompanies.length > 0;
 
   // Filter items based on search query
   const filteredTags = useMemo(() => {
@@ -93,7 +96,7 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-background-card rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col">
+      <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
           <div>
             <h2 className="text-xl font-semibold text-white">{modalTitle}</h2>
@@ -122,7 +125,7 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
               placeholder={`Search ${activeTab === 'tags' ? 'tags' : 'companies'}...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-background-input border border-gray-600 rounded-md px-4 py-2 pl-10 text-white placeholder-gray-400 focus:border-primary focus:ring-1 focus:ring-primary"
+              className="w-full bg-gray-900/50 border border-gray-600 rounded-md px-4 py-2 pl-10 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
             <svg 
               className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" 
@@ -135,45 +138,47 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex space-x-1 mb-4 bg-background rounded-md p-1">
-          <button
-            onClick={() => setActiveTab('tags')}
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-              activeTab === 'tags'
-                ? 'bg-primary text-white'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700'
-            }`}
-          >
-            Tags
-            {activeTags.size > 0 && (
-              <span className="ml-2 bg-secondary text-white text-xs px-2 py-0.5 rounded-full">
-                {activeTags.size}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('companies')}
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-              activeTab === 'companies'
-                ? 'bg-primary text-white'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700'
-            }`}
-          >
-            Companies
-            {activeCompanies.size > 0 && (
-              <span className="ml-2 bg-secondary text-white text-xs px-2 py-0.5 rounded-full">
-                {activeCompanies.size}
-              </span>
-            )}
-          </button>
-        </div>
+        {/* Tabs - Only show if companies are available */}
+        {showCompaniesTab && (
+          <div className="flex space-x-1 mb-4 bg-gray-900/50 rounded-md p-1">
+            <button
+              onClick={() => setActiveTab('tags')}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'tags'
+                  ? 'bg-blue-500 text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700'
+              }`}
+            >
+              Tags
+              {activeTags.size > 0 && (
+                <span className="ml-2 bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full">
+                  {activeTags.size}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('companies')}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'companies'
+                  ? 'bg-blue-500 text-white'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700'
+              }`}
+            >
+              Companies
+              {activeCompanies.size > 0 && (
+                <span className="ml-2 bg-purple-500 text-white text-xs px-2 py-0.5 rounded-full">
+                  {activeCompanies.size}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-3 mb-5 border-b border-gray-700 pb-4">
           <button
             onClick={handleSelectAll}
-            className="flex-1 text-xs bg-primary hover:bg-primary-dark text-white py-1.5 px-3 rounded-md transition-colors disabled:opacity-60"
+            className="flex-1 text-xs bg-blue-500 hover:bg-blue-600 text-white py-1.5 px-3 rounded-md transition-colors disabled:opacity-60"
             disabled={currentActiveItems.size === currentItems.length}
           >
             Select All {activeTab === 'tags' ? 'Tags' : 'Companies'}
@@ -185,13 +190,15 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
           >
             Clear {activeTab === 'tags' ? 'Tags' : 'Companies'}
           </button>
-          <button
-            onClick={handleClearAllFilters}
-            className="flex-1 text-xs bg-red-600 hover:bg-red-700 text-white py-1.5 px-3 rounded-md transition-colors disabled:opacity-60"
-            disabled={totalActiveFilters === 0}
-          >
-            Clear All Filters
-          </button>
+          {showCompaniesTab && (
+            <button
+              onClick={handleClearAllFilters}
+              className="flex-1 text-xs bg-red-600 hover:bg-red-700 text-white py-1.5 px-3 rounded-md transition-colors disabled:opacity-60"
+              disabled={totalActiveFilters === 0}
+            >
+              Clear All Filters
+            </button>
+          )}
         </div>
 
         {/* Items Grid */}
@@ -206,7 +213,7 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
                   </p>
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="text-sm text-primary hover:text-primary-light"
+                    className="text-sm text-blue-400 hover:text-blue-300"
                   >
                     Clear search
                   </button>
@@ -225,8 +232,8 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
                   onClick={() => handleItemToggle(item)}
                   className={`w-full py-2 px-3 rounded-md text-sm transition-all duration-150 border text-left
                     ${currentActiveItems.has(item)
-                      ? 'bg-secondary border-secondary-dark text-white shadow-md' 
-                      : 'bg-background-input border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-500'
+                      ? 'bg-purple-500/20 border-purple-500/50 text-white shadow-md' 
+                      : 'bg-gray-900/50 border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-500'
                     }`}
                 >
                   <div className="flex items-center">
@@ -235,7 +242,7 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
                     )}
                     <span className="truncate">{item}</span>
                     {currentActiveItems.has(item) && (
-                      <span className="ml-auto text-secondary">✓</span>
+                      <span className="ml-auto text-purple-400">✓</span>
                     )}
                   </div>
                 </button>
@@ -254,7 +261,7 @@ export const PerkFilterModal: React.FC<PerkFilterModalProps> = ({
           </div>
           <button 
             onClick={onClose}
-            className="bg-primary hover:bg-primary-dark text-white py-2 px-6 rounded-md transition-colors text-sm"
+            className="bg-blue-500 hover:bg-blue-600 text-white py-2 px-6 rounded-md transition-colors text-sm"
           >
             Done
           </button>
