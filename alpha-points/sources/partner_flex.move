@@ -1,7 +1,9 @@
 /// Module that manages flexible partner capabilities with locked collateral and yield options.
 /// Version: 1.0.0
+#[allow(unused_use)]
 module alpha_points::partner_flex {
     use std::string::String;
+    use std::type_name;
     // use std::option; // Removed, module 'option' alias provided by default
 
     // use sui::object; // Removed, module 'object' alias provided by default
@@ -33,12 +35,20 @@ module alpha_points::partner_flex {
     const E_YIELD_INVALID_STATE_FOR_OPERATION: u64 = 204;
     const E_INSUFFICIENT_SUI_IN_VAULT: u64 = 205; // Kept one instance of this error
     const E_NOT_OWNER: u64 = 210;
+    // New error constants for multi-collateral support
+    const E_INSUFFICIENT_COLLATERAL_FOR_WITHDRAWAL: u64 = 301;
+    const E_INVALID_FLOOR_VALUE: u64 = 302;
+    // Removed unused constant E_USDC_COLLATERAL_ALREADY_EXISTS
+    const E_NFT_COLLATERAL_ALREADY_EXISTS: u64 = 304;
 
     // === System Constants ===
     const POINTS_QUOTA_PER_USDC_COLLATERAL_UNIT: u64 = 1000; // 1 USDC value = 1000 Alpha Points lifetime quota base
     const DAILY_MINT_THROTTLE_PERCENT_BASIS_POINTS: u64 = 300; // 3.00% of current_effective_usdc_value for daily point minting
     const ONE_HUNDRED_PERCENT_BASIS_POINTS: u64 = 100_00;      // 100.00%
     const PERK_REVENUE_REINVESTMENT_PERCENT_BASIS_POINTS: u64 = 20_00; // 20.00% of partner's perk revenue (in Alpha Points) is reinvested
+    // Multi-collateral constants
+    const USDC_LTV_RATIO_BASIS_POINTS: u64 = 100_00; // 100% LTV for USDC (stable)
+    const NFT_LTV_RATIO_BASIS_POINTS: u64 = 70_00;   // 70% LTV for NFTs (more volatile)
 
     // === Structs ===
 
@@ -48,6 +58,21 @@ module alpha_points::partner_flex {
         id: object::UID,
         partner_cap_flex_id: object::ID, // ID of the PartnerCapFlex this vault is for
         locked_sui_balance: Balance<SUI> // Stores SUI as a Balance now
+    }
+
+    /// Info for USDC collateral stored as dynamic field
+    public struct UsdcCollateralInfo<phantom USDCType> has store {
+        coin_balance: Balance<USDCType>,
+        usdc_amount: u64, // Amount in USDC units
+        effective_usdc_value: u64, // Value for quota calculation (with LTV applied)
+    }
+
+    /// Info for NFT collateral stored as dynamic field  
+    public struct NftCollateralInfo<phantom NFTType> has store, drop {
+        nft_kiosk_id: object::ID,
+        estimated_floor_value_usdc: u64, // Partner's estimated floor value
+        effective_usdc_value: u64, // Value for quota calculation (with LTV applied)
+        collection_info: String, // Optional collection identifier
     }
 
     /// Represents the partner's claim on SUI deposited with a third-party yield generator.
@@ -189,7 +214,51 @@ module alpha_points::partner_flex {
         new_settings: PerkControlSettings
     }
 
+    // === Multi-Collateral Events ===
+
+    public struct UsdcCollateralAdded has copy, drop {
+        partner_cap_flex_id: object::ID,
+        usdc_amount: u64,
+        effective_usdc_value: u64,
+        new_total_effective_value: u64,
+        new_lifetime_quota: u64,
+        new_daily_quota: u64
+    }
+
+    public struct NftCollateralAdded has copy, drop {
+        partner_cap_flex_id: object::ID,
+        nft_kiosk_id: object::ID,
+        estimated_floor_value_usdc: u64,
+        effective_usdc_value: u64,
+        collection_info: String,
+        new_total_effective_value: u64,
+        new_lifetime_quota: u64,
+        new_daily_quota: u64
+    }
+
+    public struct CollateralWithdrawn has copy, drop {
+        partner_cap_flex_id: object::ID,
+        collateral_type: String, // "SUI", "USDC", "NFT"
+        withdrawn_effective_value: u64,
+        new_total_effective_value: u64,
+        new_lifetime_quota: u64,
+        new_daily_quota: u64
+    }
+
     // === Core Functions for PartnerCapFlex ===
+
+    /// Helper functions for dynamic field keys
+    fun usdc_collateral_df_key<USDCType>(): vector<u8> {
+        let mut key = b"usdc_collateral_";
+        std::vector::append(&mut key, *std::ascii::as_bytes(&std::type_name::into_string(std::type_name::get<USDCType>())));
+        key
+    }
+
+    fun nft_collateral_df_key<NFTType>(): vector<u8> {
+        let mut key = b"nft_collateral_";
+        std::vector::append(&mut key, *std::ascii::as_bytes(&std::type_name::into_string(std::type_name::get<NFTType>())));
+        key
+    }
 
     /// Calculates the lifetime quota and daily throttle based on a given USDC value.
     fun calculate_quota_and_throttle(effective_usdc_value: u64): (u64, u64) {
@@ -279,6 +348,149 @@ module alpha_points::partner_flex {
             partner_name: partner_name,
             partner_address: partner_address,
             initial_usdc_value: locked_usdc_value
+        });
+
+        sui::transfer::public_transfer(partner_cap_flex, partner_address);
+    }
+
+    /// Creates a new PartnerCapFlex by locking USDC collateral.
+    public entry fun create_partner_cap_flex_with_usdc_collateral<USDCType>(
+        usdc_collateral_coin: Coin<USDCType>, // USDC coin provided by the partner to be locked
+        partner_name: String,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        let current_epoch = tx_context::epoch(ctx);
+        let usdc_collateral_amount = coin::value(&usdc_collateral_coin);
+
+        assert!(usdc_collateral_amount > 0, E_ZERO_COLLATERAL_AMOUNT);
+
+        // For USDC, use 1:1 conversion and 100% LTV
+        let locked_usdc_value = usdc_collateral_amount;
+        let effective_usdc_value = (locked_usdc_value * USDC_LTV_RATIO_BASIS_POINTS) / ONE_HUNDRED_PERCENT_BASIS_POINTS;
+        assert!(effective_usdc_value > 0, E_COLLATERAL_VALUE_ZERO);
+
+        let (initial_lifetime_quota, initial_daily_throttle) = calculate_quota_and_throttle(effective_usdc_value);
+
+        let cap_uid = object::new(ctx);
+        let cap_id = object::uid_to_inner(&cap_uid);
+
+        let mut partner_cap_flex = PartnerCapFlex {
+            id: cap_uid,
+            partner_name: partner_name,
+            partner_address: partner_address,
+            current_effective_usdc_value: effective_usdc_value,
+            total_lifetime_quota_points: initial_lifetime_quota,
+            total_points_minted_lifetime: 0,
+            daily_throttle_points: initial_daily_throttle,
+            points_minted_today: 0,
+            last_throttle_reset_ms: current_epoch,
+            total_perks_created: 0,
+            is_yield_opted_in: false,
+            yield_generator_address: option::none(),
+            yield_escrow_ticket_id: option::none(),
+            locked_sui_coin_id: option::none(), // No SUI vault for USDC-backed caps
+            perk_control_settings: PerkControlSettings {
+                max_perks_per_partner: 0,
+                max_claims_per_perk: 0,
+                max_cost_per_perk: 0,
+                allowed_perk_types: vector::empty(),
+                blacklisted_perk_types: vector::empty(),
+                min_partner_share_percentage: 0,
+                max_partner_share_percentage: 0,
+                allow_consumable_perks: false,
+                allow_expiring_perks: false,
+                allow_unique_metadata: false,
+                allowed_tags: vector::empty(),
+                blacklisted_tags: vector::empty()
+            },
+        };
+
+        // Store USDC collateral info as dynamic field
+        let usdc_info = UsdcCollateralInfo<USDCType> {
+            coin_balance: coin::into_balance(usdc_collateral_coin),
+            usdc_amount: usdc_collateral_amount,
+            effective_usdc_value: effective_usdc_value,
+        };
+        df::add(&mut partner_cap_flex.id, usdc_collateral_df_key<USDCType>(), usdc_info);
+
+        event::emit(PartnerCapCreated {
+            partner_cap_id: cap_id,
+            partner_name: partner_name,
+            partner_address: partner_address,
+            initial_usdc_value: effective_usdc_value
+        });
+
+        sui::transfer::public_transfer(partner_cap_flex, partner_address);
+    }
+
+    /// Creates a new PartnerCapFlex by locking NFT collateral.
+    public entry fun create_partner_cap_flex_with_nft_collateral<NFTType>(
+        nft_kiosk_id: object::ID, // Kiosk containing the NFT
+        estimated_floor_value_usdc: u64, // Partner's estimated floor value in USDC
+        collection_info: String, // Collection identifier
+        partner_name: String,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        let current_epoch = tx_context::epoch(ctx);
+
+        assert!(estimated_floor_value_usdc > 0, E_INVALID_FLOOR_VALUE);
+
+        // For NFTs, apply 70% LTV ratio
+        let effective_usdc_value = (estimated_floor_value_usdc * NFT_LTV_RATIO_BASIS_POINTS) / ONE_HUNDRED_PERCENT_BASIS_POINTS;
+        assert!(effective_usdc_value > 0, E_COLLATERAL_VALUE_ZERO);
+
+        let (initial_lifetime_quota, initial_daily_throttle) = calculate_quota_and_throttle(effective_usdc_value);
+
+        let cap_uid = object::new(ctx);
+        let cap_id = object::uid_to_inner(&cap_uid);
+
+        let mut partner_cap_flex = PartnerCapFlex {
+            id: cap_uid,
+            partner_name: partner_name,
+            partner_address: partner_address,
+            current_effective_usdc_value: effective_usdc_value,
+            total_lifetime_quota_points: initial_lifetime_quota,
+            total_points_minted_lifetime: 0,
+            daily_throttle_points: initial_daily_throttle,
+            points_minted_today: 0,
+            last_throttle_reset_ms: current_epoch,
+            total_perks_created: 0,
+            is_yield_opted_in: false,
+            yield_generator_address: option::none(),
+            yield_escrow_ticket_id: option::none(),
+            locked_sui_coin_id: option::none(), // No SUI vault for NFT-backed caps
+            perk_control_settings: PerkControlSettings {
+                max_perks_per_partner: 0,
+                max_claims_per_perk: 0,
+                max_cost_per_perk: 0,
+                allowed_perk_types: vector::empty(),
+                blacklisted_perk_types: vector::empty(),
+                min_partner_share_percentage: 0,
+                max_partner_share_percentage: 0,
+                allow_consumable_perks: false,
+                allow_expiring_perks: false,
+                allow_unique_metadata: false,
+                allowed_tags: vector::empty(),
+                blacklisted_tags: vector::empty()
+            },
+        };
+
+        // Store NFT collateral info as dynamic field
+        let nft_info = NftCollateralInfo<NFTType> {
+            nft_kiosk_id: nft_kiosk_id,
+            estimated_floor_value_usdc: estimated_floor_value_usdc,
+            effective_usdc_value: effective_usdc_value,
+            collection_info: collection_info,
+        };
+        df::add(&mut partner_cap_flex.id, nft_collateral_df_key<NFTType>(), nft_info);
+
+        event::emit(PartnerCapCreated {
+            partner_cap_id: cap_id,
+            partner_name: partner_name,
+            partner_address: partner_address,
+            initial_usdc_value: effective_usdc_value
         });
 
         sui::transfer::public_transfer(partner_cap_flex, partner_address);
@@ -1012,5 +1224,303 @@ module alpha_points::partner_flex {
         let lifetime_quota = cap.current_effective_usdc_value * POINTS_QUOTA_PER_USDC_COLLATERAL_UNIT;
         let daily_quota = (cap.current_effective_usdc_value * DAILY_MINT_THROTTLE_PERCENT_BASIS_POINTS * POINTS_QUOTA_PER_USDC_COLLATERAL_UNIT) / ONE_HUNDRED_PERCENT_BASIS_POINTS;
         (lifetime_quota, daily_quota)
+    }
+
+    // === Multi-Collateral Management Functions ===
+
+    /// Adds additional SUI collateral to an existing PartnerCapFlex
+    public entry fun add_sui_collateral(
+        cap: &mut PartnerCapFlex,
+        vault: &mut CollateralVault,
+        additional_sui_coin: Coin<SUI>,
+        rate_oracle: &RateOracle,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        assert!(partner_address == cap.partner_address, E_NOT_OWNER);
+        
+        // Verify vault belongs to this cap
+        assert!(option::is_some(&cap.locked_sui_coin_id), E_VAULT_NOT_FOUND_FOR_CAP);
+        let vault_id_from_cap = option::borrow(&cap.locked_sui_coin_id);
+        assert!(object::uid_to_inner(&vault.id) == *vault_id_from_cap, E_INVALID_VAULT_PROVIDED);
+        assert!(vault.partner_cap_flex_id == object::uid_to_inner(&cap.id), E_INVALID_VAULT_PROVIDED);
+
+        let additional_sui_amount = coin::value(&additional_sui_coin);
+        assert!(additional_sui_amount > 0, E_ZERO_COLLATERAL_AMOUNT);
+
+        // Add SUI to vault
+        balance::join(&mut vault.locked_sui_balance, coin::into_balance(additional_sui_coin));
+
+        // Calculate additional effective value
+        let additional_usdc_value = oracle::price_in_usdc(rate_oracle, additional_sui_amount);
+        
+        // Update cap's effective value and quotas
+        cap.current_effective_usdc_value = cap.current_effective_usdc_value + additional_usdc_value;
+        let (new_lifetime_quota, new_daily_throttle) = calculate_quota_and_throttle(cap.current_effective_usdc_value);
+        cap.total_lifetime_quota_points = new_lifetime_quota;
+        cap.daily_throttle_points = new_daily_throttle;
+
+        event::emit(CollateralWithdrawn {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            collateral_type: std::string::utf8(b"SUI"),
+            withdrawn_effective_value: additional_usdc_value, // Reusing event for additions
+            new_total_effective_value: cap.current_effective_usdc_value,
+            new_lifetime_quota: new_lifetime_quota,
+            new_daily_quota: new_daily_throttle
+        });
+    }
+
+    /// Adds USDC collateral to an existing PartnerCapFlex
+    public entry fun add_usdc_collateral<USDCType>(
+        cap: &mut PartnerCapFlex,
+        additional_usdc_coin: Coin<USDCType>,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        assert!(partner_address == cap.partner_address, E_NOT_OWNER);
+
+        let additional_usdc_amount = coin::value(&additional_usdc_coin);
+        assert!(additional_usdc_amount > 0, E_ZERO_COLLATERAL_AMOUNT);
+
+        let df_key = usdc_collateral_df_key<USDCType>();
+        
+        if (df::exists_with_type<vector<u8>, UsdcCollateralInfo<USDCType>>(&cap.id, df_key)) {
+            // Add to existing USDC collateral
+            let usdc_info = df::borrow_mut<vector<u8>, UsdcCollateralInfo<USDCType>>(&mut cap.id, df_key);
+            balance::join(&mut usdc_info.coin_balance, coin::into_balance(additional_usdc_coin));
+            usdc_info.usdc_amount = usdc_info.usdc_amount + additional_usdc_amount;
+            
+            // Calculate additional effective value (100% LTV for USDC)
+            let additional_effective_value = (additional_usdc_amount * USDC_LTV_RATIO_BASIS_POINTS) / ONE_HUNDRED_PERCENT_BASIS_POINTS;
+            usdc_info.effective_usdc_value = usdc_info.effective_usdc_value + additional_effective_value;
+            
+            // Update cap's total effective value
+            cap.current_effective_usdc_value = cap.current_effective_usdc_value + additional_effective_value;
+        } else {
+            // Create new USDC collateral entry
+            let effective_value = (additional_usdc_amount * USDC_LTV_RATIO_BASIS_POINTS) / ONE_HUNDRED_PERCENT_BASIS_POINTS;
+            let usdc_info = UsdcCollateralInfo<USDCType> {
+                coin_balance: coin::into_balance(additional_usdc_coin),
+                usdc_amount: additional_usdc_amount,
+                effective_usdc_value: effective_value,
+            };
+            df::add(&mut cap.id, df_key, usdc_info);
+            cap.current_effective_usdc_value = cap.current_effective_usdc_value + effective_value;
+        };
+
+        // Recalculate quotas
+        let (new_lifetime_quota, new_daily_throttle) = calculate_quota_and_throttle(cap.current_effective_usdc_value);
+        cap.total_lifetime_quota_points = new_lifetime_quota;
+        cap.daily_throttle_points = new_daily_throttle;
+
+        let additional_effective_value = (additional_usdc_amount * USDC_LTV_RATIO_BASIS_POINTS) / ONE_HUNDRED_PERCENT_BASIS_POINTS;
+        
+        event::emit(UsdcCollateralAdded {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            usdc_amount: additional_usdc_amount,
+            effective_usdc_value: additional_effective_value,
+            new_total_effective_value: cap.current_effective_usdc_value,
+            new_lifetime_quota: new_lifetime_quota,
+            new_daily_quota: new_daily_throttle
+        });
+    }
+
+    /// Adds NFT collateral to an existing PartnerCapFlex
+    public entry fun add_nft_collateral<NFTType>(
+        cap: &mut PartnerCapFlex,
+        nft_kiosk_id: object::ID,
+        estimated_floor_value_usdc: u64,
+        collection_info: String,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        assert!(partner_address == cap.partner_address, E_NOT_OWNER);
+        assert!(estimated_floor_value_usdc > 0, E_INVALID_FLOOR_VALUE);
+
+        let df_key = nft_collateral_df_key<NFTType>();
+        
+        // Check if NFT collateral already exists for this type
+        assert!(!df::exists_with_type<vector<u8>, NftCollateralInfo<NFTType>>(&cap.id, df_key), E_NFT_COLLATERAL_ALREADY_EXISTS);
+
+        // Calculate effective value (70% LTV for NFTs)
+        let effective_value = (estimated_floor_value_usdc * NFT_LTV_RATIO_BASIS_POINTS) / ONE_HUNDRED_PERCENT_BASIS_POINTS;
+        
+        // Create NFT collateral entry
+        let nft_info = NftCollateralInfo<NFTType> {
+            nft_kiosk_id: nft_kiosk_id,
+            estimated_floor_value_usdc: estimated_floor_value_usdc,
+            effective_usdc_value: effective_value,
+            collection_info: collection_info,
+        };
+        df::add(&mut cap.id, df_key, nft_info);
+        
+        // Update cap's total effective value
+        cap.current_effective_usdc_value = cap.current_effective_usdc_value + effective_value;
+
+        // Recalculate quotas
+        let (new_lifetime_quota, new_daily_throttle) = calculate_quota_and_throttle(cap.current_effective_usdc_value);
+        cap.total_lifetime_quota_points = new_lifetime_quota;
+        cap.daily_throttle_points = new_daily_throttle;
+
+        event::emit(NftCollateralAdded {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            nft_kiosk_id: nft_kiosk_id,
+            estimated_floor_value_usdc: estimated_floor_value_usdc,
+            effective_usdc_value: effective_value,
+            collection_info: collection_info,
+            new_total_effective_value: cap.current_effective_usdc_value,
+            new_lifetime_quota: new_lifetime_quota,
+            new_daily_quota: new_daily_throttle
+        });
+    }
+
+    /// Withdraws USDC collateral from a PartnerCapFlex
+    public entry fun withdraw_usdc_collateral<USDCType>(
+        cap: &mut PartnerCapFlex,
+        amount_to_withdraw: u64,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        assert!(partner_address == cap.partner_address, E_NOT_OWNER);
+
+        let df_key = usdc_collateral_df_key<USDCType>();
+        assert!(df::exists_with_type<vector<u8>, UsdcCollateralInfo<USDCType>>(&cap.id, df_key), E_INSUFFICIENT_COLLATERAL_FOR_WITHDRAWAL);
+
+        let usdc_info = df::borrow_mut<vector<u8>, UsdcCollateralInfo<USDCType>>(&mut cap.id, df_key);
+        assert!(balance::value(&usdc_info.coin_balance) >= amount_to_withdraw, E_INSUFFICIENT_COLLATERAL_FOR_WITHDRAWAL);
+
+        // Calculate effective value reduction
+        let effective_value_reduction = (amount_to_withdraw * USDC_LTV_RATIO_BASIS_POINTS) / ONE_HUNDRED_PERCENT_BASIS_POINTS;
+        
+        // Update collateral info
+        let withdrawn_coin = coin::take(&mut usdc_info.coin_balance, amount_to_withdraw, ctx);
+        usdc_info.usdc_amount = usdc_info.usdc_amount - amount_to_withdraw;
+        usdc_info.effective_usdc_value = usdc_info.effective_usdc_value - effective_value_reduction;
+
+        // Update cap's effective value
+        cap.current_effective_usdc_value = cap.current_effective_usdc_value - effective_value_reduction;
+
+        // Recalculate quotas
+        let (new_lifetime_quota, new_daily_throttle) = calculate_quota_and_throttle(cap.current_effective_usdc_value);
+        cap.total_lifetime_quota_points = new_lifetime_quota;
+        cap.daily_throttle_points = new_daily_throttle;
+
+        // If minted today exceeds new daily cap, adjust it
+        if (cap.points_minted_today > cap.daily_throttle_points) {
+            cap.points_minted_today = cap.daily_throttle_points;
+        };
+
+        // Transfer withdrawn USDC to partner
+        sui::transfer::public_transfer(withdrawn_coin, partner_address);
+
+        event::emit(CollateralWithdrawn {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            collateral_type: std::string::utf8(b"USDC"),
+            withdrawn_effective_value: effective_value_reduction,
+            new_total_effective_value: cap.current_effective_usdc_value,
+            new_lifetime_quota: new_lifetime_quota,
+            new_daily_quota: new_daily_throttle
+        });
+    }
+
+    /// Removes NFT collateral from a PartnerCapFlex
+    public entry fun withdraw_nft_collateral<NFTType>(
+        cap: &mut PartnerCapFlex,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        assert!(partner_address == cap.partner_address, E_NOT_OWNER);
+
+        let df_key = nft_collateral_df_key<NFTType>();
+        assert!(df::exists_with_type<vector<u8>, NftCollateralInfo<NFTType>>(&cap.id, df_key), E_INSUFFICIENT_COLLATERAL_FOR_WITHDRAWAL);
+
+        // Remove NFT collateral info
+        let nft_info = df::remove<vector<u8>, NftCollateralInfo<NFTType>>(&mut cap.id, df_key);
+        let effective_value_reduction = nft_info.effective_usdc_value;
+
+        // Update cap's effective value
+        cap.current_effective_usdc_value = cap.current_effective_usdc_value - effective_value_reduction;
+
+        // Recalculate quotas
+        let (new_lifetime_quota, new_daily_throttle) = calculate_quota_and_throttle(cap.current_effective_usdc_value);
+        cap.total_lifetime_quota_points = new_lifetime_quota;
+        cap.daily_throttle_points = new_daily_throttle;
+
+        // If minted today exceeds new daily cap, adjust it
+        if (cap.points_minted_today > cap.daily_throttle_points) {
+            cap.points_minted_today = cap.daily_throttle_points;
+        };
+
+        event::emit(CollateralWithdrawn {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            collateral_type: std::string::utf8(b"NFT"),
+            withdrawn_effective_value: effective_value_reduction,
+            new_total_effective_value: cap.current_effective_usdc_value,
+            new_lifetime_quota: new_lifetime_quota,
+            new_daily_quota: new_daily_throttle
+        });
+
+        // Note: The actual NFT remains in the kiosk - this function only removes
+        // the collateral backing. Partner should handle NFT separately.
+        // Removed the problematic line that was causing the drop ability error
+    }
+
+    /// Creates an initial SUI vault for an existing PartnerCapFlex that doesn't have one
+    /// This allows partners who were created without SUI collateral (e.g., admin-granted, USDC-only, NFT-only)
+    /// to add their first SUI collateral and vault
+    public entry fun create_initial_sui_vault(
+        cap: &mut PartnerCapFlex,
+        initial_sui_coin: Coin<SUI>,
+        rate_oracle: &RateOracle,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        assert!(partner_address == cap.partner_address, E_NOT_OWNER);
+        
+        // Verify this partner doesn't already have a SUI vault
+        assert!(option::is_none(&cap.locked_sui_coin_id), E_YIELD_ALREADY_ACTIVE); // Reusing error constant
+        
+        let initial_sui_amount = coin::value(&initial_sui_coin);
+        assert!(initial_sui_amount > 0, E_ZERO_COLLATERAL_AMOUNT);
+
+        // Create the new SUI vault
+        let vault = CollateralVault {
+            id: object::new(ctx),
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            locked_sui_balance: coin::into_balance(initial_sui_coin)
+        };
+        
+        let vault_id = object::uid_to_inner(&vault.id);
+        
+        // Update the PartnerCap to reference this new vault
+        cap.locked_sui_coin_id = option::some(vault_id);
+
+        // Calculate additional effective value from the SUI
+        let additional_usdc_value = oracle::price_in_usdc(rate_oracle, initial_sui_amount);
+        
+        // Update cap's effective value and quotas
+        cap.current_effective_usdc_value = cap.current_effective_usdc_value + additional_usdc_value;
+        let (new_lifetime_quota, new_daily_throttle) = calculate_quota_and_throttle(cap.current_effective_usdc_value);
+        cap.total_lifetime_quota_points = new_lifetime_quota;
+        cap.daily_throttle_points = new_daily_throttle;
+
+        // Emit events
+        event::emit(CollateralVaultCreated {
+            collateral_vault_id: vault_id,
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            initial_locked_sui_amount: initial_sui_amount
+        });
+
+        event::emit(CollateralWithdrawn {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            collateral_type: std::string::utf8(b"SUI_INITIAL"),
+            withdrawn_effective_value: additional_usdc_value, // Reusing event for additions
+            new_total_effective_value: cap.current_effective_usdc_value,
+            new_lifetime_quota: new_lifetime_quota,
+            new_daily_quota: new_daily_throttle
+        });
+
+        // Share the vault as a shared object
+        transfer::share_object(vault);
     }
 }
