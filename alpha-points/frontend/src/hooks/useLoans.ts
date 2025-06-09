@@ -10,12 +10,12 @@ const NATIVE_STAKED_SUI_TYPE_ARG = '0x3::staking_pool::StakedSui';
 /**
  * Hook for fetching and managing user's loans against staked positions
  */
-export const useLoans = () => {
+export const useLoans = (autoLoad: boolean = false) => {
   const currentAccount = useCurrentAccount();
   const client = useSuiClient();
 
   // State management
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start as false when not auto-loading
   const [loans, setLoans] = useState<Loan[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -104,14 +104,16 @@ export const useLoans = () => {
     }
   }, [client, currentAccount]);
 
-  // Initialize data and set up polling
+  // Initialize data and set up polling only if autoLoad is true
   useEffect(() => {
-    fetchLoans();
-    // Set up polling interval
-    const interval = setInterval(fetchLoans, 10000); // Poll every 10 seconds
-    // Cleanup interval on unmount
-    return () => clearInterval(interval);
-  }, [fetchLoans]);
+    if (autoLoad) {
+      fetchLoans();
+      // Set up polling interval
+      const interval = setInterval(fetchLoans, 10000); // Poll every 10 seconds
+      // Cleanup interval on unmount
+      return () => clearInterval(interval);
+    }
+  }, [autoLoad, fetchLoans]);
 
   // Return loans, loading state, error state, and refetch function
   return { loans, loading, error, refetch: fetchLoans };

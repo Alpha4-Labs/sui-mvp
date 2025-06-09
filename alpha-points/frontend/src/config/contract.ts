@@ -1,6 +1,13 @@
 import { bcs } from '@mysten/sui/bcs';
 
 // --- Contract Configuration ---
+export const PACKAGE_ID_V16 = import.meta.env['VITE_PACKAGE_ID_V16'];
+export const PACKAGE_ID_V15 = import.meta.env['VITE_PACKAGE_ID_V15'];
+export const PACKAGE_ID_V14 = import.meta.env['VITE_PACKAGE_ID_V14'];
+export const PACKAGE_ID_V13 = import.meta.env['VITE_PACKAGE_ID_V13'];
+export const PACKAGE_ID_V12 = import.meta.env['VITE_PACKAGE_ID_V12'];
+export const PACKAGE_ID_V11 = import.meta.env['VITE_PACKAGE_ID_V11'];
+export const PACKAGE_ID_V10 = import.meta.env['VITE_PACKAGE_ID_V10'];
 export const PACKAGE_ID_V9 = import.meta.env['VITE_PACKAGE_ID_V9'];
 export const PACKAGE_ID_V8 = import.meta.env['VITE_PACKAGE_ID_V8']; // New v8 package
 export const PACKAGE_ID_V7 = import.meta.env['VITE_PACKAGE_ID_V7']; // New v7 package
@@ -15,32 +22,27 @@ export const PACKAGE_ID = import.meta.env['VITE_PACKAGE_ID']; // THIS IS THE SOL
 // Aggregate all known package IDs, newest first
 export const ALL_PACKAGE_IDS = [
   PACKAGE_ID,        // Latest (should be V8)
+  PACKAGE_ID_V16,
+  PACKAGE_ID_V15,
+  PACKAGE_ID_V14,
+  PACKAGE_ID_V13,
+  PACKAGE_ID_V12,
+  PACKAGE_ID_V11,
+  PACKAGE_ID_V10,
   PACKAGE_ID_V9,     // V9 explicitly
   PACKAGE_ID_V8,     // V8 explicitly
   PACKAGE_ID_V7,     // V7
   PACKAGE_ID_V6,     // V6  
   PACKAGE_ID_V5,     // V5
   PACKAGE_ID_V4,     // V4
-  PACKAGE_ID_V3,     // V3
+  PACKAGE_ID_V3,     // V3,
   PACKAGE_ID_V2,     // V2
   PACKAGE_ID_V1,     // V1
   // Additional known packages that created PartnerCapFlex objects
   '0xf933e69aeeeebb9d1fc50b6324070d8f2bdc2595162b0616142a509c90e3cd16', // Package that created user's PartnerCapFlex
 ].filter(Boolean);
 
-// // Log package configuration on module load for debugging
-// console.log('📦 Package Configuration:', {
-//   PACKAGE_ID_LATEST: PACKAGE_ID,
-//   PACKAGE_ID_V8,
-//   TOTAL_PACKAGE_VERSIONS: ALL_PACKAGE_IDS.length,
-//   ALL_PACKAGE_IDS_PREVIEW: ALL_PACKAGE_IDS.slice(0, 3).map((id, i) => `${i === 0 ? 'LATEST' : `V${8-i}`}: ${id}`)
-// });
 
-// // Additional debug for PartnerCapFlex detection
-// console.log('🔍 PartnerCapFlex Detection - Package IDs to check:', {
-//   ALL_PACKAGE_IDS: ALL_PACKAGE_IDS.filter(Boolean),
-//   note: 'If your PartnerCapFlex is not found, ensure its package ID is in this list'
-// });
 
 // --- Load Core Object IDs from Environment Variables ---
 

@@ -19,10 +19,36 @@ export const CONVERSION_RATES = {
   USD_TO_ALPHA_POINTS: 1_000,     // 1 USD = 1,000 Alpha Points (CORRECT)
   SUI_TO_USDC: 3.28,              // 1 SUI = 3.28 USDC (via oracle)
   SUI_TO_ALPHA_POINTS: 3_280,     // 1 SUI = 3,280 Alpha Points (calculated)
-  ORACLE_RATE: 328_000_000,       // Oracle rate (only for backend compatibility)
-  ORACLE_DECIMALS: 9,             // Oracle decimal places
+  ORACLE_RATE: 328_000_000,       // Oracle rate (3.28 * 10^8)
+  ORACLE_DECIMALS: 8,             // Oracle decimal places  
   BUFFER_USD: 0.01,               // Small buffer to avoid off-by-one errors
 } as const;
+
+/**
+ * 🚨 ROOT CAUSE ANALYSIS: WHAT'S THE CONTRACT ACTUALLY EXPECTING? 🚨
+ * 
+ * Let's trace through the contract logic without guessing:
+ * 1. Contract comment: "usdc_price: u64, // Price in USDC (e.g., 1000 = $10.00)"
+ * 2. This means usdc_price should be in CENTI-DOLLARS: $1 = 100 units
+ * 3. Contract calls: oracle::convert_asset_to_points(usdc_price, rate, decimals)
+ * 4. Oracle: (usdc_price * 10^8) / 328,000,000 = alpha_points
+ * 
+ * Let's send the EXACT format the contract expects and see what happens.
+ * 
+ * @param userUsdcPrice The USDC price the user wants (e.g., 2000 for $2000)
+ * @returns The USDC price in the exact format the contract expects
+ */
+export function transformUsdcForBuggyContract(userUsdcPrice: number): number {
+  // FIXED: This function is no longer needed since we fixed the contract functions.
+  // The new create_perk_definition_fixed(), claim_perk_fixed(), etc. use correct 1:1000 conversion.
+  
+  console.log(`✅ USING FIXED CONTRACT: Sending raw USD amount to fixed contract functions`);
+  console.log(`   User wants: $${userUsdcPrice} USDC → ${userUsdcPrice * 1000} Alpha Points`);
+  console.log(`   Sending: ${userUsdcPrice} (raw USD amount)`);
+  console.log(`   Fixed contract will calculate: ${userUsdcPrice} × 1000 = ${userUsdcPrice * 1000} Alpha Points`);
+  
+  return userUsdcPrice; // Send raw USD amount to fixed contract functions
+}
 
 /**
  * DISPLAY CONVERSIONS: Use these for all UI display purposes

@@ -316,95 +316,178 @@ export const GenerationPage: React.FC = () => {
   }, [generationMethods, activeGenerationTags]);
 
   return (
-    <>
-      <div className="text-center mb-6">
-        <h1 className="text-3xl font-bold text-white mb-2">Earn Alpha Points</h1>
-        <p className="text-gray-400">Explore ways to generate points across the ecosystem.</p>
+    <div className="space-y-4 animate-fade-in">
+      {/* Header */}
+      <div className="text-center">
+        <h1 className="text-3xl md:text-4xl font-bold mb-2">
+          <span className="bg-gradient-to-r from-emerald-400 to-blue-400 text-transparent bg-clip-text">
+            Earn Alpha Points
+          </span>
+        </h1>
+        <p className="text-gray-400 text-lg">
+          Explore diverse ways to generate points across the ecosystem
+        </p>
       </div>
       
-      <div className="bg-background rounded-lg p-4 mb-4 flex items-center justify-start">
-        <button 
-          onClick={() => setIsGenerationFilterModalOpen(true)}
-          className="flex items-center text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 py-2 px-4 rounded-md transition-colors"
-          aria-label="Filter generation methods"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3zm3.707 4.707A1 1 0 017 7h6a1 1 0 01.707.293l-2.828 2.828A1 1 0 0010 10.586v3.828l-1-1V10.586a1 1 0 00-.121-.454L6.707 7.707z" clipRule="evenodd" />
-          </svg>
-          Filter Methods
-        </button>
+      {/* Filter Section */}
+      <div className="card-modern py-1.5 px-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-1.5">
+            <div className="w-6 h-6 bg-blue-500/20 rounded-lg flex items-center justify-center">
+              <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+            </div>
+            <span className="text-white font-medium">Filter Methods</span>
+            {activeGenerationTags.size > 0 && (
+              <span className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded-lg text-sm">
+                {activeGenerationTags.size} active
+              </span>
+            )}
+          </div>
+          <button 
+            onClick={() => setIsGenerationFilterModalOpen(true)}
+            className="btn-modern-secondary text-sm"
+            aria-label="Filter generation methods"
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
+            </svg>
+            Configure Filters
+          </button>
+        </div>
       </div>
       
-      <div className="max-h-[55vh] overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 p-2 rounded-lg bg-background-input/20">
-        {displayedGenerationMethods.map((method) => (
+      {/* Generation Methods Grid */}
+      <div className="h-[calc(100vh-280px)] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-slide-up pb-12">
+        {displayedGenerationMethods.map((method, index) => (
           <div 
             key={method.id}
-            className="bg-background-card rounded-lg shadow-lg overflow-hidden flex flex-col"
+            className="card-modern overflow-hidden animate-fade-in"
+            style={{ animationDelay: `${index * 100}ms` }}
           >
             <div 
-              className="p-4 flex justify-between items-center cursor-pointer border-b border-gray-700/50"
+              className="p-4 cursor-pointer transition-all duration-300 hover:bg-white/5"
               onClick={() => setExpandedMethod(expandedMethod === method.id ? null : method.id)}
             >
-              <div className="flex items-center min-w-0 mr-2">
-                <div className="w-8 h-8 flex items-center justify-center bg-background rounded-full mr-3 text-xl flex-shrink-0">
-                  {method.icon}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-white truncate">{method.name}</div>
-                  {method.tags && method.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {method.tags.slice(0, 3).map((tag) => (
-                        <span 
-                          key={tag} 
-                          className="text-xs bg-gray-600/70 text-gray-300 px-1.5 py-0.5 rounded-full whitespace-nowrap"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                      {method.tags.length > 3 && (
-                        <span className="text-xs text-gray-400 px-1 py-0.5">+ {method.tags.length - 3} more</span>
-                      )}
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl flex items-center justify-center text-xl shadow-lg">
+                    {method.icon}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-white text-lg mb-1">{method.name}</h3>
+                    <div className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium ${
+                      method.status === 'active' 
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                        : method.status === 'coming-soon' 
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                        : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                    }`}>
+                      <div className={`w-2 h-2 rounded-full mr-2 ${
+                        method.status === 'active' ? 'bg-emerald-400' 
+                        : method.status === 'coming-soon' ? 'bg-amber-400'
+                        : 'bg-red-400'
+                      }`}></div>
+                      {method.status === 'active' ? 'Active' 
+                       : method.status === 'coming-soon' ? 'Coming Soon'
+                       : 'Inactive'}
                     </div>
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 ${
+                    expandedMethod === method.id 
+                      ? 'bg-purple-600 text-white' 
+                      : 'bg-white/10 text-gray-400 hover:bg-white/20'
+                  }`}>
+                    <svg 
+                      className={`w-4 h-4 transition-transform duration-300 ${
+                        expandedMethod === method.id ? 'rotate-180' : ''
+                      }`} 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              
+              <p className="text-gray-400 text-sm mb-4 leading-relaxed">
+                {method.description}
+              </p>
+              
+              {method.tags && method.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {method.tags.slice(0, 4).map((tag) => (
+                    <span 
+                      key={tag} 
+                      className="bg-black/20 border border-white/10 text-gray-300 px-2 py-1 rounded-lg text-xs"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                  {method.tags.length > 4 && (
+                    <span className="text-xs text-gray-500 px-2 py-1">
+                      +{method.tags.length - 4} more
+                    </span>
                   )}
                 </div>
-              </div>
-              <div className={`w-6 h-6 flex items-center justify-center rounded-full flex-shrink-0 ${
-                method.status === 'active' ? 'bg-green-500' 
-                : method.status === 'coming-soon' ? 'bg-yellow-500'
-                : 'bg-red-500'
-              }`}>
-                {expandedMethod === method.id ? (
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                )}
-              </div>
+              )}
             </div>
             
             {expandedMethod === method.id && (
-              <div className="border-t border-gray-700 flex-grow">
-                {method.details}
+              <div className="border-t border-white/10 bg-black/20 animate-slide-up">
+                <div className="p-4">
+                  {method.details}
+                </div>
               </div>
             )}
           </div>
         ))}
+        </div>
       </div>
       
+      {/* No Results State */}
       {displayedGenerationMethods.length === 0 && activeGenerationTags.size > 0 && (
-        <div className="text-center text-gray-400 py-10">
-          <p className="text-lg mb-2">No generation methods match your selected filters.</p>
-          <p>Try adjusting your filter criteria or clearing all filters.</p>
+        <div className="h-[calc(100vh-280px)] flex items-center justify-center">
+          <div className="card-modern p-12 text-center animate-fade-in">
+          <div className="w-16 h-16 bg-gray-700/50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.172 16.172a4 4 0 015.656 0M9 12h6m-6-4h6m2 5.291A7.962 7.962 0 0112 20a7.962 7.962 0 01-5-1.709M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-semibold text-white mb-2">No Methods Found</h3>
+          <p className="text-gray-400 mb-4">No generation methods match your selected filters.</p>
+          <button 
+            onClick={() => setActiveGenerationTags(new Set())}
+            className="btn-modern-secondary"
+          >
+            Clear All Filters
+          </button>
+          </div>
         </div>
       )}
 
-      <div className="text-center text-gray-400">
-        More generation methods coming soon!
+      {/* Footer */}
+      <div className="card-modern p-6 text-center border-blue-500/20">
+        <div className="flex items-center justify-center space-x-3 mb-3">
+          <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
+            <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-white">More Coming Soon</h3>
+        </div>
+        <p className="text-gray-400">
+          We're constantly adding new ways to earn Alpha Points. Stay tuned for exciting updates!
+        </p>
       </div>
 
+      {/* Filter Modal */}
       {isGenerationFilterModalOpen && (
         <PerkFilterModal 
           isOpen={isGenerationFilterModalOpen}
@@ -415,6 +498,6 @@ export const GenerationPage: React.FC = () => {
           modalTitle="Filter Methods by Tag"
         />
       )}
-    </>
+    </div>
   );
 };

@@ -17,9 +17,9 @@ const EVENT_TYPE_MAP: Record<string, SuiVisionEvent['type']> = {
   'alpha_points::ledger::Unlocked': 'unlocked',
 };
 
-const API_KEY = import.meta.env.VITE_BLOCKVISION_API_KEY;
-const BASE_URL = import.meta.env.VITE_BLOCKVISION_HTTPS || 'https://api.blockvision.org';
-if (!import.meta.env.VITE_BLOCKVISION_HTTPS) {
+const API_KEY = import.meta.env['VITE_BLOCKVISION_API_KEY'];
+const BASE_URL = import.meta.env['VITE_BLOCKVISION_HTTPS'] || 'https://api.blockvision.org';
+if (!import.meta.env['VITE_BLOCKVISION_HTTPS']) {
   console.warn('BlockVision HTTPS endpoint (VITE_BLOCKVISION_HTTPS) not set. Using default https://api.blockvision.org.');
 }
 
@@ -75,7 +75,7 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
       }
     }
     // Debug log
-    console.debug('[fetchSuiVisionEvents] Events fetched:', allEvents.length, allEvents.slice(0, 3));
+
     // Filter by timestamp window
     allEvents = allEvents.filter(e => e.timestamp >= fromTimestamp && e.timestamp <= toTimestamp);
     // Sort by timestamp ascending
@@ -98,7 +98,7 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
       dailyBalances.push({ timestamp: dayStart, balance: runningBalance });
     }
     // Debug log
-    console.debug('[fetchSuiVisionEvents] Daily balances:', dailyBalances.slice(0, 3));
+
     eventCache.set(cacheKey, dailyBalances);
     return dailyBalances;
   }
@@ -186,8 +186,7 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
     }
     dailyBalances.push({ timestamp: dayStart, balance: runningBalance });
   }
-  // Debug log
-  console.debug('[fetchSuiVisionEvents] Daily balances:', dailyBalances.slice(0, 3));
+
   eventCache.set(cacheKey, dailyBalances);
   return dailyBalances;
 } 

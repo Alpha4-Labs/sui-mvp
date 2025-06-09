@@ -2,12 +2,14 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
 import { useNavigate } from 'react-router-dom';
 import { useAlphaContext } from '../context/AlphaContext';
+import neonLogoVideo from '../assets/Neon_Logo_01.mp4'; // Import the video
 import { StakeCard } from '../components/StakeCard';
 import { StakedPositionsList } from '../components/StakedPositionsList';
 import { UserBalancesCard } from '../components/UserBalancesCard';
 import { PointsDisplay } from '../components/PointsDisplay';
+import { PerformanceTodayCard } from '../components/PerformanceTodayCard';
+import { RecentActivityCard } from '../components/RecentActivityCard';
 import { MainLayout } from '../layouts/MainLayout';
-import ProjectionChart from '../components/ProjectionChart';
 
 // Define type for projection data to match ProjectionChart.tsx
 interface ProjectionDataPoint {
@@ -47,12 +49,18 @@ export const DashboardPage: React.FC = () => {
     }
   }, [alphaContext.isConnected, alphaContext.authLoading, navigate]);
 
-  // Refresh data on component mount if connected
+  // Lazy load stake positions after auth is complete
   useEffect(() => {
     if (alphaContext.isConnected && !alphaContext.authLoading) {
-      alphaContext.refreshData();
+      // Critical data is already loaded by AlphaContext
+      // Just lazy load stake positions after a short delay to prevent API spam
+      const timeoutId = setTimeout(() => {
+        alphaContext.refreshStakePositions();
+      }, 2000); // 2 second delay
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [alphaContext.isConnected, alphaContext.authLoading, alphaContext.refreshData]);
+  }, [alphaContext.isConnected, alphaContext.authLoading, alphaContext.refreshStakePositions]);
 
   // Initialize data
   useEffect(() => {
@@ -107,26 +115,57 @@ export const DashboardPage: React.FC = () => {
     }));
   };
 
+  // Show loading indicator during auth loading
+  if (alphaContext.authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[70vh]">
+        <div className="text-center animate-fade-in">
+          <video 
+            autoPlay 
+            muted 
+            loop 
+            className="w-40 h-40 mx-auto mb-6 animate-pulse"
+            style={{ filter: 'drop-shadow(0 0 30px rgba(168, 85, 247, 0.6))' }}
+          >
+                         <source src={neonLogoVideo} type="video/mp4" />
+            {/* Fallback for browsers that don't support video */}
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto"></div>
+          </video>
+          <p className="text-white text-lg font-medium mb-2">Loading your dashboard...</p>
+          <p className="text-gray-400 text-sm">Preparing your Alpha Points experience</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="container mx-auto p-4">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        {/* Column 1: SUI Balance + Alpha Points Balance */}
-        <div className="flex flex-col gap-6">
+    <div className="space-y-6 animate-fade-in">
+      {/* Main Dashboard Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Column 1: Balances */}
+        <div className="space-y-7 animate-slide-up flex flex-col">
           <UserBalancesCard />
           <PointsDisplay />
         </div>
+        
         {/* Column 2: Manage Stake */}
-        <div>
+        <div className="animate-slide-up animation-delay-200 flex flex-col">
           <StakeCard />
         </div>
+        
         {/* Column 3: Staked Positions */}
-        <div>
+        <div className="animate-slide-up animation-delay-400 flex flex-col">
           <StakedPositionsList />
         </div>
       </div>
-      {/* Chart: spans all columns */}
-      <div className="mt-6">
-        <ProjectionChart />
+
+      {/* Key Performance Insights */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-slide-up animation-delay-600">
+        {/* Performance Metrics */}
+        <PerformanceTodayCard />
+
+        {/* Recent Activity & Opportunities */}
+        <RecentActivityCard />
       </div>
     </div>
   );

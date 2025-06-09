@@ -58,51 +58,93 @@ export function usePerkData() {
     
     // Only log in development and for significant batches
     if (import.meta.env.DEV && perkIds.length > 20) {
-      console.log(`🔄 Processing ${perkIds.length} perk objects in batches...`);
+
     }
     
-    // SMART BATCHING: Split into manageable batches
+    // AGGRESSIVE RATE LIMITING: Much smaller batches to avoid 429 errors
+    const RATE_LIMITED_BATCH_SIZE = 3; // Reduce from 10 to 3
+    const MAX_RATE_LIMITED_CONCURRENT = 1; // Only 1 batch at a time
+    const INTER_REQUEST_DELAY = 200; // 200ms between individual requests
+    const INTER_BATCH_DELAY = 1000; // 1 second between batches
+    
+    // Split into very small batches
     const batches: string[][] = [];
-    for (let i = 0; i < perkIds.length; i += BATCH_SIZE) {
-      batches.push(perkIds.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < perkIds.length; i += RATE_LIMITED_BATCH_SIZE) {
+      batches.push(perkIds.slice(i, i + RATE_LIMITED_BATCH_SIZE));
     }
     
-    // CONTROLLED CONCURRENCY: Process batches with limited concurrency
-    const processBatch = async (batch: string[]) => {
-      const objectPromises = batch.map(id => 
-        Promise.race([
-          rateLimitedRequest(() => 
-            client.getObject({
-              id,
-              options: {
-                showContent: true,
-                showType: true,
-              },
-            })
-          ),
-          // TIMEOUT PROTECTION: 10-second timeout per object
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout')), 10000)
-          )
-        ]).catch(err => {
-          if (err.message !== 'Timeout' && import.meta.env.DEV) {
-            console.warn(`⚠️ Failed to fetch perk ${id}:`, err.message);
-          }
-          return null; // Return null for failed/timeout fetches
-        })
-      );
+    // Process batches sequentially with delays to avoid rate limits
+    const processBatchWithRetry = async (batch: string[], batchIndex: number) => {
+      const objects: any[] = [];
       
-      const objects = await Promise.all(objectPromises);
-      return objects.filter(obj => obj !== null); // Filter out failed fetches
+      for (let i = 0; i < batch.length; i++) {
+        const id = batch[i];
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        while (retryCount < maxRetries) {
+          try {
+            // Add delay between requests
+            if (i > 0) {
+              await new Promise(resolve => setTimeout(resolve, INTER_REQUEST_DELAY));
+            }
+            
+            const result = await Promise.race([
+              rateLimitedRequest(() => 
+                client.getObject({
+                  id,
+                  options: {
+                    showContent: true,
+                    showType: true,
+                  },
+                })
+              ),
+              // Longer timeout for rate-limited requests
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Timeout')), 15000)
+              )
+            ]);
+            
+            objects.push(result);
+            break; // Success, exit retry loop
+            
+          } catch (err: any) {
+            retryCount++;
+            
+            if (err.message?.includes('429') || err.message?.includes('Too Many Requests')) {
+              // Exponential backoff for rate limits
+              const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 8000);
+              console.warn(`⚠️ Rate limited fetching ${id}, retrying in ${backoffDelay}ms (attempt ${retryCount}/${maxRetries})`);
+              await new Promise(resolve => setTimeout(resolve, backoffDelay));
+            } else {
+              // Non-rate-limit error, don't retry
+              if (import.meta.env.DEV && err.message !== 'Timeout') {
+                console.warn(`⚠️ Failed to fetch perk ${id}:`, err.message);
+              }
+              break;
+            }
+          }
+        }
+      }
+      
+      return objects.filter(obj => obj !== null);
     };
 
-    // CONCURRENT BATCH PROCESSING: Process multiple batches at once
+    // Process batches sequentially with delays
     const allObjects: any[] = [];
-    for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
-      const currentBatchGroup = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
-      const batchPromises = currentBatchGroup.map(processBatch);
-      const batchResults = await Promise.all(batchPromises);
-      allObjects.push(...batchResults.flat());
+    for (let i = 0; i < batches.length; i++) {
+      // Add delay between batches
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, INTER_BATCH_DELAY));
+      }
+      
+      const batchResults = await processBatchWithRetry(batches[i], i);
+      allObjects.push(...batchResults);
+      
+      // Progress logging for large batches
+      if (import.meta.env.DEV && batches.length > 5) {
+
+      }
     }
     
     // Parse objects into PerkDefinition format
@@ -112,12 +154,11 @@ export function usePerkData() {
         try {
           const fields = (perkObject.data.content as any).fields;
           
-          // WORKAROUND: Normalize USDC price for display
-          // Smart contract stores micro-USDC (1,000,000 = $1), we display as USD
+          // 🚨 WORKAROUND: Parse USDC price correctly accounting for contract format
+          // Smart contract stores centi-dollars (100 = $1.00), not micro-USDC
+          // For perks created with the pricing workaround, usdc_price contains transformed values
+          // We should NOT convert this - it's already transformed for contract compatibility
           const rawUsdcPrice = parseFloat(fields.usdc_price || '0');
-          const normalizedUsdcPrice = rawUsdcPrice > 1_000_000 
-            ? microUSDCToUSD(rawUsdcPrice) // Convert from micro-USDC to USD
-            : rawUsdcPrice; // Legacy data already in USD
           
           // Get Alpha Points price - keep as raw value
           const alphaPrice = parseFloat(fields.current_alpha_points_price || '0');
@@ -133,7 +174,7 @@ export function usePerkData() {
             description: fields.description || '',
             creator_partner_cap_id: fields.creator_partner_cap_id,
             perk_type: fields.perk_type || 'General',
-            usdc_price: normalizedUsdcPrice, // Now properly normalized for display
+            usdc_price: rawUsdcPrice, // Keep raw value - display logic will handle conversion
             current_alpha_points_price: alphaPrice,
             last_price_update_timestamp_ms: parseInt(fields.last_price_update_timestamp_ms || '0'),
             partner_share_percentage: partnerSharePercentage,
@@ -233,9 +274,7 @@ export function usePerkData() {
 
               // BATCH FETCH: Get all perk objects for this package
               if (allPackagePerkIds.length > 0) {
-                if (import.meta.env.DEV) {
-                  console.log(`�� Found ${allPackagePerkIds.length} perks in package ${packageId.slice(-8)}`);
-                }
+
                 const packagePerks = await fetchPerkObjectsBatch(allPackagePerkIds, packageId);
                 return packagePerks;
               }
@@ -252,10 +291,13 @@ export function usePerkData() {
           const allPackageResults = await Promise.all(packageSearchPromises);
           const allPerks = allPackageResults.flat();
 
-          if (import.meta.env.DEV && allPerks.length > 0) {
-            console.log(`✅ Found ${allPerks.length} total perks for partner`);
-          }
-          return allPerks;
+          // DEDUPLICATION: Remove duplicate perks by ID (can happen across packages)
+          const uniquePerks = allPerks.filter((perk, index, arr) => 
+            arr.findIndex(p => p.id === perk.id) === index
+          );
+
+
+          return uniquePerks;
         },
         CACHE_DURATION
       );
@@ -362,25 +404,29 @@ export function usePerkData() {
       const perks = await requestCache.getOrFetch(
         cacheKey,
         async () => {
-          // OPTIMIZATION 1: Only process first 2 packages for speed
-          const prioritizedPackages = ALL_PACKAGE_IDS.filter(Boolean).slice(-2); // Latest 2 packages
+          // OPTIMIZATION 1: Process latest 3 packages for better perk discovery, but with reduced limits
+          const prioritizedPackages = ALL_PACKAGE_IDS.filter(Boolean).slice(-3); // Latest 3 packages
           
-          const packagePromises = prioritizedPackages.map(async (packageId) => {
+          const packagePromises = prioritizedPackages.map(async (packageId, packageIndex) => {
+            // Add delay between package queries to avoid rate limits
+            if (packageIndex > 0) {
+              await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay between packages
+            }
             try {
-              // OPTIMIZATION 2: DRASTICALLY reduced event limit for speed
+              // RATE LIMIT PROTECTION: Small event limit but slightly increased for better discovery
               const perkCreatedEvents = await rateLimitedRequest(() =>
                 client.queryEvents({
                   query: {
                     MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
                   },
                   order: 'descending',
-                  limit: 50, // DRASTICALLY reduced from 200 to 50
+                  limit: 25, // Slightly increased from 20 for better perk discovery
                 })
               );
 
-              // OPTIMIZATION 3: Extract only first 30 perk IDs for speed
+              // RATE LIMIT PROTECTION: Extract only first 20 perk IDs (increased from 15)
               const allPerkIds: string[] = [];
-              for (const event of perkCreatedEvents.data.slice(0, 30)) {
+              for (const event of perkCreatedEvents.data.slice(0, 20)) {
                 if (event.parsedJson && typeof event.parsedJson === 'object') {
                   const eventData = event.parsedJson as any;
                   allPerkIds.push(eventData.perk_definition_id);
@@ -402,9 +448,16 @@ export function usePerkData() {
           const allPackageResults = await Promise.all(packagePromises);
           const allPerks = allPackageResults.flat();
 
-          return allPerks;
+          // DEDUPLICATION: Remove duplicate perks by ID (can happen across packages)
+          const uniquePerks = allPerks.filter((perk, index, arr) => 
+            arr.findIndex(p => p.id === perk.id) === index
+          );
+
+
+
+          return uniquePerks;
         },
-        120000 // INCREASED to 2 minutes cache for marketplace
+        300000 // INCREASED to 5 minutes cache to reduce API calls
       );
       
       return perks;

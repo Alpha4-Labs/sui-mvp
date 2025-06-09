@@ -15,19 +15,55 @@ interface TVLData {
 let tvlCache: { data: TVLData; timestamp: number } | null = null;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
-export const useTVLCalculation = () => {
+// Emergency rate limiter - backs off completely when 429 errors detected
+class EmergencyRateLimiter {
+  private static blocked = false;
+  private static blockUntil = 0;
+  private static consecutiveErrors = 0;
+
+  static isBlocked(): boolean {
+    if (Date.now() > this.blockUntil) {
+      this.blocked = false;
+      this.consecutiveErrors = 0;
+      return false;
+    }
+    return this.blocked;
+  }
+
+  static reportError(error: any) {
+    if (error?.message?.includes('429') || error?.status === 429) {
+      this.consecutiveErrors++;
+      const backoffMs = Math.min(60000, 5000 * Math.pow(2, this.consecutiveErrors)); // Max 1 minute
+      this.blockUntil = Date.now() + backoffMs;
+      this.blocked = true;
+      console.warn(`Rate limit detected. Backing off for ${backoffMs}ms`);
+    }
+  }
+
+  static reportSuccess() {
+    this.consecutiveErrors = Math.max(0, this.consecutiveErrors - 1);
+  }
+}
+
+export const useTVLCalculation = (autoLoad: boolean = false) => {
   const client = useSuiClient();
   
   const [tvlData, setTvlData] = useState<TVLData>({
     totalStakedSui: 0,
     totalTVL: 0,
     stakeCount: 0,
-    isLoading: true,
+    isLoading: false, // Start as false when not auto-loading
     error: null,
   });
 
   // Helper function to fetch ALL events with pagination
   const fetchAllEvents = async (packageId: string, eventType: string) => {
+    // Check emergency rate limiter
+    if (EmergencyRateLimiter.isBlocked()) {
+      console.warn('Skipping request due to rate limiting backoff');
+      return [];
+    }
+
     const allEvents: any[] = [];
     let cursor: string | null = null;
     let hasMore = true;
@@ -36,6 +72,12 @@ export const useTVLCalculation = () => {
 
     while (hasMore && pageCount < maxPages) {
       try {
+        // Check rate limiter before each request
+        if (EmergencyRateLimiter.isBlocked()) {
+          console.warn('Stopping pagination due to rate limiting');
+          break;
+        }
+
         const queryParams: any = {
           query: {
             MoveEventType: `${packageId}::${eventType}`
@@ -51,6 +93,11 @@ export const useTVLCalculation = () => {
 
         const response = await client.queryEvents(queryParams);
         
+        // Add more aggressive delay between page requests to prevent rate limiting
+        if (pageCount > 0) {
+          await new Promise(resolve => setTimeout(resolve, 1500)); // Increased to 1.5 seconds
+        }
+        
         if (response?.data && response.data.length > 0) {
           allEvents.push(...response.data);
       
@@ -64,8 +111,11 @@ export const useTVLCalculation = () => {
         } else {
           hasMore = false;
         }
+        
+        EmergencyRateLimiter.reportSuccess();
       } catch (error) {
         console.warn(`Error fetching page ${pageCount + 1} for ${eventType}:`, error);
+        EmergencyRateLimiter.reportError(error);
         hasMore = false;
       }
     }
@@ -101,6 +151,11 @@ export const useTVLCalculation = () => {
       for (const [index, packageId] of ALL_PACKAGE_IDS.entries()) {
         if (!packageId) continue;
 
+        // Add delay between package queries to prevent rate limiting
+        if (index > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
         // Fetch ALL NativeStakeStored events with pagination
         const allStakeStoredEvents = await fetchAllEvents(packageId, 'staking_manager::NativeStakeStored');
         
@@ -122,6 +177,9 @@ export const useTVLCalculation = () => {
 
         totalStakedMist += packageStakedMist;
         totalDeposits += packageDeposits;
+
+        // Add small delay before withdrawal events query
+        await new Promise(resolve => setTimeout(resolve, 300));
 
         // Fetch ALL NativeStakeWithdrawalRequested events with pagination
         const allWithdrawalEvents = await fetchAllEvents(packageId, 'staking_manager::NativeStakeWithdrawalRequested');
@@ -194,10 +252,12 @@ export const useTVLCalculation = () => {
     calculateTVL();
   }, [calculateTVL]);
 
-  // Calculate TVL on mount
+  // Calculate TVL on mount only if autoLoad is true
   useEffect(() => {
-    calculateTVL();
-  }, []);
+    if (autoLoad) {
+      calculateTVL();
+    }
+  }, [autoLoad, calculateTVL]);
 
   return {
     ...tvlData,

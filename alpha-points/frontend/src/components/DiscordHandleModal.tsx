@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { validateDiscordId } from '../utils/privacy';
 
 interface DiscordHandleModalProps {
   isOpen: boolean;
@@ -22,16 +23,16 @@ export const DiscordHandleModal: React.FC<DiscordHandleModalProps> = ({
   purchaseSuccess,
   uniqueCode,
 }) => {
-  const [discordHandle, setDiscordHandle] = useState('');
+  const [discordId, setDiscordId] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       // Reset state when modal opens
-      setDiscordHandle('');
+      setDiscordId('');
       setError('');
       // If opening directly into success state (e.g. if purchase happened outside modal flow initially)
-      // this modal is primarily for collecting Discord handle OR showing code, so reset if not success.
+      // this modal is primarily for collecting Discord ID OR showing code, so reset if not success.
       if (!purchaseSuccess) {
         // Potentially clear uniqueCode as well if it shouldn't persist across openings unless it's a success display
       }
@@ -39,14 +40,21 @@ export const DiscordHandleModal: React.FC<DiscordHandleModalProps> = ({
   }, [isOpen, purchaseSuccess]);
 
   const handleSubmit = async () => {
-    if (!discordHandle.trim()) {
-      setError('Please enter your Discord handle (e.g., username#1234).');
+    if (!discordId.trim()) {
+      setError('Please enter your Discord User ID (numeric ID).');
       return;
     }
+    
+    // Validate Discord ID format using the shared validation function
+    if (!validateDiscordId(discordId.trim())) {
+      setError('Discord User ID should be 17-19 digits long (e.g., 123456789012345678).');
+      return;
+    }
+    
     setError('');
     // onSubmit doesn't need the code directly anymore, 
     // as the code generation and handling will be in the calling component (MarketplacePage)
-    await onSubmit(discordHandle); 
+    await onSubmit(discordId); 
     // Parent will handle closing or moving to success state inside the modal
   };
 
@@ -74,18 +82,21 @@ export const DiscordHandleModal: React.FC<DiscordHandleModalProps> = ({
             <p className="text-gray-300 mb-4">Cost: <strong className="text-secondary">{perkCost}</strong></p>
             
             <div className="mb-4">
-              <label htmlFor="discordHandle" className="block text-sm font-medium text-gray-300 mb-1">
-                Enter your Discord Handle <span className="text-xs text-gray-500">(for role assignment)</span>
+              <label htmlFor="discordId" className="block text-sm font-medium text-gray-300 mb-1">
+                Enter your Discord User ID <span className="text-xs text-gray-500">(for role assignment)</span>
               </label>
               <input
                 type="text"
-                id="discordHandle"
-                value={discordHandle}
-                onChange={(e) => setDiscordHandle(e.target.value)}
-                placeholder="username#1234 or server nickname"
+                id="discordId"
+                value={discordId}
+                onChange={(e) => setDiscordId(e.target.value)}
+                placeholder="123456789012345678"
                 className="w-full bg-background rounded p-2 text-white border border-gray-600 focus:border-primary focus:ring-primary text-sm"
                 disabled={isLoading}
               />
+              <p className="text-xs text-gray-500 mt-1">
+                To find your Discord User ID, enable Developer Mode in Discord settings, right-click your name, and select "Copy User ID"
+              </p>
               {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
             </div>
             <div className="flex justify-end space-x-3">
@@ -98,7 +109,7 @@ export const DiscordHandleModal: React.FC<DiscordHandleModalProps> = ({
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={isLoading || !discordHandle.trim()}
+                disabled={isLoading || !discordId.trim()}
                 className="px-4 py-2 text-sm rounded-md text-white bg-primary hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative min-w-[80px]"
               >
                 {isLoading ? (
@@ -139,7 +150,7 @@ export const DiscordHandleModal: React.FC<DiscordHandleModalProps> = ({
               <strong className="text-secondary text-lg font-mono break-all">{uniqueCode || 'Generating code...'}</strong>
             </div>
             <p className="text-xs text-gray-400 mb-4">
-              Note: This code is unique to you for this purchase. The corresponding SuiNS subname has also been minted to your wallet as proof.
+              Note: Your Discord User ID has been stored with your perk purchase. Your Discord bot can now query this information to assign your role.
             </p>
             <div className="flex justify-end">
               <button

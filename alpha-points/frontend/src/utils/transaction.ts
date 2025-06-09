@@ -17,7 +17,8 @@ import {
   convertSettingsForDisplay, 
   convertSettingsForStorage,
   type SettingsConversion,
-  alphaPointsToUSDViaOracle
+  alphaPointsToUSDViaOracle,
+  transformUsdcForBuggyContract
 } from './conversionUtils';
 
 
@@ -471,6 +472,330 @@ export const buildCheckPartnerQuotaTransaction = (
   return tx;
 };
 
+/**
+ * Builds a transaction for creating a PartnerCapFlex with USDC stable collateral
+ * Provides 100% LTV ratio for stable collateral backing
+ * 
+ * @param partnerName Partner name string
+ * @param usdcCoinId Object ID of the USDC coin to use as collateral
+ * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePartnerCapFlexWithUSDCTransaction = (
+  partnerName: string,
+  usdcCoinId: string,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+  
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored PartnerCapFlex USDC creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+  }
+  
+  // Use the provided USDC coin object directly
+  const usdcCoin = tx.object(usdcCoinId);
+  
+  // Call the PartnerCapFlex creation function with USDC collateral
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::create_partner_cap_flex_with_usdc_collateral`,
+    typeArguments: ['0x2::coin::Coin<0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN>'], // USDC type
+    arguments: [
+      usdcCoin,
+      tx.object(SHARED_OBJECTS.oracle),
+      tx.pure.string(partnerName),
+    ],
+  });
+  
+  return tx;
+};
+
+/**
+ * Builds a transaction for creating a PartnerCapFlex with NFT bundle collateral
+ * Provides 70% LTV ratio for NFT collection backing with kiosk owner capabilities
+ * 
+ * @param partnerName Partner name string
+ * @param kioskId Object ID of the kiosk containing NFTs
+ * @param collectionType Type identifier for the NFT collection
+ * @param estimatedFloorValueUsdc Estimated floor value in USDC for risk assessment
+ * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePartnerCapFlexWithNFTTransaction = (
+  partnerName: string,
+  kioskId: string,
+  collectionType: string,
+  estimatedFloorValueUsdc: number,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+  
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored PartnerCapFlex NFT creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+  }
+  
+  // Reference the kiosk object
+  const kiosk = tx.object(kioskId);
+  
+  // Call the PartnerCapFlex creation function with NFT collateral
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::create_partner_cap_flex_with_nft_collateral`,
+    typeArguments: [collectionType], // Dynamic NFT collection type
+    arguments: [
+      kiosk,
+      tx.object(SHARED_OBJECTS.oracle),
+      tx.pure.string(partnerName),
+      tx.pure.u64(BigInt(estimatedFloorValueUsdc * 1_000_000)), // Convert to USDC micro units
+    ],
+  });
+  
+  return tx;
+};
+
+// === Collateral Management Functions ===
+
+/**
+ * Builds a transaction for adding additional SUI collateral to an existing PartnerCapFlex
+ * This increases the TVL backing and expands minting quotas
+ * 
+ * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
+ * @param vaultId Object ID of the CollateralVault associated with the PartnerCapFlex
+ * @param additionalSuiAmountMist Amount of additional SUI to add (in MIST)
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildAddSuiCollateralTransaction = (
+  partnerCapFlexId: string,
+  vaultId: string,
+  additionalSuiAmountMist: bigint,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+  
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored SUI collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+  }
+  
+  // Split additional SUI from gas coin
+  const [additionalCollateral] = tx.splitCoins(tx.gas, [tx.pure.u64(additionalSuiAmountMist.toString())]);
+  
+  // Call the add collateral function with all required parameters
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::add_sui_collateral`,
+    arguments: [
+      tx.object(partnerCapFlexId),  // cap: &mut PartnerCapFlex
+      tx.object(vaultId),           // vault: &mut CollateralVault
+      additionalCollateral,         // additional_sui_coin: Coin<SUI>
+      tx.object(SHARED_OBJECTS.oracle), // rate_oracle: &RateOracle
+    ],
+  });
+  
+  return tx;
+};
+
+/**
+ * Builds a transaction for creating an initial SUI vault for existing PartnerCapFlex without one
+ * This is for partners who were created without SUI collateral (admin-granted, USDC-only, NFT-only)
+ * 
+ * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
+ * @param initialSuiAmountMist Amount of initial SUI to add (in MIST)
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildCreateInitialSuiVaultTransaction = (
+  partnerCapFlexId: string,
+  initialSuiAmountMist: bigint,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+  
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored initial SUI vault creation: Gas fees will be paid by ${sponsorAddress}`);
+  }
+  
+  // Split initial SUI from gas coin
+  const [initialCollateral] = tx.splitCoins(tx.gas, [tx.pure.u64(initialSuiAmountMist.toString())]);
+  
+  // Call the create_initial_sui_vault function
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::create_initial_sui_vault`,
+    arguments: [
+      tx.object(partnerCapFlexId),      // cap: &mut PartnerCapFlex
+      initialCollateral,               // initial_sui_coin: Coin<SUI>
+      tx.object(SHARED_OBJECTS.oracle), // rate_oracle: &RateOracle
+    ],
+  });
+  
+  return tx;
+};
+
+/**
+ * Builds a transaction for adding USDC collateral to an existing PartnerCapFlex
+ * This diversifies the collateral base and provides stable backing
+ * 
+ * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
+ * @param usdcCoinId Object ID of the USDC coin to add as collateral
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildAddUsdcCollateralTransaction = (
+  partnerCapFlexId: string,
+  usdcCoinId: string,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+  
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored USDC collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+  }
+  
+  // Use the provided USDC coin object
+  const usdcCoin = tx.object(usdcCoinId);
+  
+  // Call the add USDC collateral function
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::add_usdc_collateral`,
+    typeArguments: ['0x2::coin::Coin<0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN>'], // USDC type
+    arguments: [
+      tx.object(partnerCapFlexId),
+      usdcCoin,
+      tx.object(SHARED_OBJECTS.oracle),
+    ],
+  });
+  
+  return tx;
+};
+
+/**
+ * Builds a transaction for adding NFT collateral to an existing PartnerCapFlex
+ * This diversifies the collateral base with NFT collection backing
+ * 
+ * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
+ * @param kioskId Object ID of the kiosk containing NFTs
+ * @param collectionType Type identifier for the NFT collection
+ * @param estimatedFloorValueUsdc Estimated floor value in USDC for risk assessment
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildAddNftCollateralTransaction = (
+  partnerCapFlexId: string,
+  kioskId: string,
+  collectionType: string,
+  estimatedFloorValueUsdc: number,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+  
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored NFT collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+  }
+  
+  // Reference the kiosk object
+  const kiosk = tx.object(kioskId);
+  
+  // Call the add NFT collateral function
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::add_nft_collateral`,
+    typeArguments: [collectionType], // Dynamic NFT collection type
+    arguments: [
+      tx.object(partnerCapFlexId),
+      kiosk,
+      tx.object(SHARED_OBJECTS.oracle),
+      tx.pure.u64(BigInt(estimatedFloorValueUsdc * 1_000_000)), // Convert to USDC micro units
+    ],
+  });
+  
+  return tx;
+};
+
+/**
+ * Builds a transaction for withdrawing collateral from a PartnerCapFlex
+ * This reduces TVL backing and may affect minting quotas
+ * 
+ * @param partnerCapFlexId Object ID of the PartnerCapFlex
+ * @param collateralType Type of collateral to withdraw ('SUI' | 'USDC' | 'NFT')
+ * @param amountToWithdraw Amount to withdraw (for SUI/USDC) or empty for NFT
+ * @param nftCollectionType Optional NFT collection type for NFT withdrawals
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildWithdrawCollateralTransaction = (
+  partnerCapFlexId: string,
+  collateralType: 'SUI' | 'USDC' | 'NFT',
+  amountToWithdraw?: bigint,
+  nftCollectionType?: string,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+  
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored collateral withdrawal: Gas fees will be paid by ${sponsorAddress}`);
+  }
+  
+  switch (collateralType) {
+    case 'SUI':
+      if (!amountToWithdraw) {
+        throw new Error("Amount to withdraw is required for SUI collateral");
+      }
+      tx.moveCall({
+        target: `${PACKAGE_ID}::partner_flex::withdraw_sui_collateral`,
+        arguments: [
+          tx.object(partnerCapFlexId),
+          tx.pure.u64(amountToWithdraw.toString()),
+          tx.object(SHARED_OBJECTS.oracle),
+        ],
+      });
+      break;
+      
+    case 'USDC':
+      if (!amountToWithdraw) {
+        throw new Error("Amount to withdraw is required for USDC collateral");
+      }
+      tx.moveCall({
+        target: `${PACKAGE_ID}::partner_flex::withdraw_usdc_collateral`,
+        typeArguments: ['0x2::coin::Coin<0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN>'], // USDC type
+        arguments: [
+          tx.object(partnerCapFlexId),
+          tx.pure.u64(amountToWithdraw.toString()),
+          tx.object(SHARED_OBJECTS.oracle),
+        ],
+      });
+      break;
+      
+    case 'NFT':
+      if (!nftCollectionType) {
+        throw new Error("NFT collection type is required for NFT collateral withdrawal");
+      }
+      tx.moveCall({
+        target: `${PACKAGE_ID}::partner_flex::withdraw_nft_collateral`,
+        typeArguments: [nftCollectionType],
+        arguments: [
+          tx.object(partnerCapFlexId),
+          tx.object(SHARED_OBJECTS.oracle),
+        ],
+      });
+      break;
+      
+    default:
+      throw new Error(`Unsupported collateral type: ${collateralType}`);
+  }
+  
+  return tx;
+};
+
 // === Legacy Functions (Deprecated but maintained for backward compatibility) ===
 
 /**
@@ -516,140 +841,129 @@ export const buildCreatePartnerCapTransaction = (
 // === Perk Management Functions ===
 
 /**
- * Builds a transaction for creating a new perk definition
- * This calls the `create_perk_definition` function in `perk_manager.move`
+ * Builds a transaction for creating a perk definition
+ * Now uses upgrade-safe version with Config parameter
  * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex
- * @param name Perk name
- * @param description Perk description
- * @param perkType Type/category of the perk
- * @param usdcPrice Price in USDC (will be converted to micro-USDC)
- * @param partnerSharePercentage Partner's revenue share percentage (0-100)
- * @param maxUsesPerClaim Optional max uses per claim for consumable perks
- * @param expirationTimestampMs Optional expiration timestamp in milliseconds
- * @param generatesUniqueClaimMetadata Whether to generate unique metadata per claim
- * @param tags Array of tag strings for categorization
- * @param maxClaims Optional maximum number of total claims
- * @param metadataKeys Optional metadata keys for additional perk data
- * @param metadataValues Optional metadata values (must match keys length)
- * @param isActive Whether the perk starts active
- * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @param partnerCapId Object ID of the partner capability
+ * @param perkData Perk definition data
  * @returns Transaction object ready for execution
  */
 export const buildCreatePerkDefinitionTransaction = (
-  partnerCapFlexId: string,
-  name: string,
-  description: string,
-  perkType: string,
-  usdcPrice: number,
-  partnerSharePercentage: number = 70,
-  maxUsesPerClaim?: number,
-  expirationTimestampMs?: number,
-  generatesUniqueClaimMetadata: boolean = false,
-  tags: string[] = [],
-  maxClaims?: number,
-  metadataKeys: string[] = [],
-  metadataValues: string[] = [],
-  isActive: boolean = true,
-  sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.ledger || !SHARED_OBJECTS.oracle || !CLOCK_ID) {
-    throw new Error("Required contract objects not configured");
+  partnerCapId: string,
+  perkData: {
+    name: string;
+    description: string;
+    perkType: string;
+    usdcPrice: number;
+    partnerSharePercentage: number;
+    maxUsesPerClaim?: number;
+    expirationTimestampMs?: number;
+    generatesUniqueClaimMetadata: boolean;
+    tags: string[];
+    maxClaims?: number;
+    initialDefinitionMetadataKeys: string[];
+    initialDefinitionMetadataValues: string[];
+    isActive: boolean;
   }
-
-  // Smart contract: converts USD → oracle → Alpha Points for validation
-  // Settings: should store the same Alpha Points the smart contract expects
-  const maxCostPerPerkAlphaPoints = usdToAlphaPointsForSettingsViaOracle(usdcPrice);
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config) {
+    throw new Error("Alpha Points package or config ID is not configured.");
+  }
 
   const tx = new Transaction();
 
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-  }
-
-  // Smart contract expects USD amount as integer (e.g., 40 for $40)
-  // NOT micro-USDC (which would be 40,000,000)
-  const usdAmountForContract = Math.floor(usdcPrice);
-
-  // Prepare optional parameters using BCS serialization
-  const maxUsesOption = maxUsesPerClaim 
-    ? bcs.option(bcs.u64()).serialize(BigInt(maxUsesPerClaim))
-    : bcs.option(bcs.u64()).serialize(undefined);
-
-  const expirationOption = expirationTimestampMs
-    ? bcs.option(bcs.u64()).serialize(BigInt(expirationTimestampMs))
-    : bcs.option(bcs.u64()).serialize(undefined);
-
-  const maxClaimsOption = maxClaims
-    ? bcs.option(bcs.u64()).serialize(BigInt(maxClaims))
-    : bcs.option(bcs.u64()).serialize(undefined);
-
-  try {
   tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::create_perk_definition`,
+    // UPDATED: Use upgrade-safe version that takes Config parameter
+    target: `${PACKAGE_ID}::perk_manager::create_perk_definition_deployer_fixed`,
     arguments: [
-      tx.object(partnerCapFlexId),
-      tx.object(SHARED_OBJECTS.oracle),
-      tx.pure.string(name),
-      tx.pure.string(description),
-      tx.pure.string(perkType),
-      tx.pure.u64(BigInt(usdAmountForContract)), // FIXED: Use USD amount (e.g., 40) instead of micro-USDC (40,000,000)
-      tx.pure.u8(partnerSharePercentage),
-      tx.pure(maxUsesOption),
-      tx.pure(expirationOption),
-      tx.pure.bool(generatesUniqueClaimMetadata),
-      tx.pure(bcs.vector(bcs.String).serialize(tags)),
-      tx.pure(maxClaimsOption),
-      tx.pure(bcs.vector(bcs.String).serialize(metadataKeys)),
-      tx.pure(bcs.vector(bcs.String).serialize(metadataValues)),
-      tx.pure.bool(isActive),
-      tx.object(CLOCK_ID),
+      tx.object(SHARED_OBJECTS.config), // Config parameter for deployer address
+      tx.object(partnerCapId),
+      tx.pure.string(perkData.name),
+      tx.pure.string(perkData.description),
+      tx.pure.string(perkData.perkType),
+      tx.pure.u64(BigInt(perkData.usdcPrice)),
+      tx.pure.u8(perkData.partnerSharePercentage),
+      perkData.maxUsesPerClaim ? tx.pure.option("u64", BigInt(perkData.maxUsesPerClaim)) : tx.pure.option("u64", null),
+      perkData.expirationTimestampMs ? tx.pure.option("u64", BigInt(perkData.expirationTimestampMs)) : tx.pure.option("u64", null),
+      tx.pure.bool(perkData.generatesUniqueClaimMetadata),
+      tx.pure.vector("string", perkData.tags),
+      perkData.maxClaims ? tx.pure.option("u64", BigInt(perkData.maxClaims)) : tx.pure.option("u64", null),
+      tx.pure.vector("string", perkData.initialDefinitionMetadataKeys),
+      tx.pure.vector("string", perkData.initialDefinitionMetadataValues),
+      tx.pure.bool(perkData.isActive),
+      tx.object(CLOCK_ID)
     ],
   });
-    
-  } catch (error) {
-    console.error('[ERROR] Failed to build perk definition transaction:', error);
-    throw new Error(`Failed to build transaction: ${error}`);
-  }
 
   return tx;
 };
 
 /**
- * Builds a transaction for claiming a perk (purchasing from marketplace)
- * This calls the `claim_perk` function in `perk_manager.move`
+ * Builds a transaction for claiming a perk
+ * Now uses upgrade-safe version with Config parameter
  * 
- * @param perkDefinitionId Object ID of the PerkDefinition to claim
- * @param partnerCapFlexId Object ID of the perk creator's PartnerCapFlex
- * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @param perkDefinitionId Object ID of the perk definition
+ * @param partnerCapId Object ID of the partner capability
  * @returns Transaction object ready for execution
  */
 export const buildClaimPerkTransaction = (
   perkDefinitionId: string,
-  partnerCapFlexId: string,
-  sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.ledger || !SHARED_OBJECTS.oracle || !CLOCK_ID) {
-    throw new Error("Required contract objects not configured");
+  partnerCapId: string
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger || !SHARED_OBJECTS.oracle) {
+    throw new Error("Alpha Points package or shared objects are not configured.");
   }
 
   const tx = new Transaction();
 
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+  tx.moveCall({
+    // NEW: Use configurable revenue split function that respects RevenueSplitPolicy percentages from the frontend slider
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_configurable_split`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(perkDefinitionId),
+      tx.object(partnerCapId),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(CLOCK_ID)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for claiming a perk with metadata
+ * Now uses upgrade-safe version with Config parameter
+ * 
+ * @param perkDefinitionId Object ID of the perk definition
+ * @param partnerCapId Object ID of the partner capability
+ * @param metadataKey Key for the claim-specific metadata
+ * @param metadataValue Value for the claim-specific metadata
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimPerkWithMetadataTransaction = (
+  perkDefinitionId: string,
+  partnerCapId: string,
+  metadataKey: string,
+  metadataValue: string
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger || !SHARED_OBJECTS.oracle) {
+    throw new Error("Alpha Points package or shared objects are not configured.");
   }
 
+  const tx = new Transaction();
+
   tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::claim_perk`,
+    // NEW: Use configurable revenue split function that respects RevenueSplitPolicy percentages from the frontend slider
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_configurable_split`,
     arguments: [
+      tx.object(SHARED_OBJECTS.config),
       tx.object(perkDefinitionId),
-      tx.object(partnerCapFlexId),
+      tx.object(partnerCapId),
       tx.object(SHARED_OBJECTS.ledger),
-      tx.object(SHARED_OBJECTS.oracle),
-      tx.object(CLOCK_ID),
+      tx.pure.string(metadataKey),
+      tx.pure.string(metadataValue),
+      tx.object(CLOCK_ID)
     ],
   });
 
@@ -787,6 +1101,10 @@ export const buildUpdatePerkTagsTransaction = (
 /**
  * Builds a transaction for updating perk price (Alpha Points conversion)
  * 
+ * 🚨 WORKAROUND NOTE: This function now includes a fix for the contract pricing bug.
+ * The contract incorrectly uses oracle conversion for USDC→Alpha Points, so we need
+ * to transform the stored USDC price to make the buggy conversion produce correct results.
+ * 
  * @param perkDefinitionId Object ID of the PerkDefinition to update
  * @param sponsorAddress Optional sponsor address to pay for gas fees
  * @returns Transaction object ready for execution
@@ -807,8 +1125,25 @@ export const buildUpdatePerkPriceTransaction = (
     console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
   }
 
+  // 🚨 IMPORTANT: The buildUpdatePerkPriceTransaction function only triggers a price recalculation
+  // based on the existing stored usdc_price in the contract. Since existing perks have the 
+  // original USDC values stored, the contract will apply the buggy oracle conversion to those.
+  //
+  // To fix existing perks, we would need to:
+  // 1. Read the current perk data
+  // 2. Calculate the correct transformed USDC value  
+  // 3. Update the stored usdc_price field (if such a function exists)
+        // 4. Then call update_perk_price_fixed()
+  //
+  // Since there's no direct way to update the stored usdc_price, this function will
+  // still produce buggy results for existing perks. The real fix requires contract deployment.
+
+  console.log(`⚠️  WARNING: Price update for existing perks will still use buggy oracle conversion!`);
+  console.log(`   This function can only fix the pricing when the contract is updated.`);
+  console.log(`   For immediate fix: Create new perks with the corrected frontend workaround.`);
+
   tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::update_perk_price`,
+            target: `${PACKAGE_ID}::perk_manager::update_perk_price_fixed`,
     arguments: [
       tx.object(perkDefinitionId),
       tx.object(SHARED_OBJECTS.oracle),

@@ -28,14 +28,14 @@ const DEFAULT_DURATIONS_FOR_APY_LOOKUP: DurationOption[] = [
 /**
  * Hook for fetching and managing user's stake positions using timestamps
  */
-export const useStakePositions = () => {
+export const useStakePositions = (autoLoad: boolean = false) => {
   const client = useSuiClient();
   const currentAccount = useCurrentAccount();
   const { isConnected } = useCurrentWallet();
   const { mutate: signAndExecute } = useSignAndExecuteTransaction();
 
   // State management
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start as false when not auto-loading
   const [positions, setPositions] = useState<StakePosition[]>([]);
   const [error, setError] = useState<string | null>(null);
 

@@ -13,6 +13,7 @@ import { WelcomePage } from './pages/WelcomePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { MarketplacePage } from './pages/MarketplacePage';
 import { GenerationPage } from './pages/GenerationPage';
+import { AnalyticsPage } from './pages/AnalyticsPage';
 import { LoanPage } from './pages/LoanPage';
 import { AlphaProvider } from './context/AlphaContext';
 import { PartnerOnboardingPage } from './pages/PartnerOnboardingPage';
@@ -22,8 +23,7 @@ import { PartnersPage } from './pages/PartnersPage';
 const queryClient = new QueryClient();
 
 // Add console logs for debugging network configuration
-console.log('[App.tsx Debug] NETWORK_TYPE:', NETWORK_TYPE);
-console.log('[App.tsx Debug] CURRENT_NETWORK.rpcUrl:', CURRENT_NETWORK.rpcUrl);
+
 
 // Setup network configuration
 const { networkConfig } = createNetworkConfig({
@@ -39,7 +39,7 @@ function App() {
       <SuiClientProvider networks={networkConfig} defaultNetwork={NETWORK_TYPE}>
         <WalletProvider autoConnect={true}>
           <AlphaProvider>
-            <BrowserRouter>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <Routes>
                 <Route path="/" element={<MainLayout children={undefined} />} >
                   <Route index element={<WelcomePage />} />
@@ -51,6 +51,7 @@ function App() {
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/generation" element={<GenerationPage />} />
+                    <Route path="/analytics" element={<AnalyticsPage />} />
                     <Route path="/loans" element={<LoanPage />} />
                     <Route path="/partners" element={<PartnersPage />} />
                     <Route path="/partners/overview" element={<PartnersPage />} />
