@@ -1259,6 +1259,8 @@ module alpha_points::integration {
         });
     }
 
+    /// @deprecated This function is deprecated in favor of the new perk_manager system.
+    /// Use perk_manager::claim_perk_with_metadata_configurable_split instead for proper metadata handling.
     /// Allows a user to purchase a perk from the marketplace using Alpha Points.
     /// Points are distributed: 70% to the perk-providing partner, 30% to the deployer. 0% Burned.
     public entry fun purchase_marketplace_perk(

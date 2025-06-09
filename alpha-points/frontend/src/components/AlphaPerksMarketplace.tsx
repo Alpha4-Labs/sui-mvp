@@ -332,7 +332,6 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
 
       const transaction = buildClaimPerkWithMetadataTransaction(
         selectedPerkForMetadata.id,
-        selectedPerkForMetadata.creator_partner_cap_id,
         metadataKeys[0],
         metadataValues[0] as string
       );
@@ -388,10 +387,14 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     setTransactionLoading(true);
 
     try {
-      const transaction = buildClaimPerkTransaction(
-        perk.id,
-        perk.creator_partner_cap_id
-      );
+      console.log('🔍 DEBUG: Building transaction for perk purchase');
+      console.log('🔍 Current Account:', currentAccount.address);
+      console.log('🔍 Perk ID:', perk.id);
+      
+      const transaction = buildClaimPerkTransaction(perk.id);
+
+      // Set the sender explicitly to match the connected account
+      transaction.setSender(currentAccount.address);
 
       const result = await signAndExecute({
         transaction,
@@ -451,7 +454,6 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
 
       const transaction = buildClaimPerkWithMetadataTransaction(
         selectedDiscordPerk.id,
-        selectedDiscordPerk.creator_partner_cap_id,
         'discord_id_hash',
         hashedDiscordId
       );
