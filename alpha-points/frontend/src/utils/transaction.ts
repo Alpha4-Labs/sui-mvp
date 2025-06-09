@@ -208,17 +208,8 @@ export const buildRepayLoanTransaction = (
 };
 
 /**
- * Builds a transaction to purchase an Alpha Perk from the marketplace.
- * This calls the `purchase_marketplace_perk` function in `integration.move`.
- * If the perk is a role perk, it also creates a SuiNS subname.
- * 
- * @param pointsToSpend The amount of Alpha Points the user is spending.
- * @param partnerCapId The Object ID of the PartnerCap for the perk provider.
- * @param perkIdentifier Optional string to identify the perk for on-chain events.
- * @param uniqueCode The subname to register if it's a role perk.
- * @param userAddress The user's Sui address.
- * @param suinsClientInstance An instance of SuinsClient for SuiNS operations.
- * @returns A Transaction object ready for signing and execution.
+ * @deprecated This function calls the old purchase_marketplace_perk transaction which includes 
+ * deprecated SuiNS subname creation logic. Use buildClaimPerkWithMetadataTransaction instead.
  */
 export const buildPurchaseAlphaPerkTransaction = (
   amount: number, 
@@ -227,61 +218,8 @@ export const buildPurchaseAlphaPerkTransaction = (
   uniqueCode: string, 
   userAddress: string,
   suinsClientInstance: SuinsClient // Use the actual SuinsClient type
-): Transaction => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID is not configured in your contract config.");
-  }
-  if (!SHARED_OBJECTS.config) {
-    throw new Error("SHARED_OBJECTS.config is not configured in your contract config.");
-  }
-  if (!SHARED_OBJECTS.ledger) {
-    throw new Error("SHARED_OBJECTS.ledger (Ledger ID) is not configured in your contract config. Cannot build transaction.");
-  }
-  if (!CLOCK_ID) {
-    throw new Error("CLOCK_ID is not configured in your contract config.");
-  }
-  if (!SHARED_OBJECTS.partnerCap) {
-    throw new Error("partnerCap is missing. Cannot build transaction.");
-  }
-
-  const tx = new Transaction();
-
-  // 1. Call the purchase_marketplace_perk function from integration.move
-  tx.moveCall({
-    target: `${PACKAGE_ID}::integration::purchase_marketplace_perk`,
-    arguments: [
-      tx.object(SHARED_OBJECTS.config),
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.object(SHARED_OBJECTS.partnerCap),
-      tx.pure.u64(BigInt(amount)),
-      tx.object(CLOCK_ID),
-    ],
-  });
-
-  // 2. If it's a role perk, create SuiNS subname and set metadata
-  if ((perkId === 'alpha4-tester-role' || perkId === 'alpha4-veteran-role') && 
-      uniqueCode && VITE_SUINS_PARENT_DOMAIN_NAME && userAddress && suinsClientInstance) {
-    // Use the proxy to mint the subname
-    const suinsTx = new SuinsTransaction(suinsClientInstance, tx);
-    const fullNameWithSui = `${uniqueCode}.${VITE_SUINS_PARENT_DOMAIN_NAME}`;
-    try {
-      // Call the proxy function instead of direct SuiNS call
-      tx.moveCall({
-        target: `${PACKAGE_ID}::sui_ns_proxy::proxy_mint_subname`,
-        arguments: [
-          tx.object(SHARED_OBJECTS.partnerCap), // Always use the proxy PartnerCap
-          tx.pure(bcs.Address.serialize(userAddress)), // User address
-          tx.pure(bcs.String.serialize(fullNameWithSui)), // Full subname
-          tx.pure(bcs.String.serialize(VITE_SUINS_PARENT_DOMAIN_NAME)), // Parent domain
-        ],
-      });
-    } catch (error: any) {
-      console.error('[SuiNS Debug] proxy_mint_subname failed:', error);
-      throw error;
-    }
-  }
-
-  return tx;
+): never => {
+  throw new Error("❌ DEPRECATED: buildPurchaseAlphaPerkTransaction is no longer supported. Use buildClaimPerkWithMetadataTransaction instead for metadata-based perks.");
 };
 
 /**
