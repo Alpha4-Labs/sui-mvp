@@ -837,30 +837,27 @@ export const buildCreatePerkDefinitionTransaction = (
 };
 
 /**
- * Builds a transaction for claiming a perk
- * Now uses upgrade-safe version with Config parameter
+ * Builds a transaction for claiming a perk (user-friendly version)
+ * Uses the new claim_perk_by_user function that doesn't require PartnerCapFlex
  * 
  * @param perkDefinitionId Object ID of the perk definition
- * @param partnerCapId Object ID of the partner capability
  * @returns Transaction object ready for execution
  */
 export const buildClaimPerkTransaction = (
-  perkDefinitionId: string,
-  partnerCapId: string
+  perkDefinitionId: string
 ): Transaction => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger || !SHARED_OBJECTS.oracle) {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
     throw new Error("Alpha Points package or shared objects are not configured.");
   }
 
   const tx = new Transaction();
 
   tx.moveCall({
-    // NEW: Use configurable revenue split function that respects RevenueSplitPolicy percentages from the frontend slider
-    target: `${PACKAGE_ID}::perk_manager::claim_perk_configurable_split`,
+    // NEW: Use user-friendly function that doesn't require PartnerCapFlex
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_by_user`,
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(perkDefinitionId),
-      tx.object(partnerCapId),
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(CLOCK_ID)
     ],
@@ -870,34 +867,31 @@ export const buildClaimPerkTransaction = (
 };
 
 /**
- * Builds a transaction for claiming a perk with metadata
- * Now uses upgrade-safe version with Config parameter
+ * Builds a transaction for claiming a perk with metadata (user-friendly version)
+ * Uses the new claim_perk_with_metadata_by_user function that doesn't require PartnerCapFlex
  * 
  * @param perkDefinitionId Object ID of the perk definition
- * @param partnerCapId Object ID of the partner capability
  * @param metadataKey Key for the claim-specific metadata
  * @param metadataValue Value for the claim-specific metadata
  * @returns Transaction object ready for execution
  */
 export const buildClaimPerkWithMetadataTransaction = (
   perkDefinitionId: string,
-  partnerCapId: string,
   metadataKey: string,
   metadataValue: string
 ): Transaction => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger || !SHARED_OBJECTS.oracle) {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
     throw new Error("Alpha Points package or shared objects are not configured.");
   }
 
   const tx = new Transaction();
 
   tx.moveCall({
-    // NEW: Use configurable revenue split function that respects RevenueSplitPolicy percentages from the frontend slider
-    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_configurable_split`,
+    // NEW: Use user-friendly function that doesn't require PartnerCapFlex
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_by_user`,
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(perkDefinitionId),
-      tx.object(partnerCapId),
       tx.object(SHARED_OBJECTS.ledger),
       tx.pure.string(metadataKey),
       tx.pure.string(metadataValue),
