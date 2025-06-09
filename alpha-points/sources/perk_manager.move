@@ -1316,7 +1316,7 @@ module alpha_points::perk_manager {
         // Calculate splits using CONFIGURABLE percentages
         let partner_share = cost * (revenue_policy.partner_share_percentage as u64) / 100;
         let platform_share = cost * (revenue_policy.platform_share_percentage as u64) / 100;
-        let remaining = cost - partner_share - platform_share; // Handle any rounding remainder
+        let remaining = cost - partner_share - platform_share;
         
         // Add remainder to platform share (deployer gets any rounding benefit)
         let deployer_share = platform_share + remaining;
@@ -1409,7 +1409,7 @@ module alpha_points::perk_manager {
         // Calculate splits using CONFIGURABLE percentages
         let partner_share = cost * (revenue_policy.partner_share_percentage as u64) / 100;
         let platform_share = cost * (revenue_policy.platform_share_percentage as u64) / 100;
-        let remaining = cost - partner_share - platform_share; // Handle any rounding remainder
+        let remaining = cost - partner_share - platform_share;
         
         // Add remainder to platform share (deployer gets any rounding benefit)
         let deployer_share = platform_share + remaining;
@@ -1468,4 +1468,173 @@ module alpha_points::perk_manager {
         // Transfer to user
         transfer::public_transfer(claimed_perk, user_address);
     }
+
+    // === NEW USER-FRIENDLY CLAIM FUNCTIONS ===
+    // These functions allow users to claim perks without providing business PartnerCapFlex
+
+    /// User-friendly perk claiming function that doesn't require PartnerCapFlex
+    /// Users can call this directly with just the PerkDefinition
+    public entry fun claim_perk_by_user(
+        config: &admin::Config,
+        perk_definition: &mut PerkDefinition,
+        ledger: &mut ledger::Ledger,
+        clock_obj: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(perk_definition.is_active, EPerkNotActive);
+        
+        // Update price if needed (using fixed pricing)
+        if (clock::timestamp_ms(clock_obj) - perk_definition.last_price_update_timestamp_ms > 3600000) {
+            update_perk_price_fixed(perk_definition, clock_obj, ctx);
+        };
+
+        // Check max claims
+        if (option::is_some(&perk_definition.max_claims)) {
+            assert!(perk_definition.total_claims_count < *option::borrow(&perk_definition.max_claims), EMaxClaimsReached);
+        };
+
+        let user_address = tx_context::sender(ctx);
+        let cost = perk_definition.current_alpha_points_price;
+
+        // Get configurable revenue split policy
+        let revenue_policy = &perk_definition.revenue_split_policy;
+        
+        // Calculate splits using CONFIGURABLE percentages
+        let partner_share = cost * (revenue_policy.partner_share_percentage as u64) / 100;
+        let platform_share = cost * (revenue_policy.platform_share_percentage as u64) / 100;
+        let remaining = cost - partner_share - platform_share;
+        let deployer_share = platform_share + remaining;
+
+        // Spend user points
+        ledger::internal_spend(ledger, user_address, cost, ctx);
+
+        // Distribute revenue using CONFIGURABLE splits
+        ledger::internal_earn(ledger, revenue_policy.partner_recipient_address, partner_share, ctx);
+        ledger::internal_earn(ledger, admin::deployer_address(config), deployer_share, ctx);
+
+        // Update claims count
+        perk_definition.total_claims_count = perk_definition.total_claims_count + 1;
+
+        // Handle metadata
+        let mut claim_metadata_id = option::none<ID>();
+        if (perk_definition.generates_unique_claim_metadata) {
+            let metadata_store = ClaimSpecificMetadataStore {
+                id: object::new(ctx),
+                marker: true,
+            };
+            let metadata_id = object::id(&metadata_store);
+            transfer::public_share_object(metadata_store);
+            claim_metadata_id = option::some(metadata_id);
+        };
+
+        // Create claimed perk
+        let claimed_perk = ClaimedPerk {
+            id: object::new(ctx),
+            perk_definition_id: object::id(perk_definition),
+            owner: user_address,
+            claim_timestamp_ms: clock::timestamp_ms(clock_obj),
+            status: string::utf8(b"ACTIVE"),
+            claim_specific_metadata_id: claim_metadata_id,
+            remaining_uses: perk_definition.max_uses_per_claim,
+        };
+
+        // Emit event for business tracking (no quota validation for user-friendly version)
+        event::emit(PerkClaimed {
+            claimed_perk_id: object::id(&claimed_perk),
+            perk_definition_id: object::id(perk_definition),
+            user_address,
+            partner_cap_id: perk_definition.creator_partner_cap_id,
+            cost_alpha_points: cost,
+            partner_points_share: partner_share,
+            platform_points_share: deployer_share,
+        });
+
+        // Transfer to user
+        transfer::public_transfer(claimed_perk, user_address);
+    }
+
+    /// User-friendly perk claiming with metadata function
+    /// Users can call this directly with just the PerkDefinition and metadata
+    public entry fun claim_perk_with_metadata_by_user(
+        config: &admin::Config,
+        perk_definition: &mut PerkDefinition,
+        ledger: &mut ledger::Ledger,
+        metadata_key: String,
+        metadata_value: String,
+        clock_obj: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(perk_definition.is_active, EPerkNotActive);
+        
+        // Update price if needed (using fixed pricing)
+        if (clock::timestamp_ms(clock_obj) - perk_definition.last_price_update_timestamp_ms > 3600000) {
+            update_perk_price_fixed(perk_definition, clock_obj, ctx);
+        };
+
+        // Check max claims
+        if (option::is_some(&perk_definition.max_claims)) {
+            assert!(perk_definition.total_claims_count < *option::borrow(&perk_definition.max_claims), EMaxClaimsReached);
+        };
+
+        let user_address = tx_context::sender(ctx);
+        let cost = perk_definition.current_alpha_points_price;
+
+        // Get configurable revenue split policy
+        let revenue_policy = &perk_definition.revenue_split_policy;
+        
+        // Calculate splits using CONFIGURABLE percentages
+        let partner_share = cost * (revenue_policy.partner_share_percentage as u64) / 100;
+        let platform_share = cost * (revenue_policy.platform_share_percentage as u64) / 100;
+        let remaining = cost - partner_share - platform_share;
+        let deployer_share = platform_share + remaining;
+
+        // Spend user points
+        ledger::internal_spend(ledger, user_address, cost, ctx);
+
+        // Distribute revenue using CONFIGURABLE splits
+        ledger::internal_earn(ledger, revenue_policy.partner_recipient_address, partner_share, ctx);
+        ledger::internal_earn(ledger, admin::deployer_address(config), deployer_share, ctx);
+
+        // Update claims count
+        perk_definition.total_claims_count = perk_definition.total_claims_count + 1;
+
+        // Handle claim-specific metadata
+        let mut metadata_store = ClaimSpecificMetadataStore {
+            id: object::new(ctx),
+            marker: true,
+        };
+        
+        // Add the provided metadata
+        dynamic_field::add<String, String>(&mut metadata_store.id, metadata_key, metadata_value);
+        
+        let metadata_id = object::id(&metadata_store);
+        transfer::public_share_object(metadata_store);
+
+        // Create claimed perk with metadata
+        let claimed_perk = ClaimedPerk {
+            id: object::new(ctx),
+            perk_definition_id: object::id(perk_definition),
+            owner: user_address,
+            claim_timestamp_ms: clock::timestamp_ms(clock_obj),
+            status: string::utf8(b"ACTIVE"),
+            claim_specific_metadata_id: option::some(metadata_id),
+            remaining_uses: perk_definition.max_uses_per_claim,
+        };
+
+        // Emit event for business tracking
+        event::emit(PerkClaimed {
+            claimed_perk_id: object::id(&claimed_perk),
+            perk_definition_id: object::id(perk_definition),
+            user_address,
+            partner_cap_id: perk_definition.creator_partner_cap_id,
+            cost_alpha_points: cost,
+            partner_points_share: partner_share,
+            platform_points_share: deployer_share,
+        });
+
+        // Transfer to user
+        transfer::public_transfer(claimed_perk, user_address);
+    }
+
+    // === END NEW USER-FRIENDLY CLAIM FUNCTIONS ===
 }
