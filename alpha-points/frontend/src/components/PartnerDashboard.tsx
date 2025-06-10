@@ -9,6 +9,7 @@ import { toast } from 'react-toastify';
 import { useAlphaContext } from '../context/AlphaContext';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
 import { usePartnerSettings, type MetadataField } from '../hooks/usePartnerSettings';
+import { usePartnerAnalytics } from '../hooks/usePartnerAnalytics';
 import { MetadataFieldModal } from './MetadataFieldModal';
 import { usePartnerDetection } from '../hooks/usePartnerDetection';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
@@ -233,6 +234,15 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   } = usePerkData();
   const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const client = useSuiClient();
+  
+  // Partner analytics hook
+  const {
+    dailyData,
+    isLoading: isLoadingAnalytics,
+    timeRange: analyticsTimeRange,
+    fetchAnalyticsData,
+    refreshAnalytics
+  } = usePartnerAnalytics(initialPartnerCap);
 
   // Analytics metric toggles (moved to top level to fix hooks rule violation)
   const [analyticsToggles, setAnalyticsToggles] = useState<Record<string, boolean>>({
@@ -243,8 +253,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     lifetimeQuota: false,
   });
 
-  // Analytics time range state
-  const [analyticsTimeRange, setAnalyticsTimeRange] = useState<'7d' | '30d' | '90d'>('7d');
+  // Analytics time range is now managed by the analytics hook
 
   // Example set navigation for perks tab
   const [currentExampleSet, setCurrentExampleSet] = useState(0);
@@ -2712,7 +2721,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     };
 
     const handleTimeRangeChange = (range: '7d' | '30d' | '90d') => {
-      setAnalyticsTimeRange(range);
+      fetchAnalyticsData(range);
     };
 
     return (
@@ -2723,61 +2732,63 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             <div className="lg:col-span-3 w-full h-64">
               <div className="h-full bg-gray-900/50 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">Current Performance Snapshot</h3>
-                  <div className="flex items-center text-sm text-amber-300">
-                    <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                    </svg>
-                    Real-Time Only
+                  <h3 className="text-lg font-semibold text-white">Daily Performance Trends</h3>
+                  <div className="flex items-center space-x-2">
+                    <div className="flex bg-gray-800 rounded-lg p-1">
+                      {(['7d', '30d', '90d'] as const).map((range) => (
+                        <button
+                          key={range}
+                          onClick={() => handleTimeRangeChange(range)}
+                          className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
+                            analyticsTimeRange === range
+                              ? 'bg-blue-600 text-white'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : '90 Days'}
+                        </button>
+                      ))}
+                    </div>
+                    {isLoadingAnalytics && (
+                      <div className="text-xs text-blue-400 flex items-center">
+                        <svg className="animate-spin h-3 w-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                          <circle className="opacity-25" cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Loading...
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="h-[200px]">
                   {(() => {
-                    // Generate chart data - only show real current data
-                    const generateChartData = () => {
-                      // We only have real data for today - don't generate fake historical data
-                      const data = [];
-                      
-                      // EXACT current values from PartnerCap
-                      const currentTvl = partnerCap.currentEffectiveUsdcValue || 0;
-                      const pointsMintedToday = partnerCap.pointsMintedToday || 0;
-                      
-                      // Calculate EXACT current metrics
-                      const lifetimeQuota = Math.floor(currentTvl * 1000);
-                      const dailyQuota = Math.floor(lifetimeQuota * 0.03);
-                      const currentQuotaUsage = dailyQuota > 0 ? (pointsMintedToday / dailyQuota * 100) : 0;
-                      
-                      // Get actual perk metrics
-                      const perkMetrics = getPartnerPerkMetrics(partnerCap.id);
-                      const currentPerkRevenue = perkMetrics.totalRevenue || 0;
-                      
-                      // Only show today's REAL data
-                      const today = new Date();
-                      data.push({
-                        day: today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                        tvlBacking: currentTvl,
-                        pointsMinted: pointsMintedToday,
-                        dailyQuotaUsage: Math.round(currentQuotaUsage * 10) / 10,
-                        perkRevenue: currentPerkRevenue,
-                      });
-                      
-                      return data;
-                    };
-                    
-                                         const chartData = generateChartData();
+                    // Use daily analytics data instead of single point
+                    const chartData = dailyData;
                      
                      const CustomTooltip = ({ active, payload, label }: any) => {
                        if (active && payload && payload.length) {
                          return (
                            <div className="bg-gray-800 bg-opacity-95 backdrop-blur-sm border border-gray-600 p-3 rounded-lg shadow-lg text-sm">
                              <p className="text-gray-300 mb-2">{label}</p>
-                             {payload.map((entry: any, idx: number) => (
-                               <p key={idx} style={{ color: entry.stroke }}>
-                                 {entry.name}: {entry.value.toLocaleString()}
-                                 {entry.dataKey === 'tvlBacking' ? ' USD' : 
-                                  entry.dataKey === 'dailyQuotaUsage' ? '%' : ' AP'}
-                               </p>
-                             ))}
+                             {payload.map((entry: any, idx: number) => {
+                               const value = entry.value;
+                               let formattedValue = value.toLocaleString();
+                               
+                               // Format large numbers more readably
+                               if (value >= 1000000) {
+                                 formattedValue = (value / 1000000).toFixed(1) + 'M';
+                               } else if (value >= 1000) {
+                                 formattedValue = (value / 1000).toFixed(1) + 'K';
+                               }
+                               
+                               return (
+                                 <p key={idx} style={{ color: entry.stroke }}>
+                                   {entry.name}: {formattedValue}
+                                   {entry.dataKey === 'tvlBacking' ? ' USD' : 
+                                    entry.dataKey === 'dailyQuotaUsage' ? '%' : ' AP'}
+                                 </p>
+                               );
+                             })}
                            </div>
                          );
                        }

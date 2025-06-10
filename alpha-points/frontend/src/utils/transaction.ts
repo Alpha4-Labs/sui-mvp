@@ -786,6 +786,43 @@ export const buildCreatePartnerCapTransaction = (
  * @param perkData Perk definition data
  * @returns Transaction object ready for execution
  */
+/**
+ * Builds a transaction for creating partner perk stats tracking object (V2)
+ * Businesses need to create this shared object to enable user-friendly perk claiming
+ * 
+ * @param partnerCapFlexId Object ID of business's PartnerCapFlex
+ * @param dailyQuotaLimit Daily quota limit for perk claims (in Alpha Points)
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePartnerPerkStatsTransaction = (
+  partnerCapFlexId: string,
+  dailyQuotaLimit: number,
+  sponsorAddress?: string
+): Transaction => {
+  if (!PACKAGE_ID) {
+    throw new Error("PACKAGE_ID not configured");
+  }
+
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::perk_manager::create_partner_perk_stats_v2`,
+    arguments: [
+      tx.object(partnerCapFlexId),
+      tx.pure.u64(BigInt(dailyQuotaLimit)),
+    ],
+  });
+
+  return tx;
+};
+
 export const buildCreatePerkDefinitionTransaction = (
   partnerCapId: string,
   perkData: {
@@ -837,14 +874,16 @@ export const buildCreatePerkDefinitionTransaction = (
 };
 
 /**
- * Builds a transaction for claiming a perk (user-friendly version)
- * Uses the new claim_perk_by_user function that doesn't require PartnerCapFlex
+ * Builds a transaction for claiming a perk (V2 - with partner stats)
+ * Uses the new claim_perk_by_user_v2 function with full partner stats tracking
  * 
  * @param perkDefinitionId Object ID of the perk definition
+ * @param partnerStatsId Object ID of the partner stats tracking object
  * @returns Transaction object ready for execution
  */
 export const buildClaimPerkTransaction = (
-  perkDefinitionId: string
+  perkDefinitionId: string,
+  partnerStatsId: string
 ): Transaction => {
   if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
     throw new Error("Alpha Points package or shared objects are not configured.");
@@ -853,11 +892,12 @@ export const buildClaimPerkTransaction = (
   const tx = new Transaction();
 
   tx.moveCall({
-    // NEW: Use user-friendly function that doesn't require PartnerCapFlex
-    target: `${PACKAGE_ID}::perk_manager::claim_perk_by_user`,
+    // V2: Use function with proper partner stats tracking
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_by_user_v2`,
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(perkDefinitionId),
+      tx.object(partnerStatsId),
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(CLOCK_ID)
     ],
@@ -867,16 +907,18 @@ export const buildClaimPerkTransaction = (
 };
 
 /**
- * Builds a transaction for claiming a perk with metadata (user-friendly version)
- * Uses the new claim_perk_with_metadata_by_user function that doesn't require PartnerCapFlex
+ * Builds a transaction for claiming a perk with metadata (V2 - with partner stats)
+ * Uses the new claim_perk_with_metadata_by_user_v2 function with full partner stats tracking
  * 
  * @param perkDefinitionId Object ID of the perk definition
+ * @param partnerStatsId Object ID of the partner stats tracking object
  * @param metadataKey Key for the claim-specific metadata
  * @param metadataValue Value for the claim-specific metadata
  * @returns Transaction object ready for execution
  */
 export const buildClaimPerkWithMetadataTransaction = (
   perkDefinitionId: string,
+  partnerStatsId: string,
   metadataKey: string,
   metadataValue: string
 ): Transaction => {
@@ -887,11 +929,12 @@ export const buildClaimPerkWithMetadataTransaction = (
   const tx = new Transaction();
 
   tx.moveCall({
-    // NEW: Use user-friendly function that doesn't require PartnerCapFlex
-    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_by_user`,
+    // V2: Use function with proper partner stats tracking
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_by_user_v2`,
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(perkDefinitionId),
+      tx.object(partnerStatsId),
       tx.object(SHARED_OBJECTS.ledger),
       tx.pure.string(metadataKey),
       tx.pure.string(metadataValue),
