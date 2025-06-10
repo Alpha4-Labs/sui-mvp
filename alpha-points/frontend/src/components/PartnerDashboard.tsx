@@ -23,6 +23,8 @@ import {
   buildCreateInitialSuiVaultTransaction,
   buildAddUsdcCollateralTransaction,
   buildAddNftCollateralTransaction,
+  buildCreatePartnerPerkStatsTransaction,
+  findPartnerStatsId,
 } from '../utils/transaction';
 // import { SPONSOR_CONFIG } from '../config/contract'; // Commented out - will re-enable for sponsored transactions later
 import { Transaction } from '@mysten/sui/transactions';
@@ -114,6 +116,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const { currentWallet } = useCurrentWallet();
   const { detectPartnerCaps } = usePartnerDetection();
   const navigate = useNavigate();
+  const suiClient = useSuiClient();
+  const { mutate: signAndExecuteTransactionMain } = useSignAndExecuteTransaction();
   
   // Portal Tooltip Component
   const PortalTooltip: React.FC<{ children: React.ReactNode; show: boolean; position: { x: number; y: number } }> = ({ children, show, position }) => {
@@ -172,6 +176,101 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   } = usePartnerSettings(selectedPartnerCapId);
   
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+  
+  // Partner stats state
+  const [hasPartnerStats, setHasPartnerStats] = useState<boolean | null>(null);
+  const [isCheckingStats, setIsCheckingStats] = useState(false);
+  const [isCreatingStats, setIsCreatingStats] = useState(false);
+
+  // Check if partner has stats object
+  const checkPartnerStats = useCallback(async (forceRefresh: boolean = false) => {
+    if (!selectedPartnerCapId || !suiClient) return;
+    
+    // Get the current partner name for better logging
+    const currentPartner = partnerCaps.find(cap => cap.id === selectedPartnerCapId);
+    const partnerName = currentPartner?.partnerName || 'Unknown Partner';
+    
+    try {
+      setIsCheckingStats(true);
+      
+      console.log(`🔍 Checking PartnerPerkStatsV2 for: "${partnerName}"`);
+      console.log(`🔍 Partner Cap ID: ${selectedPartnerCapId}`);
+      
+      if (forceRefresh) {
+        console.log('🔄 Force refresh requested');
+      }
+      
+      // Add a small delay to ensure client is ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const statsId = await findPartnerStatsId(suiClient, selectedPartnerCapId);
+      
+      console.log(`✅ PartnerPerkStatsV2 found for "${partnerName}":`, statsId);
+      setHasPartnerStats(true);
+    } catch (error) {
+      console.log(`❌ No PartnerPerkStatsV2 found for "${partnerName}" (${selectedPartnerCapId})`);
+      console.log('❌ Error details:', error);
+      setHasPartnerStats(false);
+    } finally {
+      setIsCheckingStats(false);
+    }
+  }, [suiClient, selectedPartnerCapId, partnerCaps]);
+
+  // Create partner stats object
+  const createPartnerStats = async () => {
+    if (!selectedPartnerCapId || !suiClient) {
+      toast.error('Client not ready. Please try again in a moment.');
+      return;
+    }
+    
+    try {
+      setIsCreatingStats(true);
+      
+      const dailyQuotaLimit = 10000; // Default quota limit
+      const transaction = buildCreatePartnerPerkStatsTransaction(selectedPartnerCapId, dailyQuotaLimit);
+      
+              signAndExecuteTransactionMain(
+          { transaction },
+          {
+            onSuccess: (result: any) => {
+              console.log('✅ Partner stats created successfully:', result.digest);
+              toast.success('Partner stats object created successfully! Users can now purchase your perks.');
+              setHasPartnerStats(true);
+              onRefresh?.();
+              // Force refresh stats detection after successful creation
+              setTimeout(() => {
+                checkPartnerStats(true);
+              }, 2000);
+            },
+            onError: (error: any) => {
+              console.error('❌ Failed to create partner stats:', error);
+              toast.error(`Failed to create partner stats: ${error.message || 'Unknown error'}`);
+            },
+          }
+        );
+    } catch (error) {
+      console.error('Error creating partner stats:', error);
+      toast.error(`Error creating partner stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsCreatingStats(false);
+    }
+  };
+
+  // Check partner stats on component mount and when partner cap changes
+  useEffect(() => {
+    if (selectedPartnerCapId && suiClient) {
+      // Check immediately if we're on settings tab, otherwise debounce
+      const delay = currentTab === 'settings' ? 100 : 300;
+      
+      const timeoutId = setTimeout(() => {
+        checkPartnerStats();
+      }, delay);
+      
+      return () => clearTimeout(timeoutId);
+    } else {
+      // Reset state when no partner cap is selected or client is not ready
+      setHasPartnerStats(null);
+    }
+  }, [selectedPartnerCapId, suiClient, currentTab, checkPartnerStats]);
 
   // Tooltip helper functions
   const handleTooltipEnter = (event: React.MouseEvent, tooltipType: 'blue' | 'yellow') => {
@@ -1342,6 +1441,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             >
               Refresh Data
             </Button>
+            
             <div className="pt-2 border-t border-gray-700">
               <p className="text-xs text-gray-400 mb-2">Need additional capabilities?</p>
               <Link to="/partners/create" className="block">
@@ -3219,14 +3319,55 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold text-white">Configure Settings</h3>
-            {currentSettings && (
-              <Button 
-                onClick={() => resetFormToCurrentSettings()}
-                className="bg-gray-600 hover:bg-gray-700 text-sm px-3 py-1"
-              >
-                Reset to Current
-              </Button>
-            )}
+            <div className="flex items-center space-x-2">
+              {/* Partner Stats Management - Only show button if stats are missing */}
+              {isCheckingStats && (
+                <div className="flex items-center space-x-2 text-gray-400 text-sm">
+                  <div className="w-4 h-4 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>
+                  <span>Checking stats...</span>
+                </div>
+              )}
+              
+              {hasPartnerStats === false && (
+                <div className="flex items-center space-x-2">
+                  <Button 
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-sm px-3 py-1"
+                    onClick={createPartnerStats}
+                    disabled={isCreatingStats}
+                    title={`Create PartnerPerkStatsV2 for ${partnerCaps.find(cap => cap.id === selectedPartnerCapId)?.partnerName || 'this partner'}`}
+                  >
+                    {isCreatingStats ? 'Creating...' : 'Create Stats Object'}
+                  </Button>
+                  <Button 
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-2 py-1"
+                    onClick={() => checkPartnerStats(true)}
+                    disabled={isCheckingStats}
+                    title={`Refresh detection for ${partnerCaps.find(cap => cap.id === selectedPartnerCapId)?.partnerName || 'this partner'}`}
+                  >
+                    🔄
+                  </Button>
+                </div>
+              )}
+              
+              {hasPartnerStats === null && !isCheckingStats && (
+                <Button 
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-2 py-1"
+                  onClick={() => checkPartnerStats(true)}
+                  title="Check for stats object"
+                >
+                  Check Stats
+                </Button>
+              )}
+              
+              {currentSettings && (
+                <Button 
+                  onClick={() => resetFormToCurrentSettings()}
+                  className="bg-gray-600 hover:bg-gray-700 text-sm px-3 py-1"
+                >
+                  Reset to Current
+                </Button>
+              )}
+            </div>
           </div>
           
           <div className="space-y-4">
@@ -3463,6 +3604,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     const newPartnerCap = partnerCaps.find(cap => cap.id === newPartnerCapId);
     if (newPartnerCap) {
       setSelectedPartnerCapId(newPartnerCapId);
+      
+      // Reset stats state to force fresh check for new partner cap
+      setHasPartnerStats(null);
+      setIsCheckingStats(false);
       
       // Show immediate feedback
       toast.info(`Switched to ${newPartnerCap.partnerName}`, { autoClose: 2000 });

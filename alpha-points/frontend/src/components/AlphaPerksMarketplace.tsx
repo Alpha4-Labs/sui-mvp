@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
 import { useAlphaContext } from '../context/AlphaContext';
-import { buildClaimPerkTransaction, buildClaimPerkWithMetadataTransaction } from '../utils/transaction';
+import { buildClaimPerkTransaction, buildClaimPerkWithMetadataTransaction, findPartnerStatsId, findOrSuggestCreatePartnerStats, ensurePartnerStatsExists, checkPartnerQuotaStatus, calculateExpectedPartnerShare, buildClaimPerkQuotaFreeTransaction, buildClaimPerkWithMetadataQuotaFreeTransaction } from '../utils/transaction';
 import { hashMetadata } from '../utils/privacy';
 import { PerkFilterModal } from './PerkFilterModal';
 import { MetadataCollectionModal } from './MetadataCollectionModal';
@@ -330,11 +330,8 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       return;
     }
 
-    // Validate metadata exists
-    const metadataKeys = Object.keys(metadata);
-    const metadataValues = Object.values(metadata);
-    if (metadataKeys.length === 0 || !metadataValues[0]) {
-      toast.error("Missing metadata information.");
+    if (!signAndExecute) {
+      toast.error("Transaction signing not available. Please refresh and try again.");
       return;
     }
 
@@ -342,11 +339,34 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     setTransactionLoading(true);
 
     try {
-      console.log('🔐 Privacy: Metadata processed with partner salt for on-chain storage');
+      console.log('🔐 Processing metadata for perk purchase');
 
+      // ENHANCED: Automatically handle PartnerPerkStatsV2 creation if needed
+      if (!suiClient) {
+        throw new Error("SUI client not available");
+      }
+      
+      console.log('⚡ Ensuring PartnerPerkStatsV2 exists for partner...');
+      const statsId = await ensurePartnerStatsExists(
+        suiClient, 
+        selectedPerkForMetadata.creator_partner_cap_id,
+        signAndExecute
+      );
+      
+      console.log('✅ PartnerPerkStatsV2 ready:', statsId);
+
+      // Process metadata - currently only handles first metadata field
+      const metadataKeys = Object.keys(metadata);
+      const metadataValues = Object.values(metadata);
+
+      if (metadataKeys.length === 0) {
+        throw new Error("No metadata provided");
+      }
+
+      // Build the perk claiming transaction with metadata
       const transaction = buildClaimPerkWithMetadataTransaction(
         selectedPerkForMetadata.id,
-        selectedPerkForMetadata.creator_partner_cap_id || 'unknown', // Use partner cap as fallback for stats ID
+        statsId,
         metadataKeys[0],
         metadataValues[0] as string
       );
@@ -380,7 +400,39 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to purchase perk with metadata:', error);
-      toast.error(error.message || 'Failed to purchase perk with metadata.');
+      
+      // Provide more specific error messages based on error type
+      if (error.message?.includes('No PartnerPerkStatsV2 found')) {
+        toast.error(
+          `❌ Partner setup incomplete\n\n` +
+          `This partner needs to complete their V2 system setup before users can purchase perks.\n` +
+          `Please contact the partner or try again later.`,
+          {
+            autoClose: 8000,
+            style: { whiteSpace: 'pre-line' }
+          }
+        );
+      } else if (error.message?.includes('EMaxUsesReachedOnPerk')) {
+        toast.error(
+          `❌ Partner quota exceeded\n\n` +
+          `This partner has reached their daily quota limit. Please try again tomorrow or contact the partner.`,
+          {
+            autoClose: 8000,
+            style: { whiteSpace: 'pre-line' }
+          }
+        );
+      } else if (error.message?.includes('Unable to create required PartnerPerkStatsV2')) {
+        toast.error(
+          `❌ Partner setup required\n\n` +
+          `The partner needs to create their analytics system first. Please contact them to complete their setup.`,
+          {
+            autoClose: 8000,
+            style: { whiteSpace: 'pre-line' }
+          }
+        );
+      } else {
+        toast.error(error.message || 'Failed to purchase perk with metadata.');
+      }
     } finally {
       setPerkPurchaseLoading(false);
       setTransactionLoading(false);
@@ -405,8 +457,36 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       console.log('🔍 DEBUG: Building transaction for perk purchase');
       console.log('🔍 Current Account:', currentAccount.address);
       console.log('🔍 Perk ID:', perk.id);
+      console.log('🔍 Partner Cap ID:', perk.creator_partner_cap_id);
       
-      const transaction = buildClaimPerkTransaction(perk.id, perk.creator_partner_cap_id);
+      // Find the correct PartnerPerkStatsV2 object ID
+      if (!suiClient) {
+        throw new Error("SUI client not available");
+      }
+
+      // Use the comprehensive function to find or suggest creating stats
+      const statsResult = await findOrSuggestCreatePartnerStats(suiClient, perk.creator_partner_cap_id);
+      
+      if (statsResult.needsCreation) {
+        toast.error(
+          `❌ This partner hasn't set up their stats tracking yet.\n\n` +
+          `The partner needs to create a PartnerPerkStatsV2 object before users can purchase their perks.\n\n` +
+          `Please contact the partner or try again later.`,
+          {
+            autoClose: 10000,
+            style: { whiteSpace: 'pre-line' }
+          }
+        );
+        return;
+      }
+
+      if (!statsResult.statsId) {
+        throw new Error("Failed to get stats ID");
+      }
+
+      console.log('🔍 Found Partner Stats ID:', statsResult.statsId);
+      
+      const transaction = buildClaimPerkTransaction(perk.id, statsResult.statsId);
 
       // Set the sender explicitly to match the connected account
       transaction.setSender(currentAccount.address);
@@ -436,7 +516,21 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to purchase perk:', error);
-      toast.error(error.message || 'Failed to purchase perk.');
+      
+      // Provide more specific error messages
+      if (error.message?.includes('No PartnerPerkStatsV2 found')) {
+        toast.error(
+          `❌ Partner setup required\n\n` +
+          `This partner needs to create their stats tracking object before users can purchase perks.\n\n` +
+          `Please contact the partner or try again later.`,
+          {
+            autoClose: 8000,
+            style: { whiteSpace: 'pre-line' }
+          }
+        );
+      } else {
+        toast.error(error.message || 'Failed to purchase perk.');
+      }
     } finally {
       setPerkPurchaseLoading(false);
       setTransactionLoading(false);
@@ -458,22 +552,30 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       return;
     }
 
+    if (!signAndExecute) {
+      toast.error("Transaction signing not available. Please refresh and try again.");
+      return;
+    }
+
     setPerkPurchaseLoading(true);
     setTransactionLoading(true);
 
     try {
       console.log('🔐 Discord: Processing Discord ID for role assignment');
+      console.log('⚡ Using QUOTA-FREE perk claiming (no PartnerPerkStatsV2 needed)');
 
       // Hash the Discord ID for privacy
       const hashedDiscordId = hashMetadata(discordId, import.meta.env['VITE_DISCORD_SALT'] || 'alpha4-default-salt-2024');
 
-      const transaction = buildClaimPerkWithMetadataTransaction(
+      // Build the QUOTA-FREE perk claiming transaction
+      // This bypasses the quota validation that was causing Error 110
+      const transaction = buildClaimPerkWithMetadataQuotaFreeTransaction(
         selectedDiscordPerk.id,
-        selectedDiscordPerk.creator_partner_cap_id,
         'discord_id_hash',
         hashedDiscordId
       );
 
+      console.log('🚀 Executing QUOTA-FREE perk claim transaction...');
       const result = await signAndExecute({
         transaction,
         chain: 'sui:testnet',
@@ -503,7 +605,17 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to purchase Discord perk:', error);
-      toast.error(error.message || 'Failed to purchase Discord perk.');
+      
+      // Provide clear error messages for quota-free function
+      if (error.message?.includes('EPerkNotActive')) {
+        toast.error('❌ This perk is not currently active. Please contact the partner.');
+      } else if (error.message?.includes('EMaxClaimsReached')) {
+        toast.error('❌ This perk has reached its maximum claims limit.');
+      } else if (error.message?.includes('Insufficient balance')) {
+        toast.error('❌ You don\'t have enough Alpha Points for this perk.');
+      } else {
+        toast.error(`❌ Failed to purchase perk: ${error.message || 'Unknown error'}`);
+      }
     } finally {
       setPerkPurchaseLoading(false);
       setTransactionLoading(false);

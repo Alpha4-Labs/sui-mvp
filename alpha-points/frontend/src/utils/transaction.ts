@@ -874,11 +874,273 @@ export const buildCreatePerkDefinitionTransaction = (
 };
 
 /**
+ * Find the PartnerPerkStatsV2 object ID for a given PartnerCapFlex ID
+ * This function queries the blockchain to find the correct stats object
+ * 
+ * @param suiClient SUI client instance for blockchain queries
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @returns Promise resolving to the PartnerPerkStatsV2 object ID
+ */
+export const findPartnerStatsId = async (
+  suiClient: any,
+  partnerCapId: string
+): Promise<string> => {
+  try {
+    console.log('🔍 Searching for PartnerPerkStatsV2 for partner cap:', partnerCapId);
+    console.log('🔍 Using package ID:', PACKAGE_ID);
+
+    if (!PACKAGE_ID) {
+      throw new Error('PACKAGE_ID not configured');
+    }
+
+    // Primary approach: Query events for PartnerPerkStatsCreatedV2 to find the stats object
+    console.log('🔍 Searching via PartnerPerkStatsCreatedV2 events...');
+    
+    const eventsResponse = await suiClient.queryEvents({
+      query: {
+        MoveEventType: `${PACKAGE_ID}::perk_manager::PartnerPerkStatsCreatedV2`
+      },
+      limit: 100,
+      order: 'descending'
+    });
+
+    console.log('🔍 Found PartnerPerkStatsCreatedV2 events:', eventsResponse.data.length);
+
+    for (const event of eventsResponse.data) {
+      if (event.parsedJson && event.parsedJson.partner_cap_id === partnerCapId) {
+        const statsId = event.parsedJson.stats_id;
+        console.log('✅ Found stats ID from event:', statsId);
+        
+        // Verify the object still exists and is accessible
+        try {
+          const objectResponse = await suiClient.getObject({
+            id: statsId,
+            options: { 
+              showContent: true,
+              showType: true
+            }
+          });
+          
+          if (objectResponse.data && objectResponse.data.content) {
+            console.log('✅ Verified stats object exists and is accessible:', statsId);
+            return statsId;
+          } else {
+            console.log('❌ Stats object exists but content not accessible:', statsId);
+          }
+        } catch (verifyError) {
+          console.log('❌ Stats object from event no longer exists:', statsId, verifyError);
+        }
+      }
+    }
+
+    // Fallback: Try to query all objects of the PartnerPerkStatsV2 type
+    // This is more expensive but comprehensive
+    console.log('🔍 Trying comprehensive object search...');
+    
+    try {
+      // Query multiGetObjects for known patterns or use getAllObjects with filter if available
+      // This is a fallback that may not work on all RPC endpoints
+      console.log('🔍 Fallback search not implemented - using event-based approach only');
+    } catch (fallbackError) {
+      console.log('🔍 Fallback search failed:', fallbackError);
+    }
+
+    console.error('❌ No PartnerPerkStatsV2 found for partner cap:', partnerCapId);
+    throw new Error(`No PartnerPerkStatsV2 found for partner cap ${partnerCapId}. The partner needs to create their stats object first using the partner dashboard.`);
+    
+  } catch (error) {
+    console.error('Error finding partner stats ID:', error);
+    throw new Error(`Failed to find partner stats for cap ${partnerCapId}: ${error}`);
+  }
+};
+
+/**
+ * Creates a PartnerPerkStatsV2 object for a partner if one doesn't exist
+ * This is a fallback function to ensure partners have the required stats object
+ * 
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param dailyQuotaLimit Daily quota limit for the partner
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePartnerStatsIfNeededTransaction = (
+  partnerCapId: string,
+  dailyQuotaLimit: number = 10000 // Default quota
+): Transaction => {
+  if (!PACKAGE_ID) {
+    throw new Error("PACKAGE_ID not configured");
+  }
+
+  const tx = new Transaction();
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::perk_manager::create_partner_perk_stats_v2`,
+    arguments: [
+      tx.object(partnerCapId), // PartnerCapFlex object
+      tx.pure.u64(dailyQuotaLimit), // Daily quota limit
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Comprehensive function to find or create PartnerPerkStatsV2 object
+ * First tries to find existing stats, if not found, suggests creating one
+ * 
+ * @param suiClient SUI client instance
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @returns Promise with stats ID or instructions for creation
+ */
+export const findOrSuggestCreatePartnerStats = async (
+  suiClient: any,
+  partnerCapId: string
+): Promise<{ statsId?: string; needsCreation?: boolean; createTransaction?: Transaction }> => {
+  try {
+    const statsId = await findPartnerStatsId(suiClient, partnerCapId);
+    return { statsId };
+  } catch (error) {
+    console.warn('PartnerPerkStatsV2 not found, suggesting creation for partner:', partnerCapId);
+    
+    // Create a transaction that the partner can execute to create their stats object
+    const createTransaction = buildCreatePartnerStatsIfNeededTransaction(partnerCapId);
+    
+    return { 
+      needsCreation: true, 
+      createTransaction,
+    };
+  }
+};
+
+/**
+ * ENHANCED: Automatically handle PartnerPerkStatsV2 creation during perk claiming
+ * This eliminates the need for users to manually create stats objects
+ * 
+ * @param suiClient SUI client instance
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param signAndExecuteTransaction Function to execute transactions (optional)
+ * @returns Promise with stats ID (creates if needed and possible)
+ */
+export const ensurePartnerStatsExists = async (
+  suiClient: any,
+  partnerCapId: string,
+  signAndExecuteTransaction?: any
+): Promise<string> => {
+  try {
+    // First, try to find existing stats
+    const statsId = await findPartnerStatsId(suiClient, partnerCapId);
+    console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
+    return statsId;
+  } catch (error) {
+    console.log('⚡ PartnerPerkStatsV2 not found...');
+    
+    // Only attempt auto-creation if signAndExecuteTransaction is available
+    if (!signAndExecuteTransaction) {
+      console.log('❌ Cannot auto-create PartnerPerkStatsV2 - no transaction function available');
+      throw new Error(
+        `No PartnerPerkStatsV2 found for partner cap ${partnerCapId}. ` +
+        `The partner needs to create their stats object first using the partner dashboard.`
+      );
+    }
+    
+    console.log('⚡ Attempting auto-creation of PartnerPerkStatsV2...');
+    
+    // Calculate appropriate daily quota based on partner collateral
+    // This should match the partner's actual quota from their PartnerCapFlex
+    const defaultDailyQuota = 50000; // Conservative default - partners can adjust later
+    
+    try {
+      // Create the stats object automatically
+      const createTransaction = buildCreatePartnerStatsIfNeededTransaction(partnerCapId, defaultDailyQuota);
+      
+      const result = await signAndExecuteTransaction({
+        transaction: createTransaction,
+        chain: 'sui:testnet',
+      });
+      
+      if (result?.digest) {
+        console.log('✅ PartnerPerkStatsV2 created automatically:', result.digest);
+        
+        // Extract the newly created stats ID from the transaction
+        const newStatsId = await extractStatsIdFromCreationTransaction(suiClient, result.digest);
+        if (newStatsId) {
+          console.log('✅ Extracted new stats ID:', newStatsId);
+          return newStatsId;
+        } else {
+          throw new Error('Failed to extract stats ID from creation transaction');
+        }
+      } else {
+        throw new Error('Failed to create PartnerPerkStatsV2 - no transaction digest');
+      }
+    } catch (creationError) {
+      console.error('❌ Failed to auto-create PartnerPerkStatsV2:', creationError);
+      throw new Error(
+        `Unable to create required PartnerPerkStatsV2 object. ` +
+        `The partner needs to create their stats object first using the partner dashboard. ` +
+        `Error: ${creationError instanceof Error ? creationError.message : 'Unknown error'}`
+      );
+    }
+  }
+};
+
+/**
+ * Extract PartnerPerkStatsV2 ID from a creation transaction
+ * Parses transaction effects to find the newly created stats object
+ */
+export const extractStatsIdFromCreationTransaction = async (
+  suiClient: any,
+  txDigest: string
+): Promise<string | null> => {
+  try {
+    console.log('🔍 Extracting stats ID from transaction:', txDigest);
+    
+    // Get transaction details including effects
+    const txResponse = await suiClient.getTransactionBlock({
+      digest: txDigest,
+      options: {
+        showEffects: true,
+        showEvents: true,
+        showObjectChanges: true,
+      },
+    });
+    
+    // Method 1: Check events for PartnerPerkStatsCreatedV2
+    if (txResponse.events) {
+      for (const event of txResponse.events) {
+        if (event.type.includes('::perk_manager::PartnerPerkStatsCreatedV2') && event.parsedJson) {
+          const statsId = event.parsedJson.stats_id;
+          console.log('✅ Found stats ID from creation event:', statsId);
+          return statsId;
+        }
+      }
+    }
+    
+    // Method 2: Check object changes for created shared objects
+    if (txResponse.objectChanges) {
+      for (const change of txResponse.objectChanges) {
+        if (change.type === 'created' && 
+            change.objectType && 
+            change.objectType.includes('::perk_manager::PartnerPerkStatsV2')) {
+          const statsId = change.objectId;
+          console.log('✅ Found stats ID from object changes:', statsId);
+          return statsId;
+        }
+      }
+    }
+    
+    console.warn('⚠️ Could not extract stats ID from transaction');
+    return null;
+  } catch (error) {
+    console.error('❌ Error extracting stats ID:', error);
+    return null;
+  }
+};
+
+/**
  * Builds a transaction for claiming a perk (V2 - with partner stats)
  * Uses the new claim_perk_by_user_v2 function with full partner stats tracking
  * 
  * @param perkDefinitionId Object ID of the perk definition
- * @param partnerStatsId Object ID of the partner stats tracking object
+ * @param partnerStatsId Object ID of the PartnerPerkStatsV2 tracking object
  * @returns Transaction object ready for execution
  */
 export const buildClaimPerkTransaction = (
@@ -897,7 +1159,7 @@ export const buildClaimPerkTransaction = (
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(perkDefinitionId),
-      tx.object(partnerStatsId),
+      tx.object(partnerStatsId), // Now using the correct PartnerPerkStatsV2 object ID
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(CLOCK_ID)
     ],
@@ -911,7 +1173,7 @@ export const buildClaimPerkTransaction = (
  * Uses the new claim_perk_with_metadata_by_user_v2 function with full partner stats tracking
  * 
  * @param perkDefinitionId Object ID of the perk definition
- * @param partnerStatsId Object ID of the partner stats tracking object
+ * @param partnerStatsId Object ID of the PartnerPerkStatsV2 tracking object
  * @param metadataKey Key for the claim-specific metadata
  * @param metadataValue Value for the claim-specific metadata
  * @returns Transaction object ready for execution
@@ -934,7 +1196,7 @@ export const buildClaimPerkWithMetadataTransaction = (
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(perkDefinitionId),
-      tx.object(partnerStatsId),
+      tx.object(partnerStatsId), // Now using the correct PartnerPerkStatsV2 object ID
       tx.object(SHARED_OBJECTS.ledger),
       tx.pure.string(metadataKey),
       tx.pure.string(metadataValue),
@@ -1323,6 +1585,200 @@ export const buildUpdatePerkTagListsTransaction = (
       tx.object(partnerCapFlexId),
       tx.pure(bcs.vector(bcs.String).serialize(allowedTags)),
       tx.pure(bcs.vector(bcs.String).serialize(blacklistedTags)),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * DIAGNOSTIC: Check partner quota status for debugging Error 110 issues
+ * Shows current quota usage, limits, and remaining capacity
+ * 
+ * @param suiClient SUI client instance
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @returns Promise with detailed quota information
+ */
+export const checkPartnerQuotaStatus = async (
+  suiClient: any,
+  partnerCapId: string
+): Promise<{
+  statsId?: string;
+  dailyQuotaLimit?: number;
+  dailyPointsMinted?: number;
+  remainingQuota?: number;
+  totalPointsMinted?: number;
+  totalPerksClaimedToday?: number;
+  currentEpoch?: number;
+  lastResetEpoch?: number;
+  needsEpochReset?: boolean;
+  error?: string;
+}> => {
+  try {
+    console.log('🔍 DIAGNOSTIC: Checking partner quota status for:', partnerCapId);
+    
+    // Find the PartnerPerkStatsV2 object
+    const statsId = await findPartnerStatsId(suiClient, partnerCapId);
+    console.log('✅ Found PartnerPerkStatsV2:', statsId);
+    
+    // Get the object details
+    const objectResponse = await suiClient.getObject({
+      id: statsId,
+      options: {
+        showContent: true,
+        showType: true
+      }
+    });
+    
+    if (!objectResponse.data?.content || !('fields' in objectResponse.data.content)) {
+      return { error: 'Could not read PartnerPerkStatsV2 object content' };
+    }
+    
+    const fields = objectResponse.data.content.fields as any;
+    
+    // Extract quota information
+    const dailyQuotaLimit = parseInt(fields.daily_quota_limit);
+    const dailyPointsMinted = parseInt(fields.daily_points_minted);
+    const totalPointsMinted = parseInt(fields.total_points_minted);
+    const totalPerksClaimedToday = parseInt(fields.total_perks_claimed);
+    const lastResetEpoch = parseInt(fields.daily_reset_epoch);
+    
+    const remainingQuota = Math.max(0, dailyQuotaLimit - dailyPointsMinted);
+    
+    // Get current epoch for comparison
+    let currentEpoch = 0;
+    try {
+      // This would need to be implemented based on how you get current epoch
+      // For now, we'll estimate based on timestamp
+      currentEpoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000)); // Rough daily epoch
+    } catch (epochError) {
+      console.warn('Could not determine current epoch');
+    }
+    
+    const needsEpochReset = currentEpoch > lastResetEpoch;
+    
+    const quotaStatus = {
+      statsId,
+      dailyQuotaLimit,
+      dailyPointsMinted,
+      remainingQuota: needsEpochReset ? dailyQuotaLimit : remainingQuota,
+      totalPointsMinted,
+      totalPerksClaimedToday,
+      currentEpoch,
+      lastResetEpoch,
+      needsEpochReset
+    };
+    
+    console.log('🔍 QUOTA STATUS:', quotaStatus);
+    
+    // Provide diagnostic information
+    if (dailyQuotaLimit === 0) {
+      console.log('❌ ISSUE: Daily quota limit is 0 - partner needs to set a quota');
+    } else if (dailyQuotaLimit < 1000) {
+      console.log('⚠️ WARNING: Daily quota limit is very low:', dailyQuotaLimit);
+    }
+    
+    if (!needsEpochReset && remainingQuota <= 0) {
+      console.log('❌ ISSUE: Partner has exhausted daily quota');
+    }
+    
+    if (needsEpochReset) {
+      console.log('⚠️ INFO: Daily stats need epoch reset - quota should refresh');
+    }
+    
+    return quotaStatus;
+    
+  } catch (error) {
+    console.error('❌ Error checking partner quota status:', error);
+    return { 
+      error: `Failed to check quota status: ${error instanceof Error ? error.message : 'Unknown error'}` 
+    };
+  }
+};
+
+/**
+ * DIAGNOSTIC: Calculate expected partner share for a perk purchase
+ * Helps determine what quota amount will be consumed
+ * 
+ * @param perkCostAlphaPoints Cost of the perk in Alpha Points
+ * @param partnerSharePercentage Partner's revenue share percentage (default 80%)
+ * @returns Expected partner share that will be deducted from quota
+ */
+export const calculateExpectedPartnerShare = (
+  perkCostAlphaPoints: number,
+  partnerSharePercentage: number = 80
+): number => {
+  const partnerShare = Math.floor((perkCostAlphaPoints * partnerSharePercentage) / 100);
+  console.log('🔍 QUOTA IMPACT CALCULATION:', {
+    perkCost: perkCostAlphaPoints,
+    partnerSharePercentage,
+    expectedPartnerShare: partnerShare
+  });
+  return partnerShare;
+};
+
+/**
+ * Builds a transaction for claiming a perk (QUOTA-FREE VERSION)
+ * Uses the claim_perk_by_user function which bypasses quota validation
+ * This treats perk sales as REVENUE, not quota-limited minting
+ * 
+ * @param perkDefinitionId Object ID of the perk definition
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimPerkQuotaFreeTransaction = (
+  perkDefinitionId: string
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
+    throw new Error("Alpha Points package or shared objects are not configured.");
+  }
+
+  const tx = new Transaction();
+
+  tx.moveCall({
+    // QUOTA-FREE: Use function that treats perk sales as revenue, not quota consumption
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_by_user`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(perkDefinitionId),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(CLOCK_ID)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for claiming a perk with metadata (QUOTA-FREE VERSION)
+ * Uses the claim_perk_with_metadata_by_user function which bypasses quota validation
+ * This treats perk sales as REVENUE, not quota-limited minting
+ * 
+ * @param perkDefinitionId Object ID of the perk definition
+ * @param metadataKey Key for the claim-specific metadata
+ * @param metadataValue Value for the claim-specific metadata
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimPerkWithMetadataQuotaFreeTransaction = (
+  perkDefinitionId: string,
+  metadataKey: string,
+  metadataValue: string
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
+    throw new Error("Alpha Points package or shared objects are not configured.");
+  }
+
+  const tx = new Transaction();
+
+  tx.moveCall({
+    // QUOTA-FREE: Use function that treats perk sales as revenue, not quota consumption
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_by_user`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(perkDefinitionId),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.pure.string(metadataKey),
+      tx.pure.string(metadataValue),
+      tx.object(CLOCK_ID)
     ],
   });
 

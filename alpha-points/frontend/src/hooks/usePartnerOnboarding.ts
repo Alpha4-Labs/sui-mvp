@@ -175,6 +175,253 @@ export function usePartnerOnboarding() {
   };
 
   /**
+   * GUIDED ONBOARDING FOR USDC: Creates both PartnerCapFlex AND PartnerPerkStatsV2 in sequence
+   * This provides the same comprehensive setup for USDC collateral partners
+   */
+  const createPartnerWithFullSetupUSDC = async (
+    partnerName: string, 
+    usdcCoinId: string,
+    customDailyQuota?: number
+  ) => {
+    if (!currentWallet) {
+      setError('Wallet not connected.');
+      toast.error('Wallet not connected. Please connect your wallet.');
+      return null;
+    }
+
+    if (!usdcCoinId) {
+      setError('USDC coin ID is required.');
+      toast.error('Please provide a valid USDC coin ID.');
+      return null;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setTransactionDigest(null);
+    setPartnerCapId(null);
+    setStatsId(null);
+    setOnboardingStep('idle');
+
+    try {
+      // STEP 1: Create PartnerCapFlex with USDC
+      setOnboardingStep('partnercap');
+      toast.info('🚀 Step 1/2: Creating your PartnerCapFlex with USDC collateral...');
+
+      const partnerCapTransaction = buildCreatePartnerCapFlexWithUSDCTransaction(
+        partnerName,
+        usdcCoinId,
+        undefined // No sponsorship - user pays gas
+      );
+
+      const partnerCapResult = await signAndExecuteTransaction({
+        transaction: partnerCapTransaction,
+        chain: 'sui:testnet',
+      });
+
+      if (!partnerCapResult?.digest) {
+        throw new Error('Failed to create PartnerCapFlex with USDC - no transaction digest');
+      }
+
+      const extractedPartnerCapId = await extractPartnerCapIdFromTransaction(partnerCapResult.digest);
+      
+      if (!extractedPartnerCapId) {
+        throw new Error('Could not extract PartnerCapFlex ID from transaction');
+      }
+
+      setPartnerCapId(extractedPartnerCapId);
+      
+      toast.success(`✅ Step 1 complete! PartnerCapFlex with USDC collateral created.`);
+
+      // Calculate appropriate daily quota based on USDC amount (100% LTV)
+      // For USDC: 1 USDC = 1000 Alpha Points quota, so default quota should be reasonable
+      const defaultDailyQuota = customDailyQuota || 10000; // Conservative default for USDC
+      
+      // STEP 2: Create PartnerPerkStatsV2
+      setOnboardingStep('stats');
+      toast.info('🔄 Step 2/2: Creating your stats tracking system...');
+
+      const statsTransaction = buildCreatePartnerPerkStatsTransaction(
+        extractedPartnerCapId,
+        defaultDailyQuota,
+        undefined // No sponsorship - user pays gas
+      );
+
+      const statsResult = await signAndExecuteTransaction({
+        transaction: statsTransaction,
+        chain: 'sui:testnet',
+      });
+
+      if (!statsResult?.digest) {
+        throw new Error('Failed to create PartnerPerkStatsV2 - no transaction digest');
+      }
+
+      const extractedStatsId = await extractStatsIdFromTransaction(statsResult.digest);
+      setStatsId(extractedStatsId);
+
+      // Complete!
+      setOnboardingStep('complete');
+      setTransactionDigest(statsResult.digest); // Use the final transaction digest
+
+      toast.success(`🎉 USDC onboarding complete! You now have full V2 system access with advanced analytics!`);
+
+      return {
+        partnerCapId: extractedPartnerCapId,
+        statsId: extractedStatsId,
+        partnerCapTxDigest: partnerCapResult.digest,
+        statsTxDigest: statsResult.digest
+      };
+
+    } catch (error: any) {
+      console.error('Partner USDC onboarding error:', error);
+      const errorMessage = error.message || 'Failed to complete partner onboarding with USDC. Please try again.';
+      setError(errorMessage);
+      setOnboardingStep('idle');
+      
+      // Provide helpful error messages based on which step failed
+      if (onboardingStep === 'partnercap') {
+        toast.error(`❌ Step 1 failed: ${errorMessage}`);
+      } else if (onboardingStep === 'stats') {
+        toast.error(`❌ Step 2 failed: ${errorMessage}. Your PartnerCapFlex was created, but stats setup failed. You can retry stats creation later.`);
+      } else {
+        toast.error(`❌ USDC onboarding failed: ${errorMessage}`);
+      }
+      
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * GUIDED ONBOARDING FOR NFT: Creates both PartnerCapFlex AND PartnerPerkStatsV2 in sequence
+   * This provides the same comprehensive setup for NFT collateral partners
+   */
+  const createPartnerWithFullSetupNFT = async (
+    partnerName: string, 
+    kioskId: string, 
+    collectionType: string, 
+    estimatedFloorValueUsdc: number,
+    customDailyQuota?: number
+  ) => {
+    if (!currentWallet) {
+      setError('Wallet not connected.');
+      toast.error('Wallet not connected. Please connect your wallet.');
+      return null;
+    }
+
+    if (!kioskId || !collectionType) {
+      setError('Kiosk ID and collection type are required.');
+      toast.error('Please provide valid kiosk ID and NFT collection type.');
+      return null;
+    }
+
+    if (estimatedFloorValueUsdc <= 0) {
+      setError('Estimated floor value must be greater than 0.');
+      toast.error('Please provide a valid estimated floor value in USDC.');
+      return null;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setTransactionDigest(null);
+    setPartnerCapId(null);
+    setStatsId(null);
+    setOnboardingStep('idle');
+
+    try {
+      // STEP 1: Create PartnerCapFlex with NFT
+      setOnboardingStep('partnercap');
+      toast.info('🚀 Step 1/2: Creating your PartnerCapFlex with NFT collateral...');
+
+      const partnerCapTransaction = buildCreatePartnerCapFlexWithNFTTransaction(
+        partnerName,
+        kioskId,
+        collectionType,
+        estimatedFloorValueUsdc,
+        undefined // No sponsorship - user pays gas
+      );
+
+      const partnerCapResult = await signAndExecuteTransaction({
+        transaction: partnerCapTransaction,
+        chain: 'sui:testnet',
+      });
+
+      if (!partnerCapResult?.digest) {
+        throw new Error('Failed to create PartnerCapFlex with NFT - no transaction digest');
+      }
+
+      const extractedPartnerCapId = await extractPartnerCapIdFromTransaction(partnerCapResult.digest);
+      
+      if (!extractedPartnerCapId) {
+        throw new Error('Could not extract PartnerCapFlex ID from transaction');
+      }
+
+      setPartnerCapId(extractedPartnerCapId);
+      
+      toast.success(`✅ Step 1 complete! PartnerCapFlex with NFT collateral created.`);
+
+      // Calculate appropriate daily quota based on NFT floor value (70% LTV)
+      // NFT: $500 floor * 70% = $350 effective = 350,000 Alpha Points quota
+      const effectiveValue = Math.floor(estimatedFloorValueUsdc * 0.7); // 70% LTV
+      const defaultDailyQuota = customDailyQuota || Math.max(Math.floor(effectiveValue * 30), 1000); // 3% daily throttle, minimum 1000
+      
+      // STEP 2: Create PartnerPerkStatsV2
+      setOnboardingStep('stats');
+      toast.info('🔄 Step 2/2: Creating your stats tracking system...');
+
+      const statsTransaction = buildCreatePartnerPerkStatsTransaction(
+        extractedPartnerCapId,
+        defaultDailyQuota,
+        undefined // No sponsorship - user pays gas
+      );
+
+      const statsResult = await signAndExecuteTransaction({
+        transaction: statsTransaction,
+        chain: 'sui:testnet',
+      });
+
+      if (!statsResult?.digest) {
+        throw new Error('Failed to create PartnerPerkStatsV2 - no transaction digest');
+      }
+
+      const extractedStatsId = await extractStatsIdFromTransaction(statsResult.digest);
+      setStatsId(extractedStatsId);
+
+      // Complete!
+      setOnboardingStep('complete');
+      setTransactionDigest(statsResult.digest); // Use the final transaction digest
+
+      toast.success(`🎉 NFT onboarding complete! You now have full V2 system access with advanced analytics!`);
+
+      return {
+        partnerCapId: extractedPartnerCapId,
+        statsId: extractedStatsId,
+        partnerCapTxDigest: partnerCapResult.digest,
+        statsTxDigest: statsResult.digest
+      };
+
+    } catch (error: any) {
+      console.error('Partner NFT onboarding error:', error);
+      const errorMessage = error.message || 'Failed to complete partner onboarding with NFT. Please try again.';
+      setError(errorMessage);
+      setOnboardingStep('idle');
+      
+      // Provide helpful error messages based on which step failed
+      if (onboardingStep === 'partnercap') {
+        toast.error(`❌ Step 1 failed: ${errorMessage}`);
+      } else if (onboardingStep === 'stats') {
+        toast.error(`❌ Step 2 failed: ${errorMessage}. Your PartnerCapFlex was created, but stats setup failed. You can retry stats creation later.`);
+      } else {
+        toast.error(`❌ NFT onboarding failed: ${errorMessage}`);
+      }
+      
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
    * Creates ONLY PartnerPerkStatsV2 for existing PartnerCapFlex owners
    * Used for partners who created PartnerCapFlex before V2 system existed
    */
@@ -503,6 +750,8 @@ export function usePartnerOnboarding() {
   return {
     // NEW: Guided onboarding functions (RECOMMENDED)
     createPartnerWithFullSetup,
+    createPartnerWithFullSetupUSDC,
+    createPartnerWithFullSetupNFT,
     createStatsForExistingPartner,
     
     // Legacy functions (maintained for backwards compatibility)
