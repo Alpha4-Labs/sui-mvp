@@ -7,7 +7,7 @@ import { useAlphaContext } from '../context/AlphaContext'; // Import useAlphaCon
 import { usePartnerDetection } from '../hooks/usePartnerDetection';
 // Removed TVL calculation import - not needed anymore
 import { formatAddress } from '../utils/format';
-import alpha4Logo from '../../public/alpha4-logo.svg';
+import alpha4Logo from '../assets/alpha4-logo.svg';
 // import alphaPointsLogo from '../assets/alphapoints-logo.svg'; // Assuming path is correct if used
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
