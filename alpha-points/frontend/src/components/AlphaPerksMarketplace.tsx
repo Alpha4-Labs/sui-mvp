@@ -41,6 +41,9 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   const [marketplacePerks, setMarketplacePerks] = useState<PerkDefinition[]>([]);
   const [partnerNames, setPartnerNames] = useState<Map<string, string>>(new Map(globalPartnerNamesCache));
   const [isLoadingPartnerNames, setIsLoadingPartnerNames] = useState(false);
+  
+  // Simple loading state tracking
+  const [loadingStage, setLoadingStage] = useState<'perks' | 'partners' | 'complete'>('perks');
 
   // Metadata collection modal state
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
@@ -67,10 +70,12 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     if (uncachedIds.length === 0) {
       // All names already cached, update local state
       setPartnerNames(new Map(globalPartnerNamesCache));
+      setLoadingStage('complete');
       return;
     }
 
     setIsLoadingPartnerNames(true);
+    setLoadingStage('partners');
     
     try {
       // Use cached requestCache for partner names with 10-minute cache
@@ -81,9 +86,10 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         async () => {
           const nameMap = new Map<string, string>();
           
-          // OPTIMIZATION: Parallel processing with smaller batches and timeouts
-          const BATCH_SIZE = 15; // Increased from 10 since we have caching
-          const TIMEOUT_MS = 8000; // 8 second timeout per batch
+          // FAST OPTIMIZATION: Much smaller batches with shorter timeouts
+          const BATCH_SIZE = 8; // Reduced from 15 for faster processing
+          const TIMEOUT_MS = 3000; // Reduced from 8000ms to 3000ms
+          const totalBatches = Math.ceil(uncachedIds.length / BATCH_SIZE);
           
           for (let i = 0; i < uncachedIds.length; i += BATCH_SIZE) {
             const batch = uncachedIds.slice(i, i + BATCH_SIZE);
@@ -100,7 +106,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                       },
                     }),
                     new Promise((_, reject) => 
-                      setTimeout(() => reject(new Error('Timeout')), TIMEOUT_MS / batch.length)
+                      setTimeout(() => reject(new Error('Timeout')), 2000) // Fixed 2s timeout per request
                     )
                   ]);
 
@@ -119,9 +125,9 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
 
               await Promise.all(batchPromises);
               
-              // OPTIMIZATION: Reduced delay between batches
+              // FAST OPTIMIZATION: Minimal delay between batches
               if (i + BATCH_SIZE < uncachedIds.length) {
-                await new Promise(resolve => setTimeout(resolve, 50)); // Reduced from 100ms
+                await new Promise(resolve => setTimeout(resolve, 10)); // Reduced from 50ms to 10ms
               }
             } catch (batchError) {
               // If entire batch fails, set fallback names
@@ -131,7 +137,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
           
           return nameMap;
         },
-        600000 // 10-minute cache for partner names
+        1800000 // 30-minute cache for partner names (longer cache)
       );
 
       // Update global cache
@@ -141,6 +147,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       
       // Update local state with all cached names
       setPartnerNames(new Map(globalPartnerNamesCache));
+      setLoadingStage('complete');
     } catch (error) {
       console.warn('Failed to fetch partner names:', error);
       // Set fallback names for failed requests
@@ -148,6 +155,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         globalPartnerNamesCache.set(id, 'Unknown Partner');
       });
       setPartnerNames(new Map(globalPartnerNamesCache));
+      setLoadingStage('complete');
     } finally {
       setIsLoadingPartnerNames(false);
     }
@@ -157,21 +165,27 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   useEffect(() => {
     const loadMarketplaceData = async () => {
       try {
+        setLoadingStage('perks');
+        
         // Start loading perks immediately
         const perksPromise = fetchAllMarketplacePerks();
         
-        // Get perks first
+        // Get perks first and show immediately
         const perks = await perksPromise;
         setMarketplacePerks(perks);
+        setLoadingStage('complete'); // Allow perks to display right away
 
-        // Then start loading partner names in parallel (non-blocking)
+        // Load partner names in background without blocking UI
         if (perks.length > 0) {
           const uniquePartnerCapIds = [...new Set(perks.map(perk => perk.creator_partner_cap_id))];
-          // Don't await - let it load in background
-          fetchPartnerNames(uniquePartnerCapIds);
+          // Use setTimeout to defer partner name loading to next tick
+          setTimeout(() => {
+            fetchPartnerNames(uniquePartnerCapIds);
+          }, 0);
         }
       } catch (error) {
         console.error('Failed to load marketplace perks:', error);
+        setLoadingStage('complete');
       }
     };
 
@@ -332,6 +346,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
 
       const transaction = buildClaimPerkWithMetadataTransaction(
         selectedPerkForMetadata.id,
+        selectedPerkForMetadata.creator_partner_cap_id || 'unknown', // Use partner cap as fallback for stats ID
         metadataKeys[0],
         metadataValues[0] as string
       );
@@ -391,7 +406,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       console.log('🔍 Current Account:', currentAccount.address);
       console.log('🔍 Perk ID:', perk.id);
       
-      const transaction = buildClaimPerkTransaction(perk.id);
+      const transaction = buildClaimPerkTransaction(perk.id, perk.creator_partner_cap_id);
 
       // Set the sender explicitly to match the connected account
       transaction.setSender(currentAccount.address);
@@ -454,6 +469,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
 
       const transaction = buildClaimPerkWithMetadataTransaction(
         selectedDiscordPerk.id,
+        selectedDiscordPerk.creator_partner_cap_id,
         'discord_id_hash',
         hashedDiscordId
       );
@@ -525,20 +541,19 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       refreshPerkData();
       globalPartnerNamesCache.clear();
       
+      // Reset progress tracking
+      setLoadingStage('perks');
+      
       // Load perks first (fast)
       const perks = await fetchAllMarketplacePerks();
       setMarketplacePerks(perks);
-      
-      // Update partner names in background (slower, non-blocking)
-      if (perks.length > 0) {
-        const uniquePartnerCapIds = [...new Set(perks.map(perk => perk.creator_partner_cap_id))];
-        fetchPartnerNames(uniquePartnerCapIds); // Don't await
-      }
+      setLoadingStage('complete');
       
       toast.success('Marketplace refreshed!');
     } catch (error) {
       console.error('Failed to refresh marketplace:', error);
       toast.error('Failed to refresh marketplace.');
+      setLoadingStage('complete');
     }
   };
 
@@ -597,15 +612,22 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       {/* Marketplace Content */}
       <div className="max-h-[30rem] overflow-y-auto scrollbar-thin grid grid-cols-1 md:grid-cols-2 gap-6 p-2">
         {isLoadingPerks ? (
-          // Loading state with progressive information
-          <div className="col-span-full text-center py-12 animate-fade-in">
-            <div className="text-6xl mb-6 opacity-50">⏳</div>
-            <div className="text-gray-300 mb-3 text-lg font-medium">Loading marketplace perks...</div>
-            <div className="text-sm text-gray-500 mb-4">
-              Fetching perks from latest partner packages
+          // Simple loading state with spinning hourglass
+          <div className="col-span-full text-center py-8 animate-fade-in">
+            <div 
+              className="text-6xl mb-4 inline-block animate-spin-slow opacity-70"
+              style={{ 
+                animation: 'spin 3s linear infinite',
+                transformOrigin: 'center center'
+              }}
+            >
+              ⏳
             </div>
-            <div className="bg-gray-700/30 rounded-full h-2 w-64 mx-auto overflow-hidden">
-              <div className="bg-gradient-to-r from-purple-500 to-blue-500 h-full w-1/3 animate-pulse"></div>
+            <div className="text-gray-300 text-lg font-medium">
+              Loading marketplace perks...
+            </div>
+            <div className="text-sm text-gray-500 mt-2">
+              Please wait while we fetch the latest perks
             </div>
           </div>
         ) : perkError ? (
@@ -678,7 +700,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                       {perk.name}
                     </h3>
                     <div className="text-sm text-gray-400 mt-0.5">
-                      by {partnerNames.get(perk.creator_partner_cap_id) || (isLoadingPartnerNames ? 'Loading...' : 'Unknown Partner')}
+                      by {partnerNames.get(perk.creator_partner_cap_id) || 'Partner'}
                       {isLoadingPartnerNames && !partnerNames.get(perk.creator_partner_cap_id) && (
                         <span className="ml-1 inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
                       )}
