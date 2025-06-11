@@ -9,6 +9,7 @@ import { UserBalancesCard } from '../components/UserBalancesCard';
 import { PointsDisplay } from '../components/PointsDisplay';
 import { PerformanceTodayCard } from '../components/PerformanceTodayCard';
 import { RecentActivityCard } from '../components/RecentActivityCard';
+import { EngagementMilestonesCard } from '../components/EngagementMilestonesCard';
 import { MainLayout } from '../layouts/MainLayout';
 
 // Define type for projection data to match ProjectionChart.tsx
@@ -160,9 +161,12 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Key Performance Insights */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-slide-up animation-delay-600">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-slide-up animation-delay-600">
         {/* Performance Metrics */}
         <PerformanceTodayCard />
+
+        {/* Engagement Tracking */}
+        <EngagementMilestonesCard />
 
         {/* Recent Activity & Opportunities */}
         <RecentActivityCard />

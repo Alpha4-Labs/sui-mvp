@@ -124,6 +124,31 @@ export const buildUnstakeTransaction = (
 };
 
 /**
+ * Builds a transaction for early unstaking (before maturity) to receive Alpha Points
+ * User gets 100% Alpha Points value (1 SUI = 3,280 αP) but stake remains encumbered until maturity
+ * 
+ * @param stakeId Object ID of the stake position
+ * @returns Transaction object ready for execution
+ */
+export const buildEarlyUnstakeTransaction = (
+  stakeId: string
+) => {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::early_unstake_for_alpha_points`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),   // Config
+      tx.object(SHARED_OBJECTS.ledger),   // Ledger for minting Alpha Points
+      tx.object(stakeId),                 // StakePosition to early unstake
+      tx.object(CLOCK_ID)                 // Clock for timestamp
+    ]
+  });
+  
+  return tx;
+};
+
+/**
  * Builds a transaction for redeeming Alpha Points for SUI
  * 
  * @param pointsAmount Amount of Alpha Points to redeem
@@ -1784,3 +1809,189 @@ export const buildClaimPerkWithMetadataQuotaFreeTransaction = (
 
   return tx;
 };
+
+// === CROSS-PACKAGE RECOVERY FUNCTIONS ===
+// Functions to interact with cross-package recovery for old package stakes
+
+/**
+ * Build transaction to rescue a single stake from old package using AdminCap
+ */
+export function buildRescueSingleStakeTransaction(
+  oldAdminCapId: string,
+  oldPackageId: string,
+  rescuedStakeOwner: string,
+  rescuedStakeId: string,
+  rescuedPrincipalMist: string,
+  rescuedDurationDays: number,
+  rescuedStartTimeMs: string
+) {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::rescue_stake_from_old_package`,
+    typeArguments: [
+      `${oldPackageId}::admin::AdminCap` // AdminCap type from old package
+    ],
+    arguments: [
+      tx.object(oldAdminCapId), // old_admin_cap
+      tx.object(SHARED_OBJECTS.config), // new_config
+      tx.object(SHARED_OBJECTS.ledger), // new_ledger
+      tx.pure.address(oldPackageId), // old_package_id
+      tx.pure.address(rescuedStakeOwner), // rescued_stake_owner
+      tx.pure.id(rescuedStakeId), // rescued_stake_id
+      tx.pure.u64(rescuedPrincipalMist), // rescued_principal_mist
+      tx.pure.u64(rescuedDurationDays), // rescued_duration_days
+      tx.pure.u64(rescuedStartTimeMs), // rescued_start_time_ms
+      tx.object(CLOCK_ID), // clock
+    ],
+  });
+  
+  return tx;
+}
+
+/**
+ * Build transaction to batch rescue multiple stakes from old package
+ */
+export function buildRescueBatchStakesTransaction(
+  oldAdminCapId: string,
+  oldPackageId: string,
+  rescuedStakeOwners: string[],
+  rescuedStakeIds: string[],
+  rescuedPrincipalsMist: string[],
+  rescuedDurationsDays: number[],
+  rescuedStartTimesMs: string[]
+) {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::rescue_batch_stakes_from_old_package`,
+    typeArguments: [
+      `${oldPackageId}::admin::AdminCap`
+    ],
+    arguments: [
+      tx.object(oldAdminCapId), // old_admin_cap
+      tx.object(SHARED_OBJECTS.config), // new_config
+      tx.object(SHARED_OBJECTS.ledger), // new_ledger
+      tx.pure.address(oldPackageId), // old_package_id
+      tx.pure.vector('address', rescuedStakeOwners), // rescued_stake_owners
+      tx.pure.vector('id', rescuedStakeIds), // rescued_stake_ids
+      tx.pure.vector('u64', rescuedPrincipalsMist), // rescued_principals_mist
+      tx.pure.vector('u64', rescuedDurationsDays), // rescued_durations_days
+      tx.pure.vector('u64', rescuedStartTimesMs), // rescued_start_times_ms
+      tx.object(CLOCK_ID), // clock
+    ],
+  });
+  
+  return tx;
+}
+
+/**
+ * Build transaction to unencumber a stake in the old package
+ */
+export function buildOldPackageUnencumberStakeTransaction(
+  oldAdminCapId: string,
+  oldPackageId: string,
+  stakeOwner: string,
+  stakeId: string
+) {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::old_package_admin_unencumber_stake`,
+    typeArguments: [
+      `${oldPackageId}::admin::AdminCap`
+    ],
+    arguments: [
+      tx.object(oldAdminCapId), // old_admin_cap
+      tx.pure.address(oldPackageId), // old_package_id
+      tx.pure.address(stakeOwner), // stake_owner
+      tx.pure.id(stakeId), // stake_id
+      tx.object(CLOCK_ID), // clock
+    ],
+  });
+  
+  return tx;
+}
+
+/**
+ * Build transaction to initiate validator withdrawal for old package native stakes
+ */
+export function buildOldPackageValidatorWithdrawalTransaction(
+  oldAdminCapId: string,
+  oldPackageId: string,
+  stakeOwner: string,
+  nativeStakeId: string,
+  validatorAddress: string
+) {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::old_package_initiate_validator_withdrawal`,
+    typeArguments: [
+      `${oldPackageId}::admin::AdminCap`
+    ],
+    arguments: [
+      tx.object(oldAdminCapId), // old_admin_cap
+      tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state
+      tx.pure.address(oldPackageId), // old_package_id
+      tx.pure.address(stakeOwner), // stake_owner
+      tx.pure.id(nativeStakeId), // native_stake_id
+      tx.pure.address(validatorAddress), // validator_address
+      tx.object(CLOCK_ID), // clock
+    ],
+  });
+  
+  return tx;
+}
+
+/**
+ * Build transaction to verify old package admin access
+ */
+export function buildVerifyOldPackageAdminAccessTransaction(
+  oldAdminCapId: string,
+  oldPackageId: string
+) {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::verify_old_package_admin_access`,
+    typeArguments: [
+      `${oldPackageId}::admin::AdminCap`
+    ],
+    arguments: [
+      tx.object(oldAdminCapId), // old_admin_cap
+      tx.pure.address(oldPackageId), // old_package_id
+    ],
+  });
+  
+  return tx;
+}
+
+// === HELPER FUNCTIONS FOR CROSS-PACKAGE RECOVERY ===
+
+/**
+ * Convert SUI amount to Alpha Points using 1:1000 USD ratio (1 SUI = 3,280 αP)
+ */
+export function convertSuiToAlphaPoints(suiAmount: string): string {
+  const suiAmountBN = BigInt(suiAmount);
+  const suiPriceUsdMilli = BigInt(3280); // 3.28 USD * 1000
+  const suiToMistConversion = BigInt(1_000_000_000);
+  
+  // Formula: (suiAmount * 3,280) / 1,000,000,000
+  const alphaPoints = (suiAmountBN * suiPriceUsdMilli) / suiToMistConversion;
+  return alphaPoints.toString();
+}
+
+/**
+ * Get current timestamp in milliseconds
+ */
+export function getCurrentTimestampMs(): string {
+  return Date.now().toString();
+}
+
+/**
+ * Calculate Alpha Points that would be minted for a given SUI stake amount
+ */
+export function calculateRecoveryAlphaPoints(principalMist: string): string {
+  return convertSuiToAlphaPoints(principalMist);
+}

@@ -1,6 +1,8 @@
 import { bcs } from '@mysten/sui/bcs';
 
 // --- Contract Configuration ---
+export const PACKAGE_ID_V20 = import.meta.env['VITE_PACKAGE_ID_V20'];
+export const PACKAGE_ID_V19 = import.meta.env['VITE_PACKAGE_ID_V19'];
 export const PACKAGE_ID_V17 = import.meta.env['VITE_PACKAGE_ID_V17'];
 export const PACKAGE_ID_V18 = import.meta.env['VITE_PACKAGE_ID_V18'];
 export const PACKAGE_ID_V16 = import.meta.env['VITE_PACKAGE_ID_V16'];
@@ -24,6 +26,8 @@ export const PACKAGE_ID = import.meta.env['VITE_PACKAGE_ID']; // THIS IS THE SOL
 // Aggregate all known package IDs, newest first
 export const ALL_PACKAGE_IDS = [
   PACKAGE_ID,        // Latest (should be V8)
+  PACKAGE_ID_V20,
+  PACKAGE_ID_V19,
   PACKAGE_ID_V18,
   PACKAGE_ID_V17,
   PACKAGE_ID_V16,
@@ -78,6 +82,7 @@ const VITE_ORACLE_ID = import.meta.env['VITE_ORACLE_ID'];
 const VITE_LOAN_ID = import.meta.env['VITE_LOAN_ID'];
 const VITE_ESCROW_VAULT_ID = import.meta.env['VITE_ESCROW_ID'];
 const VITE_PARTNER_CAP = import.meta.env['VITE_PARTNER_CAP'];
+// Note: ENGAGEMENT_TRACKER_ID is dynamically discovered, not from environment
 
 // === TVL-Backed PartnerCapFlex System ===
 export const SHARED_OBJECTS = {
@@ -88,6 +93,7 @@ export const SHARED_OBJECTS = {
   loanConfig: isValidSuiObjectId(VITE_LOAN_ID) ? VITE_LOAN_ID : handleInvalidId('LOAN_ID', VITE_LOAN_ID),
   oracle: isValidSuiObjectId(VITE_ORACLE_ID) ? VITE_ORACLE_ID : handleInvalidId('ORACLE_ID', VITE_ORACLE_ID),
   partnerCap: isValidSuiObjectId(VITE_PARTNER_CAP) ? VITE_PARTNER_CAP : handleInvalidId('PARTNER_CAP_ID', VITE_PARTNER_CAP)
+  // Note: engagementTracker is dynamically discovered via findEngagementTracker() utility
 } as const;
 
 // Type for the shared objects

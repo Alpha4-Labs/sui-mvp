@@ -45,6 +45,10 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   // Simple loading state tracking
   const [loadingStage, setLoadingStage] = useState<'perks' | 'partners' | 'complete'>('perks');
 
+  // Track user's claimed perks
+  const [claimedPerks, setClaimedPerks] = useState<Set<string>>(new Set());
+  const [isLoadingClaimedPerks, setIsLoadingClaimedPerks] = useState(false);
+
   // Metadata collection modal state
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
   const [selectedPerkForMetadata, setSelectedPerkForMetadata] = useState<PerkDefinition | null>(null);
@@ -56,10 +60,91 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   const [isDiscordModalOpen, setIsDiscordModalOpen] = useState(false);
   const [selectedDiscordPerk, setSelectedDiscordPerk] = useState<PerkDefinition | null>(null);
 
-  // Filtering state
+  // Filtering and sorting state
   const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
   const [activeCompanies, setActiveCompanies] = useState<Set<string>>(new Set());
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  
+  // New sorting and filtering options
+  const [sortBy, setSortBy] = useState<'alphabetical' | 'date' | 'price-low' | 'price-high' | 'owned' | 'claims'>('date');
+  const [filterByOwned, setFilterByOwned] = useState<'all' | 'owned' | 'not-owned'>('all');
+  const [filterByCategory, setFilterByCategory] = useState<Set<string>>(new Set());
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 10000000]); // In Alpha Points
+  const [showExpired, setShowExpired] = useState(true);
+
+  // Fetch user's claimed perks
+  const fetchClaimedPerks = async () => {
+    if (!suiClient || !currentAccount?.address) {
+      setClaimedPerks(new Set());
+      return;
+    }
+
+    setIsLoadingClaimedPerks(true);
+    
+    try {
+      const packageId = import.meta.env['VITE_PACKAGE_ID'];
+      if (!packageId) {
+        console.warn('Package ID not configured, cannot fetch claimed perks');
+        return;
+      }
+
+      // Query for ClaimedPerk objects owned by the current user
+      let claimedObjects = await suiClient.getOwnedObjects({
+        owner: currentAccount.address,
+        filter: {
+          StructType: `${packageId}::perk_manager::ClaimedPerk`
+        },
+        options: {
+          showContent: true,
+          showType: true,
+        },
+      });
+
+      // If no results, try querying all objects and filtering
+      if (claimedObjects.data.length === 0) {
+        const allObjects = await suiClient.getOwnedObjects({
+          owner: currentAccount.address,
+          options: {
+            showContent: true,
+            showType: true,
+          },
+        });
+        
+        // Filter for ClaimedPerk objects
+        const claimedPerkObjects = allObjects.data.filter((obj: any) => {
+          const objectType = obj.data?.type;
+          return objectType && objectType.includes('ClaimedPerk');
+        });
+        
+        claimedObjects = {
+          data: claimedPerkObjects,
+          hasNextPage: false,
+          nextCursor: null
+        };
+      }
+
+      const claimedPerkIds = new Set<string>();
+      
+      claimedObjects.data.forEach((obj: any) => {
+        if (obj.data?.content && obj.data.content.dataType === 'moveObject') {
+          const fields = (obj.data.content as any).fields;
+          
+          // Try different possible field names
+          const perkDefinitionId = fields.perk_definition_id || fields.perkDefinitionId || fields.definition_id;
+          
+          if (perkDefinitionId) {
+            claimedPerkIds.add(perkDefinitionId);
+          }
+        }
+      });
+      setClaimedPerks(claimedPerkIds);
+    } catch (error) {
+      console.error('Failed to fetch claimed perks:', error);
+      setClaimedPerks(new Set());
+    } finally {
+      setIsLoadingClaimedPerks(false);
+    }
+  };
 
   // OPTIMIZATION: Batch and cache partner names with better error handling
   const fetchPartnerNames = async (partnerCapIds: string[]) => {
@@ -192,6 +277,11 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     loadMarketplaceData();
   }, [fetchAllMarketplacePerks]);
 
+  // Fetch claimed perks when user connects or changes
+  useEffect(() => {
+    fetchClaimedPerks();
+  }, [currentAccount?.address, suiClient]);
+
   // Extract all unique tags and companies from marketplace perks
   const allUniqueTags = useMemo(() => {
     const tagSet = new Set<string>();
@@ -212,12 +302,71 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     return Array.from(companySet).sort();
   }, [marketplacePerks, partnerNames]);
 
-  // Filter perks based on active status, tags and companies
+  const allUniqueCategories = useMemo(() => {
+    const categorySet = new Set<string>();
+    marketplacePerks.forEach(perk => {
+      if (perk.perk_type) {
+        categorySet.add(perk.perk_type);
+      }
+    });
+    return Array.from(categorySet).sort();
+  }, [marketplacePerks]);
+
+  // Get the Alpha Points price for a perk (uses stored price from fixed contract)
+  const getCorrectAlphaPointsPrice = (perk: PerkDefinition) => {
+    // With fixed contract functions, stored prices are correct
+    // No need to calculate - use the stored value directly
+    return perk.current_alpha_points_price;
+  };
+
+  // Check if user has already claimed a perk
+  const hasPerkClaimed = (perk: PerkDefinition) => {
+    return claimedPerks.has(perk.id);
+  };
+
+  // Check if a perk is expired
+  const isPerkExpired = (perk: PerkDefinition) => {
+    if (!perk.expiration_timestamp_ms) return false;
+    return Date.now() > perk.expiration_timestamp_ms;
+  };
+
+  // Sorting function
+  const sortPerks = (perks: PerkDefinition[]) => {
+    return [...perks].sort((a, b) => {
+      switch (sortBy) {
+        case 'alphabetical':
+          return a.name.localeCompare(b.name);
+        case 'date':
+          return b.last_price_update_timestamp_ms - a.last_price_update_timestamp_ms; // Newest first
+        case 'price-low':
+          return getCorrectAlphaPointsPrice(a) - getCorrectAlphaPointsPrice(b);
+        case 'price-high':
+          return getCorrectAlphaPointsPrice(b) - getCorrectAlphaPointsPrice(a);
+        case 'owned':
+          const aOwned = hasPerkClaimed(a) ? 1 : 0;
+          const bOwned = hasPerkClaimed(b) ? 1 : 0;
+          return bOwned - aOwned; // Owned first
+        case 'claims':
+          return b.total_claims_count - a.total_claims_count; // Most claimed first
+        default:
+          return 0;
+      }
+    });
+  };
+
+  // Filter and sort perks based on all criteria
   const displayedPerks = useMemo(() => {
     let filtered = marketplacePerks;
 
     // First filter out paused/inactive perks
     filtered = filtered.filter(perk => perk.is_active);
+
+    // Filter by owned status
+    if (filterByOwned === 'owned') {
+      filtered = filtered.filter(perk => hasPerkClaimed(perk));
+    } else if (filterByOwned === 'not-owned') {
+      filtered = filtered.filter(perk => !hasPerkClaimed(perk));
+    }
 
     // Filter by tags
     if (activeTags.size > 0) {
@@ -234,15 +383,38 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       });
     }
 
-    return filtered;
-  }, [marketplacePerks, activeTags, activeCompanies, partnerNames]);
+    // Filter by categories
+    if (filterByCategory.size > 0) {
+      filtered = filtered.filter(perk => 
+        filterByCategory.has(perk.perk_type)
+      );
+    }
 
-  // Get the Alpha Points price for a perk (uses stored price from fixed contract)
-  const getCorrectAlphaPointsPrice = (perk: PerkDefinition) => {
-    // With fixed contract functions, stored prices are correct
-    // No need to calculate - use the stored value directly
-    return perk.current_alpha_points_price;
-  };
+    // Filter by price range
+    filtered = filtered.filter(perk => {
+      const price = getCorrectAlphaPointsPrice(perk);
+      return price >= priceRange[0] && price <= priceRange[1];
+    });
+
+    // Filter expired perks
+    if (!showExpired) {
+      filtered = filtered.filter(perk => !isPerkExpired(perk));
+    }
+
+    // Apply sorting
+    return sortPerks(filtered);
+  }, [
+    marketplacePerks, 
+    activeTags, 
+    activeCompanies, 
+    partnerNames, 
+    filterByOwned, 
+    filterByCategory, 
+    priceRange, 
+    showExpired, 
+    sortBy, 
+    claimedPerks
+  ]);
 
   // DEPRECATED: No longer needed since we fixed the contract functions
   // Keeping for potential legacy perk detection if needed
@@ -256,6 +428,13 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   const canAffordPerk = (perk: PerkDefinition) => {
     // Use the correctly calculated Alpha Points price instead of buggy stored value
     return userPoints >= getCorrectAlphaPointsPrice(perk);
+  };
+
+  // Check if a perk allows multiple claims/uses
+  const allowsMultipleClaims = (perk: PerkDefinition) => {
+    // If max_claims is undefined (None) or > 1, it allows multiple claims
+    // If max_uses_per_claim is defined, it's a consumable perk that can be used multiple times
+    return !perk.max_claims || perk.max_claims > 1 || perk.max_uses_per_claim;
   };
 
   // Get the USDC price for display - use the actual stored usdc_price field
@@ -359,17 +538,22 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       const metadataKeys = Object.keys(metadata);
       const metadataValues = Object.values(metadata);
 
-      if (metadataKeys.length === 0) {
-        throw new Error("No metadata provided");
-      }
+              if (metadataKeys.length === 0) {
+          throw new Error("No metadata provided");
+        }
 
-      // Build the perk claiming transaction with metadata
-      const transaction = buildClaimPerkWithMetadataTransaction(
-        selectedPerkForMetadata.id,
-        statsId,
-        metadataKeys[0],
-        metadataValues[0] as string
-      );
+        const metadataValue = metadataValues[0];
+        if (!metadataValue || typeof metadataValue !== 'string') {
+          throw new Error("Metadata value is required and must be a string");
+        }
+
+        // Build the perk claiming transaction with metadata
+        const transaction = buildClaimPerkWithMetadataTransaction(
+          selectedPerkForMetadata.id,
+          statsId,
+          metadataKeys[0],
+          metadataValue as string // Type assertion after validation
+        );
 
       const result = await signAndExecute({
         transaction,
@@ -388,6 +572,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         // Refresh data
         refreshData();
         refreshPerkData();
+        fetchClaimedPerks(); // Refresh claimed perks after purchase
 
         // Call optional callback
         if (onPerkPurchase) {
@@ -489,7 +674,9 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       const transaction = buildClaimPerkTransaction(perk.id, statsResult.statsId);
 
       // Set the sender explicitly to match the connected account
-      transaction.setSender(currentAccount.address);
+      if (currentAccount?.address) {
+        transaction.setSender(currentAccount.address);
+      }
 
       const result = await signAndExecute({
         transaction,
@@ -508,6 +695,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         // Refresh data
         refreshData();
         refreshPerkData();
+        fetchClaimedPerks(); // Refresh claimed perks after purchase
 
         // Call optional callback
         if (onPerkPurchase) {
@@ -593,6 +781,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         // Refresh data
         refreshData();
         refreshPerkData();
+        fetchClaimedPerks(); // Refresh claimed perks after purchase
 
         // Call optional callback
         if (onPerkPurchase) {
@@ -661,6 +850,9 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       setMarketplacePerks(perks);
       setLoadingStage('complete');
       
+      // Also refresh claimed perks
+      fetchClaimedPerks();
+      
       toast.success('Marketplace refreshed!');
     } catch (error) {
       console.error('Failed to refresh marketplace:', error);
@@ -672,53 +864,92 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   return (
     <div>
       {/* Filter Controls */}
-      <div className="card-modern p-6 mb-6 flex items-center justify-between animate-fade-in">
-        <button 
-          onClick={() => setIsFilterModalOpen(true)}
-          className="btn-modern-secondary flex items-center text-sm"
-          aria-label="Filter perks"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clipRule="evenodd" />
-          </svg>
-          Filter Perks
-          {(activeTags.size > 0 || activeCompanies.size > 0) && (
-            <span className="ml-2 bg-purple-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
-              {activeTags.size + activeCompanies.size}
-            </span>
-          )}
-        </button>
-        
-        <div className="flex items-center space-x-4">
-          {(activeTags.size > 0 || activeCompanies.size > 0) && (
-            <div className="text-sm text-gray-400">
-              Showing {displayedPerks.length} of {marketplacePerks.length} perks
-              {activeTags.size > 0 && (
-                <span className="ml-2 text-blue-400">
-                  {activeTags.size} tag{activeTags.size !== 1 ? 's' : ''}
+      <div className="card-modern p-6 mb-6 animate-fade-in">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-4">
+            <button 
+              onClick={() => setIsFilterModalOpen(true)}
+              className="btn-modern-secondary flex items-center text-sm"
+              aria-label="Filter perks"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clipRule="evenodd" />
+              </svg>
+              Filter & Sort
+              {(activeTags.size > 0 || activeCompanies.size > 0 || filterByCategory.size > 0 || filterByOwned !== 'all') && (
+                <span className="ml-2 bg-purple-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
+                  {activeTags.size + activeCompanies.size + filterByCategory.size + (filterByOwned !== 'all' ? 1 : 0)}
                 </span>
               )}
-              {activeCompanies.size > 0 && (
-                <span className="ml-2 text-green-400">
-                  {activeCompanies.size} compan{activeCompanies.size === 1 ? 'y' : 'ies'}
-                </span>
-              )}
+            </button>
+
+            {/* Quick Sort Dropdown */}
+            <select 
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+            >
+              <option value="date">🕒 Newest First</option>
+              <option value="alphabetical">🔤 A-Z</option>
+              <option value="price-low">💰 Price: Low to High</option>
+              <option value="price-high">💰 Price: High to Low</option>
+              <option value="owned">⭐ Owned First</option>
+              <option value="claims">🔥 Most Popular</option>
+            </select>
+
+            {/* Quick Owned Filter */}
+            <select 
+              value={filterByOwned}
+              onChange={(e) => setFilterByOwned(e.target.value as any)}
+              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+            >
+              <option value="all">All Perks</option>
+              <option value="owned">✅ Owned</option>
+              <option value="not-owned">🆕 Not Owned</option>
+            </select>
+
+            {/* Inline Filter Status */}
+            {(activeTags.size > 0 || activeCompanies.size > 0 || filterByCategory.size > 0 || filterByOwned !== 'all') && (
+              <div className="text-sm text-gray-400 px-3 py-2 bg-gray-800 rounded-lg border border-gray-600">
+                Showing {displayedPerks.length} of {marketplacePerks.length}
+                {activeTags.size > 0 && (
+                  <span className="ml-1 text-blue-400">• {activeTags.size} tag{activeTags.size !== 1 ? 's' : ''}</span>
+                )}
+                {activeCompanies.size > 0 && (
+                  <span className="ml-1 text-green-400">• {activeCompanies.size} co.</span>
+                )}
+                {filterByCategory.size > 0 && (
+                  <span className="ml-1 text-purple-400">• {filterByCategory.size} cat.</span>
+                )}
+                {filterByOwned !== 'all' && (
+                  <span className="ml-1 text-yellow-400">• {filterByOwned === 'owned' ? 'Owned only' : 'Not owned only'}</span>
+                )}
+              </div>
+            )}
+          </div>
+          
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={handleRefresh}
+              disabled={isLoadingPerks}
+              className="btn-modern-secondary flex items-center text-sm"
+            >
+              {isLoadingPerks ? '⏳' : '🔄'} Refresh
+            </button>
+            
+            <div className="text-right">
+              <div>
+                <span className="text-gray-400 mr-2">Available Balance:</span>
+                <span className="text-xl font-semibold text-secondary">{userPoints.toLocaleString()} αP</span>
+              </div>
+              <div className="text-sm text-green-400 mt-1">
+                ≈ ${(userPoints / 1000).toFixed(2)} USD
+              </div>
             </div>
-          )}
-          
-          <button
-            onClick={handleRefresh}
-            disabled={isLoadingPerks}
-            className="btn-modern-secondary flex items-center text-sm"
-          >
-            {isLoadingPerks ? '⏳' : '🔄'} Refresh
-          </button>
-          
-          <div className="text-right">
-            <span className="text-gray-400 mr-2">Available Balance:</span>
-            <span className="text-xl font-semibold text-secondary">{userPoints.toLocaleString()} αP</span>
           </div>
         </div>
+
+
       </div>
 
       {/* Marketplace Content */}
@@ -790,10 +1021,14 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
           </div>
         ) : (
           // Marketplace perks
-          displayedPerks.map((perk, index) => (
+          displayedPerks.map((perk, index) => {
+            const isPerkClaimed = hasPerkClaimed(perk);
+            return (
             <div 
               key={perk.id} 
-              className="card-modern p-4 flex items-center hover:scale-[1.01] group transition-transform duration-200 m-1"
+              className={`card-modern p-4 flex items-center hover:scale-[1.01] group transition-transform duration-200 m-1 ${
+                isPerkClaimed ? 'bg-green-500/5 border-green-500/20' : ''
+              }`}
               style={{ animationDelay: `${index * 50}ms` }}
             >
               <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center mr-4 text-xl flex-shrink-0 group-hover:scale-110 transition-transform">
@@ -810,6 +1045,17 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                   <div className="flex-1 min-w-0">
                     <h3 className="text-white font-medium flex items-center gap-1 break-words mr-1">
                       {perk.name}
+                      {isPerkClaimed && (
+                        <div className="relative group">
+                          <span 
+                            className="inline-block w-2 h-2 bg-yellow-400 rounded-full animate-pulse cursor-help"
+                          />
+                          {/* Tooltip - only shows on circle hover */}
+                          <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 bg-yellow-400 text-black text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-10">
+                            ✅ Already Claimed
+                          </div>
+                        </div>
+                      )}
                     </h3>
                     <div className="text-sm text-gray-400 mt-0.5">
                       by {partnerNames.get(perk.creator_partner_cap_id) || 'Partner'}
@@ -840,9 +1086,11 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                         
                         <button 
                           onClick={() => handlePerkClick(perk)}
-                          disabled={perkPurchaseLoading || !canAffordPerk(perk) || hasBuggyPricing(perk)} 
+                          disabled={perkPurchaseLoading || !canAffordPerk(perk) || hasBuggyPricing(perk) || (isPerkClaimed && !allowsMultipleClaims(perk))} 
                           className={`flex-shrink-0 px-4 py-2 text-sm rounded-lg transition-all duration-200 relative min-w-[140px] text-center font-medium ${
-                            hasBuggyPricing(perk)
+                            isPerkClaimed && !allowsMultipleClaims(perk)
+                              ? 'bg-green-600/50 text-green-300 cursor-not-allowed'
+                              : hasBuggyPricing(perk)
                               ? 'bg-yellow-600/50 text-yellow-300 cursor-not-allowed'
                               : !canAffordPerk(perk)
                               ? 'bg-red-600/50 text-red-300 cursor-not-allowed'
@@ -859,6 +1107,8 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                                 </svg>
                               </span>
                             </>
+                          ) : isPerkClaimed && !allowsMultipleClaims(perk) ? (
+                            "✅ Already Claimed"
                           ) : hasBuggyPricing(perk) ? (
                             "⚠️ PRICING BUG"
                           ) : (
@@ -893,7 +1143,8 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                 </div>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -904,11 +1155,24 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
           onClose={() => setIsFilterModalOpen(false)}
           allTags={allUniqueTags}
           allCompanies={allUniqueCompanies}
+          allCategories={allUniqueCategories}
           activeTags={activeTags}
           activeCompanies={activeCompanies}
+          activeCategories={filterByCategory}
           setActiveTags={setActiveTags}
           setActiveCompanies={setActiveCompanies}
-          modalTitle="Filter Marketplace Perks"
+          setActiveCategories={setFilterByCategory}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          filterByOwned={filterByOwned}
+          setFilterByOwned={setFilterByOwned}
+          priceRange={priceRange}
+          setPriceRange={setPriceRange}
+          showExpired={showExpired}
+          setShowExpired={setShowExpired}
+          modalTitle="Filter & Sort Marketplace Perks"
+          totalPerks={marketplacePerks.length}
+          displayedPerks={displayedPerks.length}
         />
       )}
 

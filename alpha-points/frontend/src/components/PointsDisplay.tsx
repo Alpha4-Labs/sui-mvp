@@ -265,7 +265,12 @@ export const PointsDisplay: React.FC = () => {
             <div className="text-2xl font-bold text-white mb-1">
               {formatPoints(points.available)}
             </div>
-            <div className="text-xs text-gray-400">Available αP</div>
+            <div className="text-xs text-green-400">
+              ≈ ${(points.available / 1000).toLocaleString(undefined, { 
+                minimumFractionDigits: 2, 
+                maximumFractionDigits: 2 
+              })} USD
+            </div>
           </div>
           
           {/* Center: Accrued Rewards - Always Show */}
@@ -294,7 +299,7 @@ export const PointsDisplay: React.FC = () => {
                     ? 'text-green-400' 
                     : 'text-gray-400'
                 }`}>
-                  +{formatPoints(totalClaimablePoints.toString())}
+                  +{formatPoints(totalClaimablePoints?.toString() || '0')}
                 </div>
                 <div className="text-xs text-gray-500">Accrued</div>
               </div>
