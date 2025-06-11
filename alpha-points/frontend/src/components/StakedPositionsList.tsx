@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { toast } from 'react-toastify';
 import { useAlphaContext, OrphanedStake } from '../context/AlphaContext';
-import { buildUnstakeTransaction, buildRegisterStakeTransaction } from '../utils/transaction';
+import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction, buildRescueSingleStakeTransaction } from '../utils/transaction';
 import {
   getTransactionErrorMessage,
   getTransactionResponseError,
@@ -22,6 +22,13 @@ import 'swiper/css/navigation';
 // @ts-ignore
 import 'swiper/css/pagination';
 
+// Import SuiClient type for old package detection
+import { SuiClient } from '@mysten/sui/client';
+
+// Old package constants for detection and migration
+const OLD_PACKAGE_ID = '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf';
+const OLD_ADMIN_CAP_ID = '0x27e8bf2681b5b0fc0d497bdf114da1a79cb54944aa0e24867ea8c69307bb024a';
+
 // --- Icons for Carousel Navigation (simple SVGs) ---
 const ChevronLeftIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
@@ -39,13 +46,10 @@ const ChevronRightIcon = () => (
 import { Transaction } from '@mysten/sui/transactions';
 import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
 import { 
-    SuiClient, // For type casting
-    SuiTransactionBlockResponse // For type hint
-} from '@mysten/sui/client';
-import { 
     getZkLoginSignature, 
     ZkLoginSignatureInputs as ActualZkLoginSignatureInputs,
 } from '@mysten/sui/zklogin'; 
+import { SuiTransactionBlockResponse } from '@mysten/sui/client'; 
 // Assuming EnokiZkpResponse and related types are defined as in StakeCard.tsx or a shared util
 interface ZkProofPoints { a: string[]; b: string[][]; c: string[]; }
 interface IssBase64DetailsClaim { value: string; indexMod4: number; }
@@ -76,8 +80,10 @@ type CombinedStakeListItem = SwiperStakeItem | SwiperOrphanedItem;
 export const StakedPositionsList: React.FC = () => {
   const { 
     stakePositions, 
+    loans,
     loading, 
     refreshData, 
+    refreshLoansData,
     setTransactionLoading,
     orphanedStakes = [], 
     removeOrphanedStake = (id: string) => {},
@@ -90,13 +96,183 @@ export const StakedPositionsList: React.FC = () => {
   } = useAlphaContext();
 
   const [unstakeInProgress, setUnstakeInProgress] = useState<string | null>(null);
+  const [earlyUnstakeInProgress, setEarlyUnstakeInProgress] = useState<string | null>(null);
   const [registrationInProgress, setRegistrationInProgress] = useState<string | null>(null);
+  const [migrationInProgress, setMigrationInProgress] = useState<boolean>(false);
+  const [oldPackageStakes, setOldPackageStakes] = useState<any[]>([]);
+  const [hasOldPackageStakes, setHasOldPackageStakes] = useState<boolean>(false);
+  const [checkingOldPackage, setCheckingOldPackage] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [swiperInstance, setSwiperInstance] = useState<any>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  
+  // Prevent duplicate toasts from React StrictMode
+  const [lastToastTime, setLastToastTime] = useState<Record<string, number>>({});
 
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+
+  // Helper function to prevent duplicate toasts (caused by React StrictMode)
+  const showToastOnce = (key: string, toastFn: () => void, timeoutMs: number = 3000) => {
+    const now = Date.now();
+    const lastTime = lastToastTime[key] || 0;
+    
+    if (now - lastTime > timeoutMs) {
+      setLastToastTime(prev => ({ ...prev, [key]: now }));
+      toastFn();
+    }
+  };
+
+  // Helper function to extract original ID from prefixed display ID
+  const extractOriginalId = (displayId: string): string => {
+    if (displayId.startsWith('orphaned-')) {
+      return displayId.replace('orphaned-', '');
+    }
+    if (displayId.startsWith('stake-')) {
+      return displayId.replace('stake-', '');
+    }
+    return displayId;
+  };
+
+  // Helper function to check if an encumbered stake is loan collateral vs early withdrawn
+  const hasAssociatedLoan = (stakeId: string): boolean => {
+    const originalId = extractOriginalId(stakeId);
+    return loans.some(loan => loan.stakeId === originalId);
+  };
+
+  // Check for old package stakes on mount and when address changes
+  React.useEffect(() => {
+    if (alphaIsConnected && alphaAddress && suiClient) {
+      checkForOldPackageStakes();
+    }
+  }, [alphaIsConnected, alphaAddress, suiClient]);
+
+  // Load loans data when component mounts to help distinguish loan collateral from early unstake
+  React.useEffect(() => {
+    if (alphaIsConnected && alphaAddress) {
+      refreshLoansData();
+    }
+  }, [alphaIsConnected, alphaAddress, refreshLoansData]);
+
+  /**
+   * Detects if the user has stakes in the old package
+   */
+  const checkForOldPackageStakes = async () => {
+    if (!alphaAddress || !suiClient) return;
+
+    setCheckingOldPackage(true);
+    try {
+      // Query for StakePosition objects from the old package
+      const response = await (suiClient as SuiClient).getOwnedObjects({
+        owner: alphaAddress,
+        filter: {
+          StructType: `${OLD_PACKAGE_ID}::stake_position::StakePosition`
+        },
+        options: {
+          showContent: true,
+          showType: true
+        }
+      });
+
+      const oldStakes = response.data.filter(obj => 
+        obj.data?.content && 
+        'fields' in obj.data.content
+      ).map(obj => ({
+        objectId: obj.data?.objectId,
+        content: obj.data?.content
+      }));
+
+      setOldPackageStakes(oldStakes);
+      setHasOldPackageStakes(oldStakes.length > 0);
+
+      if (oldStakes.length > 0) {
+        console.log(`Found ${oldStakes.length} stakes in old package for migration`);
+      }
+    } catch (error) {
+      console.error('Error checking for old package stakes:', error);
+    } finally {
+      setCheckingOldPackage(false);
+    }
+  };
+
+  /**
+   * Handles self-serve migration of all user's old package stakes
+   */
+  const handleSelfServeMigration = async () => {
+    if (!alphaAddress || !suiClient || oldPackageStakes.length === 0) {
+      toast.error('No old package stakes found to migrate');
+      return;
+    }
+
+    setMigrationInProgress(true);
+    setTransactionLoading(true);
+
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Process each old stake individually
+      for (const stake of oldPackageStakes) {
+        try {
+          const stakeFields = stake.content?.fields as any;
+          if (!stakeFields) continue;
+
+          const transaction = buildRescueSingleStakeTransaction(
+            OLD_ADMIN_CAP_ID,
+            OLD_PACKAGE_ID,
+            alphaAddress,
+            stake.objectId,
+            stakeFields.principal || '1000000000', // Default 1 SUI if missing
+            parseInt(stakeFields.duration_days || '30'), // Default 30 days if missing
+            stakeFields.start_time_ms || Date.now().toString()
+          );
+
+          const result = await signAndExecute({ transaction });
+          
+          if (!result || typeof result !== 'object' || !('digest' in result)) {
+            throw new Error('Transaction returned an unexpected response format');
+          }
+          
+          const responseError = getTransactionResponseError(result);
+          if (responseError) {
+            throw new Error(responseError);
+          }
+
+          successCount++;
+          console.log(`Successfully migrated stake ${stake.objectId}: ${result.digest}`);
+
+        } catch (error) {
+          console.error(`Failed to migrate stake ${stake.objectId}:`, error);
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(
+          `Migration completed! ${successCount} stake${successCount > 1 ? 's' : ''} successfully migrated` +
+          (errorCount > 0 ? ` (${errorCount} failed)` : '')
+        );
+        
+        // Clear old package stakes and refresh data
+        setOldPackageStakes([]);
+        setHasOldPackageStakes(false);
+        
+        setTimeout(() => {
+          refreshData();
+        }, 2000);
+      } else {
+        toast.error(`Migration failed: ${errorCount} stake${errorCount > 1 ? 's' : ''} could not be migrated`);
+      }
+
+    } catch (error) {
+      console.error('Error during self-serve migration:', error);
+      const friendlyErrorMessage = getTransactionErrorMessage(error);
+      toast.error(`Migration failed: ${friendlyErrorMessage}`);
+    } finally {
+      setMigrationInProgress(false);
+      setTransactionLoading(false);
+    }
+  };
 
   // Consolidate loading state to prevent flickering
   const isLoading = loading.positions || loading.allUserStakes;
@@ -143,7 +319,10 @@ export const StakedPositionsList: React.FC = () => {
         throw new Error(responseError);
       }
 
-      toast.success(`Successfully unstaked ${formatSui(principal)} SUI! Digest: ${txDigest.substring(0, 10)}...`);
+      // Prevent duplicate toasts
+      showToastOnce(`unstake-${stakeId}-${txDigest}`, () => {
+        toast.success(`Successfully unstaked ${formatSui(principal)} SUI! Digest: ${txDigest.substring(0, 10)}...`);
+      });
       
       setTimeout(() => {
         refreshData();
@@ -152,10 +331,72 @@ export const StakedPositionsList: React.FC = () => {
     } catch (err: any) {
       console.error('Error unstaking position:', err);
       const friendlyErrorMessage = getTransactionErrorMessage(err);
-      toast.error(friendlyErrorMessage);
+      
+      // Prevent duplicate error toasts
+      showToastOnce(`unstake-error-${stakeId}`, () => {
+        toast.error(friendlyErrorMessage);
+      });
     } finally {
       setTransactionLoading(false);
       setUnstakeInProgress(null);
+    }
+  };
+
+  /**
+   * Handles early unstaking a position for Alpha Points
+   * User receives 100% Alpha Points value (1 SUI = 3,280 αP) immediately
+   * Stake remains encumbered until maturity for security
+   * @param stakeId The ID of the stake position to early unstake
+   * @param principal The principal amount of the stake (for feedback)
+   */
+  const handleEarlyUnstake = async (stakeId: string, principal: string) => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setEarlyUnstakeInProgress(stakeId);
+    setTransactionLoading(true);
+
+    try {
+      const transaction = buildEarlyUnstakeTransaction(stakeId);
+      const result = await signAndExecute({ transaction });
+      
+      if (!result || typeof result !== 'object' || !('digest' in result)) {
+        throw new Error('Transaction returned an unexpected response format');
+      }
+      
+      const txDigest = result.digest;
+      const responseError = getTransactionResponseError(result);
+      if (responseError) {
+        throw new Error(responseError);
+      }
+
+      // Calculate expected Alpha Points (1 SUI = 3,280 αP, minus 0.1% fee)
+      const principalNum = parseInt(principal, 10);
+      const principalSui = principalNum / 1_000_000_000;
+      const expectedAlphaPoints = Math.floor(principalSui * 3280 * 0.999); // 99.9% after 0.1% fee
+
+      // Prevent duplicate toasts caused by React StrictMode
+      showToastOnce(`early-unstake-${stakeId}-${txDigest}`, () => {
+        toast.success(
+          `Early unstake successful! Received ~${expectedAlphaPoints.toLocaleString()} Alpha Points. ` +
+          `Stake remains locked until maturity. Digest: ${txDigest.substring(0, 10)}...`
+        );
+      });
+      
+      setTimeout(() => {
+        refreshData();
+      }, 2000);
+
+    } catch (err: any) {
+      console.error('Error early unstaking position:', err);
+      const friendlyErrorMessage = getTransactionErrorMessage(err);
+      
+      // Prevent duplicate error toasts
+      showToastOnce(`early-unstake-error-${stakeId}`, () => {
+        toast.error(`Early unstake failed: ${friendlyErrorMessage}`);
+      });
+    } finally {
+      setTransactionLoading(false);
+      setEarlyUnstakeInProgress(null);
     }
   };
 
@@ -318,15 +559,16 @@ export const StakedPositionsList: React.FC = () => {
     // Only compute if not loading to prevent premature renders
     if (isLoading) return [];
 
-    const orphanedAsSwiperItems: SwiperOrphanedItem[] = orphanedStakes.map(orphan => ({
+    const orphanedAsSwiperItems: SwiperOrphanedItem[] = orphanedStakes.map((orphan, index) => ({
       ...orphan,
-      id: orphan.stakedSuiObjectId, 
+      id: `orphaned-${orphan.stakedSuiObjectId || index}`, // Ensure unique ID
       isOrphaned: true,
       principal: orphan.principalAmount || '0', 
     }));
 
-    const registeredAsSwiperItems: SwiperStakeItem[] = stakePositions.map(pos => ({
+    const registeredAsSwiperItems: SwiperStakeItem[] = stakePositions.map((pos, index) => ({
       ...pos,
+      id: `stake-${pos.id || index}`, // Ensure unique ID
       isOrphaned: false,
     }));
     
@@ -392,9 +634,9 @@ export const StakedPositionsList: React.FC = () => {
 
   // --- Full JSX ---
   return (
-    <div className="card-modern p-4 animate-fade-in relative z-[51]">
+    <div className="card-modern p-4 animate-fade-in relative z-[40]">
       {/* Header - modernized */}
-      <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-4 relative z-[41]">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg flex items-center justify-center shadow-lg">
             <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -403,15 +645,62 @@ export const StakedPositionsList: React.FC = () => {
           </div>
           <div>
             <h2 className="text-base font-semibold text-white">Staked Positions</h2>
-            <p className="text-xs text-gray-400">Your active stakes</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-gray-400">Your active stakes</p>
+              {hasOldPackageStakes && (
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                  <span className="text-xs text-red-400 font-medium">
+                    {oldPackageStakes.length} legacy stake{oldPackageStakes.length !== 1 ? 's' : ''} found
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
+        </div>
+
+        {/* Controls Container */}
+        <div className="flex items-center gap-3 relative z-[42]">
+          {hasOldPackageStakes && (
+            <button
+              onClick={handleSelfServeMigration}
+              disabled={migrationInProgress || loading.transaction || checkingOldPackage}
+              className="px-3 py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white text-sm font-medium rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-red-500/25"
+              title={`Migrate ${oldPackageStakes.length} stake${oldPackageStakes.length !== 1 ? 's' : ''} from old package`}
+            >
+              {migrationInProgress ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Migrating...
+                </>
+              ) : checkingOldPackage ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Checking...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                  </svg>
+                  Migrate ({oldPackageStakes.length})
+                </>
+                             )}
+             </button>
+           )}
         </div>
 
         {/* Inline Navigation */}
         {combinedListItems.length > 1 && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 relative z-[43]">
             <button
-              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300"
+              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300 relative z-[44]"
               aria-label="Previous slide"
               onClick={() => swiperInstance?.slidePrev()}
             >
@@ -420,7 +709,7 @@ export const StakedPositionsList: React.FC = () => {
               </svg>
             </button>
             
-            <div className="flex gap-1 mx-1">
+            <div className="flex gap-1 mx-1 relative z-[44]">
               {(() => {
                 const totalPages = combinedListItems.length;
                 const maxVisible = 3;
@@ -430,7 +719,7 @@ export const StakedPositionsList: React.FC = () => {
                   return combinedListItems.map((_, idx) => (
                     <button
                       key={idx}
-                      className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300
+                      className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300 relative z-[45]
                         ${activeIndex === idx 
                           ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25' 
                           : 'bg-black/20 backdrop-blur-lg border border-white/10 text-gray-300 hover:bg-black/30 hover:border-white/20'
@@ -472,7 +761,7 @@ export const StakedPositionsList: React.FC = () => {
                       {pages.map(idx => (
                         <button
                           key={idx}
-                          className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300
+                          className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300 relative z-[45]
                             ${activeIndex === idx 
                               ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25' 
                               : 'bg-black/20 backdrop-blur-lg border border-white/10 text-gray-300 hover:bg-black/30 hover:border-white/20'
@@ -501,7 +790,7 @@ export const StakedPositionsList: React.FC = () => {
             </div>
             
             <button
-              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300"
+              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300 relative z-[44]"
               aria-label="Next slide"
               onClick={() => swiperInstance?.slideNext()}
             >
@@ -529,7 +818,7 @@ export const StakedPositionsList: React.FC = () => {
           </div>
         ) : combinedListItems.length > 0 ? (
           // --- List of Combined Staked Positions (Swiper) ---
-          <div className="relative z-[55]">
+          <div className="relative z-[30]">
             <Swiper
               modules={[Navigation, Pagination, A11y]}
               spaceBetween={20}
@@ -554,6 +843,11 @@ export const StakedPositionsList: React.FC = () => {
                 const maturityPercentage = !isOrphaned ? Math.max(0, Math.min(100, (item as SwiperStakeItem).maturityPercentage || 0)) : 0;
                 const isMature = !isOrphaned && maturityPercentage >= 100;
                 const isEncumbered = !isOrphaned && (item as SwiperStakeItem).encumbered;
+                
+                // Check if encumbered stake is loan collateral vs early withdrawn
+                const isLoanCollateral = isEncumbered && hasAssociatedLoan(item.id);
+                const isEarlyWithdrawn = isEncumbered && !isLoanCollateral;
+                
                 const canUnstake = isMature && !isEncumbered;
 
                 const cardClass = isOrphaned 
@@ -562,30 +856,36 @@ export const StakedPositionsList: React.FC = () => {
 
                 const statusDotClass = isOrphaned
                   ? "status-indicator-warning"
-                  : isEncumbered 
-                    ? "status-indicator-warning" 
-                    : isMature 
-                      ? "status-indicator-active" 
-                      : "status-indicator-info";
+                  : isLoanCollateral
+                    ? "status-indicator-warning"
+                    : isEarlyWithdrawn
+                      ? "status-indicator-info" 
+                      : isMature 
+                        ? "status-indicator-active" 
+                        : "status-indicator-info";
 
                 const statusText = isOrphaned
                   ? "Pending Registration"
-                  : isEncumbered 
-                    ? "Collateral" 
-                    : isMature 
-                      ? "Mature" 
-                      : "Staking";
+                  : isLoanCollateral
+                    ? "Collateral"
+                    : isEarlyWithdrawn
+                      ? "Withdrawn"
+                      : isMature 
+                        ? "Mature" 
+                        : "Staking";
                 
                 const statusChipClass = isOrphaned
                   ? "bg-red-900/50 text-red-300 border border-red-700/50"
-                  : isEncumbered
+                  : isLoanCollateral
                     ? "bg-yellow-900/50 text-yellow-300 border border-yellow-700/50"
-                    : isMature
-                      ? "bg-green-900/50 text-green-300 border border-green-700/50"
-                      : "bg-blue-900/50 text-blue-300 border border-blue-700/50";
+                    : isEarlyWithdrawn
+                      ? "bg-blue-900/50 text-blue-300 border border-blue-700/50"
+                      : isMature
+                        ? "bg-green-900/50 text-green-300 border border-green-700/50"
+                        : "bg-blue-900/50 text-blue-300 border border-blue-700/50";
 
                 return (
-                  <SwiperSlide key={displayId} className="bg-transparent rounded-lg p-1 self-stretch h-full min-h-0">
+                  <SwiperSlide key={displayId} className="bg-transparent rounded-lg p-1 self-stretch h-full min-h-0 relative z-[29]">
                     <a 
                       href={`https://suiscan.xyz/testnet/object/${displayId}`}
                       target="_blank"
@@ -606,8 +906,30 @@ export const StakedPositionsList: React.FC = () => {
                               </span>
                             </div>
                           </div>
-                          <div className={`px-2 py-1 rounded text-xs font-medium ${statusChipClass}`}>
-                            {statusText}
+                          
+                          <div className="flex items-center gap-2">
+                            {/* Early Unstake button for staking positions (not for encumbered stakes) */}
+                            {!isOrphaned && !isEncumbered && !isMature && (
+                              <button
+                                onClick={e => { e.preventDefault(); e.stopPropagation(); handleEarlyUnstake(extractOriginalId(item.id), item.principal); }}
+                                disabled={earlyUnstakeInProgress === extractOriginalId(item.id) || loading.transaction}
+                                className="px-2 py-1 bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-500 hover:to-yellow-500 text-white text-xs font-medium rounded transition-all duration-300 disabled:opacity-50 relative z-[28]"
+                                title="Get Alpha Points immediately"
+                              >
+                                {earlyUnstakeInProgress === extractOriginalId(item.id) ? (
+                                  <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                ) : (
+                                  'αP'
+                                )}
+                              </button>
+                            )}
+                            
+                            <div className={`px-2 py-1 rounded text-xs font-medium ${statusChipClass}`}>
+                              {statusText}
+                            </div>
                           </div>
                         </div>
 
@@ -665,13 +987,13 @@ export const StakedPositionsList: React.FC = () => {
                               e.preventDefault(); 
                               e.stopPropagation();
                               if (item.isOrphaned) {
-                                handleCompleteRegistration(item.stakedSuiObjectId, item.durationDays, item.principalAmount);
+                                handleCompleteRegistration(extractOriginalId(item.id), item.durationDays, item.principalAmount);
                               }
                             }}
-                            disabled={!item.isOrphaned || registrationInProgress === (item.isOrphaned ? item.stakedSuiObjectId : null) || loading.transaction}
-                            className="w-full btn-modern-secondary relative z-[56]"
+                            disabled={!item.isOrphaned || registrationInProgress === (item.isOrphaned ? extractOriginalId(item.id) : null) || loading.transaction}
+                            className="w-full btn-modern-secondary relative z-[28]"
                           >
-                            {registrationInProgress === (item.isOrphaned ? item.stakedSuiObjectId : null) ? (
+                            {registrationInProgress === (item.isOrphaned ? extractOriginalId(item.id) : null) ? (
                               <span className="absolute inset-0 flex items-center justify-center">
                                 <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -682,11 +1004,11 @@ export const StakedPositionsList: React.FC = () => {
                           </button>
                         ) : canUnstake ? (
                           <button
-                            onClick={e => { e.preventDefault(); e.stopPropagation(); handleUnstake(item.id, item.principal); }}
-                            disabled={unstakeInProgress === item.id || loading.transaction}
-                            className="w-full btn-modern-primary relative z-[56]"
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); handleUnstake(extractOriginalId(item.id), item.principal); }}
+                            disabled={unstakeInProgress === extractOriginalId(item.id) || loading.transaction}
+                            className="w-full btn-modern-primary relative z-[28]"
                           >
-                            {unstakeInProgress === item.id ? (
+                            {unstakeInProgress === extractOriginalId(item.id) ? (
                               <span className="absolute inset-0 flex items-center justify-center">
                                 <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -695,9 +1017,13 @@ export const StakedPositionsList: React.FC = () => {
                               </span>
                             ) : 'Unstake'}
                           </button>
-                        ) : isEncumbered ? (
+                        ) : isLoanCollateral ? (
                           <div className="p-2 bg-yellow-900/30 border border-yellow-700/50 rounded text-yellow-300 text-xs text-center backdrop-blur-sm">
                             This position is collateral. Repay loan to unstake.
+                          </div>
+                        ) : isEarlyWithdrawn ? (
+                          <div className="p-2 bg-blue-900/30 border border-blue-700/50 rounded text-blue-300 text-xs text-center backdrop-blur-sm">
+                            Alpha Points received. Stake locked until {formattedUnlockDate}.
                           </div>
                         ) : null}
                       </div>

@@ -1,167 +1,152 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useSuiClient } from '@mysten/dapp-kit';
-import { useAlphaContext } from '../context/AlphaContext';
-import { formatPoints, formatTimeAgo } from '../utils/format';
+import { formatTimeAgo } from '../utils/format';
+
+interface ActivityItem {
+  id: string;
+  type: 'perk_created' | 'perk_claimed' | 'points_earned' | 'points_spent' | 'points_locked' | 'points_unlocked' | 'stake_created' | 'stake_unlocked' | 'loan_created' | 'loan_repaid' | 'early_unstake' | 'engagement_milestone' | 'package_upgrade' | 'partner_created';
+  title: string;
+  description: string;
+  timestamp: Date;
+  value?: string;
+  badge?: string;
+  icon: 'star' | 'zap' | 'coin' | 'users' | 'gift' | 'trending' | 'plus' | 'minus' | 'lock' | 'unlock' | 'fire' | 'trophy' | 'upgrade' | 'handshake';
+  txDigest?: string;
+  userAddress?: string;
+  isUserActivity?: boolean;
+}
 
 interface TransactionHistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
+  activities: ActivityItem[];
 }
+
+const getIconSvg = (icon: ActivityItem['icon'], className: string) => {
+  const icons = {
+    star: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+      </svg>
+    ),
+    zap: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+      </svg>
+    ),
+    coin: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+      </svg>
+    ),
+    users: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    ),
+    gift: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+      </svg>
+    ),
+    trending: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+      </svg>
+    ),
+    plus: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+      </svg>
+    ),
+    minus: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 12H4" />
+      </svg>
+    ),
+    lock: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+      </svg>
+    ),
+    unlock: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 11V7a4 4 0 118 0v4m-4 8v-2m-6 2h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+      </svg>
+    ),
+    fire: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
+      </svg>
+    ),
+    trophy: (
+      <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+      </svg>
+    ),
+    upgrade: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+      </svg>
+    ),
+    handshake: (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+      </svg>
+    )
+  };
+  return icons[icon] || icons.star;
+};
+
+const getColorClasses = (type: ActivityItem['type'], isUserActivity?: boolean) => {
+  // User activities get special highlight treatment
+  if (isUserActivity) {
+    return 'bg-blue-500/10 border-blue-500/30 text-blue-400 ring-1 ring-blue-500/20';
+  }
+
+  const colors = {
+    perk_created: 'bg-purple-500/5 border-purple-500/20 text-purple-400',
+    perk_claimed: 'bg-pink-500/5 border-pink-500/20 text-pink-400',
+    points_earned: 'bg-green-500/5 border-green-500/20 text-green-400',
+    points_spent: 'bg-red-500/5 border-red-500/20 text-red-400',
+    points_locked: 'bg-orange-500/5 border-orange-500/20 text-orange-400',
+    points_unlocked: 'bg-cyan-500/5 border-cyan-500/20 text-cyan-400',
+    stake_created: 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400',
+    stake_unlocked: 'bg-teal-500/5 border-teal-500/20 text-teal-400',
+    loan_created: 'bg-yellow-500/5 border-yellow-500/20 text-yellow-400',
+    loan_repaid: 'bg-lime-500/5 border-lime-500/20 text-lime-400',
+    early_unstake: 'bg-amber-500/5 border-amber-500/20 text-amber-400',
+    engagement_milestone: 'bg-violet-500/5 border-violet-500/20 text-violet-400',
+    package_upgrade: 'bg-indigo-500/5 border-indigo-500/20 text-indigo-400',
+    partner_created: 'bg-rose-500/5 border-rose-500/20 text-rose-400'
+  };
+  return colors[type] || colors.points_earned;
+};
 
 export const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = ({
   isOpen,
-  onClose
+  onClose,
+  activities
 }) => {
-  const { address, stakePositions, loans } = useAlphaContext();
-  const suiClient = useSuiClient();
-  const [transactionData, setTransactionData] = useState<any[]>([]);
   const [selectedEventType, setSelectedEventType] = useState('all');
-  const [loadingTransactions, setLoadingTransactions] = useState(false);
-
-  // Query real transaction data
-  const queryTransactionsByType = useCallback(async (eventType: string) => {
-    if (!address || !suiClient) return [];
-    
-    setLoadingTransactions(true);
-    try {
-      const transactions: any[] = [];
-
-      if (eventType === 'all' || eventType === 'marketplace') {
-        // Query marketplace transactions (Alpha Points spent)
-        try {
-          const spendEvents = await suiClient.queryEvents({
-            query: { MoveEventType: `alpha_points::ledger::Spent` },
-            order: 'descending',
-            limit: 50
-          });
-
-          spendEvents.data?.forEach((event: any, index: number) => {
-            if (event.parsedJson && event.parsedJson.user === address) {
-              transactions.push({
-                id: `spend-${event.id || index}`,
-                type: 'marketplace',
-                subtype: 'purchase',
-                amount: -parseInt(event.parsedJson.amount || '0'),
-                description: 'Marketplace purchase',
-                timestamp: parseInt(event.timestampMs || Date.now().toString()),
-                txHash: event.digest || 'N/A',
-                status: 'completed'
-              });
-            }
-          });
-        } catch (error) {
-          console.warn('Error querying spend events:', error);
-        }
-      }
-
-      if (eventType === 'all' || eventType === 'perks') {
-        // Currently no perk events in the system - show empty state
-      }
-
-      if (eventType === 'loans') {
-        // Query loan-related transactions
-        loans?.forEach((loan, index) => {
-          transactions.push({
-            id: `loan-${loan.id || index}`,
-            type: 'loans',
-            subtype: loan.isRepaid ? 'repayment' : 'borrow',
-            amount: loan.isRepaid ? -parseInt(loan.amount) : parseInt(loan.amount),
-            description: loan.isRepaid ? 'Loan repayment' : 'Loan borrowed',
-            timestamp: loan.timestamp || Date.now(),
-            txHash: loan.txHash || 'N/A',
-            status: loan.isRepaid ? 'completed' : 'active'
-          });
-        });
-      }
-
-      if (eventType === 'revenue') {
-        // Query revenue/earnings events
-        try {
-          const earnedEvents = await suiClient.queryEvents({
-            query: { MoveEventType: `alpha_points::ledger::Earned` },
-            order: 'descending',
-            limit: 50
-          });
-
-          earnedEvents.data?.forEach((event: any, index: number) => {
-            if (event.parsedJson && event.parsedJson.user === address) {
-              transactions.push({
-                id: `earn-${event.id || index}`,
-                type: 'revenue',
-                subtype: 'staking_reward',
-                amount: parseInt(event.parsedJson.amount || '0'),
-                description: 'Staking rewards earned',
-                timestamp: parseInt(event.timestampMs || Date.now().toString()),
-                txHash: event.digest || 'N/A',
-                status: 'completed'
-              });
-            }
-          });
-        } catch (error) {
-          console.warn('Error querying earned events:', error);
-        }
-      }
-
-      // Add stake positions as transaction history
-      if (eventType === 'all' || eventType === 'staking') {
-        stakePositions?.forEach((position, index) => {
-          const principal = parseFloat(position.principal || '0') / 1_000_000_000;
-          if (principal > 0) {
-            transactions.push({
-              id: `position-${position.id || index}`,
-              type: 'staking',
-              subtype: 'active_stake',
-              amount: principal * 3280, // Convert to Alpha Points equivalent
-              description: `Active stake: ${principal.toFixed(2)} SUI`,
-              timestamp: position.createdAt ? new Date(position.createdAt).getTime() : Date.now(),
-              txHash: position.stakedSuiObjectId || 'N/A',
-              status: position.status || 'active'
-            });
-          }
-        });
-      }
-
-      return transactions.sort((a, b) => b.timestamp - a.timestamp);
-    } catch (error) {
-      console.error('Error querying transactions:', error);
-      return [];
-    } finally {
-      setLoadingTransactions(false);
-    }
-  }, [address, stakePositions, loans, suiClient]);
 
   const eventTypes = [
-    { id: 'all', label: 'All Transactions', icon: 'M9 5H7a2 2 0 00-2 2v6a2 2 0 002 2h2m0 0h8m-8 0V9m0 4v6a2 2 0 002 2h6a2 2 0 002-2V9a2 2 0 00-2-2h-2m0 0V5a2 2 0 00-2-2H9z', color: 'text-white' },
-    { id: 'staking', label: 'Staking', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z', color: 'text-emerald-400' },
-    { id: 'marketplace', label: 'Marketplace', icon: 'M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z', color: 'text-blue-400' },
-    { id: 'perks', label: 'Perks', icon: 'M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z', color: 'text-purple-400' },
-    { id: 'referral', label: 'Referrals', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 919.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z', color: 'text-pink-400', isConstructing: true },
-    { id: 'revenue', label: 'Revenue', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1', color: 'text-amber-400' },
-    { id: 'loans', label: 'Loans', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z', color: 'text-cyan-400' }
+    { id: 'all', label: 'All Events', icon: '🌟' },
+    { id: 'points_earned', label: 'Points Earned', icon: '+' },
+    { id: 'points_spent', label: 'Points Spent', icon: '-' },
+    { id: 'stake_created', label: 'Staking', icon: '📈' },
+    { id: 'loan_created', label: 'Loans', icon: '💰' },
+    { id: 'early_unstake', label: 'Early Unstake', icon: '⚡' },
+    { id: 'perk_claimed', label: 'Perks', icon: '🎁' },
+    { id: 'engagement_milestone', label: 'Achievements', icon: '🏆' }
   ];
 
-  const getFilteredTransactions = () => {
-    if (selectedEventType === 'all') return transactionData;
-    return transactionData.filter(tx => tx.type === selectedEventType);
+  const getFilteredActivities = () => {
+    if (selectedEventType === 'all') return activities;
+    return activities.filter(activity => activity.type === selectedEventType);
   };
 
-  const getTransactionIcon = (transaction: any) => {
-    const eventType = eventTypes.find(et => et.id === transaction.type);
-    return eventType ? eventType.icon : eventTypes[0].icon;
-  };
-
-  const getTransactionColor = (transaction: any) => {
-    if (transaction.amount > 0) return 'text-emerald-400';
-    return 'text-red-400';
-  };
-
-  // Load transactions when modal opens or event type changes
-  useEffect(() => {
-    if (isOpen) {
-      queryTransactionsByType(selectedEventType).then(setTransactionData);
-    }
-  }, [isOpen, selectedEventType, queryTransactionsByType]);
+  const filteredActivities = getFilteredActivities();
 
   // Disable body scroll when modal is open
   useEffect(() => {
@@ -171,7 +156,6 @@ export const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (
       document.body.style.overflow = 'unset';
     }
     
-    // Cleanup on unmount
     return () => {
       document.body.style.overflow = 'unset';
     };
@@ -198,26 +182,24 @@ export const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (
 
   const modalContent = (
     <div 
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" 
-      style={{ zIndex: 9999 }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[10000]"
       onClick={onClose}
     >
       <div 
-        className="card-modern p-6 max-w-4xl w-full max-h-[80vh] animate-fade-in" 
+        className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-xl max-w-4xl w-full max-h-[80vh] overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <h3 className="text-xl font-semibold text-white">Transaction History</h3>
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-700/50">
+          <div>
+            <h2 className="text-xl font-semibold text-white">All Activity</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              {filteredActivities.length} {filteredActivities.length === 1 ? 'event' : 'events'} found
+            </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-white transition-colors duration-300 rounded-lg hover:bg-white/10"
+            className="p-2 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-white transition-all duration-200"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -225,115 +207,100 @@ export const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (
           </button>
         </div>
 
-        {/* Event Type Tabs */}
-        <div className="flex flex-wrap gap-2 mb-6 p-1 bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl">
-          {eventTypes.map((eventType) => (
-            <button
-              key={eventType.id}
-              onClick={() => setSelectedEventType(eventType.id)}
-              className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
-                selectedEventType === eventType.id
-                  ? 'bg-white/10 border border-white/20 text-white shadow-lg'
-                  : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <svg className={`w-4 h-4 ${eventType.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={eventType.icon} />
-              </svg>
-              <span>{eventType.label}</span>
-              <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                selectedEventType === eventType.id ? 'bg-white/20' : 'bg-black/20'
-              }`}>
-                {eventType.isConstructing ? '🚧' : 
-                 eventType.id === 'all' ? transactionData.length : transactionData.filter(tx => tx.type === eventType.id).length}
-              </span>
-            </button>
-          ))}
+        {/* Filter Tabs */}
+        <div className="p-4 border-b border-gray-700/50">
+          <div className="flex items-center space-x-2 overflow-x-auto scrollbar-hide">
+            {eventTypes.map((eventType) => (
+              <button
+                key={eventType.id}
+                onClick={() => setSelectedEventType(eventType.id)}
+                className={`flex items-center space-x-2 px-3 py-2 rounded-lg whitespace-nowrap transition-all duration-200 ${
+                  selectedEventType === eventType.id
+                    ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+                    : 'bg-gray-700/30 text-gray-400 hover:bg-gray-600/30 hover:text-gray-300'
+                }`}
+              >
+                <span className="text-sm">{eventType.icon}</span>
+                <span className="text-sm font-medium">{eventType.label}</span>
+                {eventType.id === selectedEventType && (
+                  <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">
+                    {filteredActivities.length}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Transaction List */}
-        <div className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl">
-          <div className="max-h-96 overflow-y-auto">
-            {loadingTransactions ? (
-              <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
-                <div className="text-gray-400">Loading transactions...</div>
+        {/* Content */}
+        <div className="p-4 overflow-y-auto max-h-[60vh] scrollbar-thin">
+          {filteredActivities.length === 0 ? (
+            <div className="text-center py-8">
+              <div className="w-12 h-12 bg-gray-600/20 rounded-lg mx-auto mb-3 flex items-center justify-center">
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v6a2 2 0 002 2h2m0 0h8m-8 0V9m0 4v6a2 2 0 002 2h6a2 2 0 002-2V9a2 2 0 00-2-2h-2m0 0V5a2 2 0 00-2-2H9z" />
+                </svg>
               </div>
-            ) : selectedEventType === 'referral' ? (
-              <div className="p-8 text-center">
-                <div className="text-6xl mb-4">🚧</div>
-                <div className="text-gray-400 mb-2">Under Construction</div>
-                <div className="text-sm text-gray-500">
-                  Referral system is being developed
-                </div>
-              </div>
-            ) : getFilteredTransactions().length === 0 ? (
-              <div className="p-8 text-center">
-                <div className="text-gray-400 mb-2">No transactions found</div>
-                <div className="text-sm text-gray-500">
-                  {selectedEventType === 'all' 
-                    ? 'No transaction history available yet' 
-                    : `No ${selectedEventType} transactions found`}
-                </div>
-              </div>
-            ) : (
-              getFilteredTransactions().map((transaction, index) => (
-                <div 
-                  key={transaction.id} 
-                  className={`flex items-center justify-between p-4 transition-all duration-300 hover:bg-white/5 ${
-                    index !== getFilteredTransactions().length - 1 ? 'border-b border-white/10' : ''
-                  }`}
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                      transaction.amount > 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'
-                    }`}>
-                      <svg className={`w-5 h-5 ${getTransactionColor(transaction)}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={getTransactionIcon(transaction)} />
-                      </svg>
+              <p className="text-gray-400 font-medium">No events found</p>
+              <p className="text-sm text-gray-500 mt-1">
+                {selectedEventType === 'all' 
+                  ? 'No recent activity to display' 
+                  : `No ${eventTypes.find(et => et.id === selectedEventType)?.label.toLowerCase()} events found`
+                }
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredActivities.map((activity) => {
+                const colorClasses = getColorClasses(activity.type, activity.isUserActivity);
+                
+                return (
+                  <div key={activity.id} className={`flex items-center space-x-4 p-4 ${colorClasses} rounded-lg border transition-all hover:scale-[1.01]`}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${activity.isUserActivity ? 'bg-blue-500/20' : 'bg-gray-600/20'}`}>
+                      {getIconSvg(activity.icon, `w-4 h-4 ${activity.isUserActivity ? 'text-blue-400' : 'text-gray-300'}`)}
                     </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <div className={`text-sm font-semibold ${getTransactionColor(transaction)}`}>
-                          {transaction.amount > 0 ? '+' : ''}{formatPoints(Math.abs(transaction.amount))} αP
-                        </div>
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          transaction.status === 'completed' 
-                            ? 'bg-emerald-500/20 text-emerald-400' 
-                            : 'bg-amber-500/20 text-amber-400'
-                        }`}>
-                          {transaction.status}
-                        </span>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-3 mb-1">
+                        <p className={`text-base font-medium ${activity.isUserActivity ? 'text-blue-300' : 'text-white'}`}>
+                          {activity.title}
+                        </p>
+                        {activity.isUserActivity && (
+                          <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-400 rounded-full">You</span>
+                        )}
+                        {activity.badge && (
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-600/20 text-gray-300">
+                            {activity.badge}
+                          </span>
+                        )}
                       </div>
-                      <div className="text-white font-medium">{transaction.description}</div>
-                      <div className="text-xs text-gray-400 font-mono">{transaction.txHash}</div>
+                      <p className="text-sm text-gray-400 mb-2">{activity.description}</p>
+                      <div className="flex items-center space-x-4 text-xs text-gray-500">
+                        <span>{formatTimeAgo(activity.timestamp)}</span>
+                        {activity.txDigest && (
+                          <a 
+                            href={`https://suiscan.xyz/testnet/tx/${activity.txDigest}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-400 hover:text-blue-300 font-mono"
+                            title="View on Suiscan"
+                          >
+                            {activity.txDigest.slice(0, 8)}...
+                          </a>
+                        )}
+                      </div>
                     </div>
+                    
+                    {activity.value && (
+                      <div className="text-right">
+                        <span className="text-lg font-semibold text-white">{activity.value}</span>
+                      </div>
+                    )}
                   </div>
-                  
-                  <div className="text-right">
-                    <div className="text-xs text-gray-500">
-                      {formatTimeAgo(transaction.timestamp)}
-                    </div>
-                    <div className="text-xs text-gray-400 capitalize">
-                      {transaction.subtype}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center mt-6 pt-4 border-t border-white/10">
-          <div className="text-sm text-gray-400">
-            Showing {getFilteredTransactions().length} transactions
-          </div>
-          <button
-            onClick={onClose}
-            className="btn-modern-primary text-sm font-medium"
-          >
-            Close
-          </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

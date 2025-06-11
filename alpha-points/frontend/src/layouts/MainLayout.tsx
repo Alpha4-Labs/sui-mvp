@@ -186,7 +186,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       </header>
 
       {/* Mobile Navigation */}
-      <nav className="md:hidden bg-black/20 backdrop-blur-lg border-t border-white/10 py-3 px-4 fixed bottom-0 left-0 right-0 z-50 shadow-2xl">
+      <nav className="md:hidden bg-black/20 backdrop-blur-lg border-t border-white/10 py-3 px-4 fixed bottom-0 left-0 right-0 z-[9999] shadow-2xl">
         <div className="flex justify-around">
           {navLinks.map((link, index) => (
             <NavLink
