@@ -1967,6 +1967,71 @@ export function buildVerifyOldPackageAdminAccessTransaction(
   return tx;
 }
 
+/**
+ * Build transaction for self-service migration of user's own old package stake (no admin required)
+ * This can be used after admin has unencumbered stakes using admin_batch_unencumber_old_stakes
+ * 
+ * @param oldStakeObjectId Object ID of the old package stake position to migrate
+ * @param oldPackageId Address of the old package containing the stake
+ * @returns Transaction object ready for execution
+ */
+export function buildSelfServiceMigrateStakeTransaction(
+  oldStakeObjectId: string,
+  oldPackageId: string
+) {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::self_service_migrate_stake`,
+    typeArguments: [
+      `${oldPackageId}::stake_position::StakePosition` // Old stake position type
+    ],
+    arguments: [
+      tx.object(SHARED_OBJECTS.config), // config
+      tx.object(SHARED_OBJECTS.ledger), // ledger
+      tx.object(oldStakeObjectId), // old_stake_position
+      tx.pure.address(oldPackageId), // old_package_id
+      tx.object(CLOCK_ID), // clock
+    ],
+  });
+  
+  return tx;
+}
+
+/**
+ * Build transaction for self-service batch migration of multiple old package stakes (no admin required)
+ * This can be used after admin has unencumbered stakes using admin_batch_unencumber_old_stakes
+ * 
+ * @param oldStakeObjectIds Array of object IDs of old package stakes to migrate
+ * @param oldPackageId Address of the old package containing the stakes
+ * @returns Transaction object ready for execution
+ */
+export function buildSelfServiceBatchMigrateStakesTransaction(
+  oldStakeObjectIds: string[],
+  oldPackageId: string
+) {
+  const tx = new Transaction();
+  
+  // Convert object IDs to transaction objects
+  const oldStakeObjects = oldStakeObjectIds.map(id => tx.object(id));
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::self_service_batch_migrate_stakes`,
+    typeArguments: [
+      `${oldPackageId}::stake_position::StakePosition` // Old stake position type
+    ],
+    arguments: [
+      tx.object(SHARED_OBJECTS.config), // config
+      tx.object(SHARED_OBJECTS.ledger), // ledger
+      tx.makeMoveVec({ elements: oldStakeObjects }), // old_stake_positions vector
+      tx.pure.address(oldPackageId), // old_package_id
+      tx.object(CLOCK_ID), // clock
+    ],
+  });
+  
+  return tx;
+}
+
 // === HELPER FUNCTIONS FOR CROSS-PACKAGE RECOVERY ===
 
 /**

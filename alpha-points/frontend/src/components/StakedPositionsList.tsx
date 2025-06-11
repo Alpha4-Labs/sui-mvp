@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { toast } from 'react-toastify';
 import { useAlphaContext, OrphanedStake } from '../context/AlphaContext';
-import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction, buildRescueSingleStakeTransaction } from '../utils/transaction';
+import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction, buildSelfServiceMigrateStakeTransaction, buildSelfServiceBatchMigrateStakesTransaction } from '../utils/transaction';
 import {
   getTransactionErrorMessage,
   getTransactionResponseError,
@@ -197,6 +197,7 @@ export const StakedPositionsList: React.FC = () => {
 
   /**
    * Handles self-serve migration of all user's old package stakes
+   * Uses the new self-service migration after stakes have been unencumbered by admin
    */
   const handleSelfServeMigration = async () => {
     if (!alphaAddress || !suiClient || oldPackageStakes.length === 0) {
@@ -208,61 +209,75 @@ export const StakedPositionsList: React.FC = () => {
     setTransactionLoading(true);
 
     try {
-      let successCount = 0;
-      let errorCount = 0;
-
-      // Process each old stake individually
-      for (const stake of oldPackageStakes) {
-        try {
-          const stakeFields = stake.content?.fields as any;
-          if (!stakeFields) continue;
-
-          const transaction = buildRescueSingleStakeTransaction(
-            OLD_ADMIN_CAP_ID,
-            OLD_PACKAGE_ID,
-            alphaAddress,
-            stake.objectId,
-            stakeFields.principal || '1000000000', // Default 1 SUI if missing
-            parseInt(stakeFields.duration_days || '30'), // Default 30 days if missing
-            stakeFields.start_time_ms || Date.now().toString()
-          );
-
-          const result = await signAndExecute({ transaction });
-          
-          if (!result || typeof result !== 'object' || !('digest' in result)) {
-            throw new Error('Transaction returned an unexpected response format');
-          }
-          
-          const responseError = getTransactionResponseError(result);
-          if (responseError) {
-            throw new Error(responseError);
-          }
-
-          successCount++;
-          console.log(`Successfully migrated stake ${stake.objectId}: ${result.digest}`);
-
-        } catch (error) {
-          console.error(`Failed to migrate stake ${stake.objectId}:`, error);
-          errorCount++;
+      // Use batch migration for efficiency if multiple stakes, otherwise single migration
+      if (oldPackageStakes.length > 1) {
+        // Batch migration approach
+        const stakeObjectIds = oldPackageStakes.map(stake => stake.objectId).filter(Boolean);
+        
+        if (stakeObjectIds.length === 0) {
+          throw new Error('No valid stake object IDs found');
         }
-      }
 
-      if (successCount > 0) {
-        toast.success(
-          `Migration completed! ${successCount} stake${successCount > 1 ? 's' : ''} successfully migrated` +
-          (errorCount > 0 ? ` (${errorCount} failed)` : '')
+        const transaction = buildSelfServiceBatchMigrateStakesTransaction(
+          stakeObjectIds,
+          OLD_PACKAGE_ID
         );
+
+        const result = await signAndExecute({ transaction });
         
-        // Clear old package stakes and refresh data
-        setOldPackageStakes([]);
-        setHasOldPackageStakes(false);
+        if (!result || typeof result !== 'object' || !('digest' in result)) {
+          throw new Error('Transaction returned an unexpected response format');
+        }
         
-        setTimeout(() => {
-          refreshData();
-        }, 2000);
+        const responseError = getTransactionResponseError(result);
+        if (responseError) {
+          throw new Error(responseError);
+        }
+
+        toast.success(
+          `Batch migration successful! ${oldPackageStakes.length} stakes migrated and Alpha Points awarded. Digest: ${result.digest.substring(0, 10)}...`
+        );
+
+        console.log(`Successfully batch migrated ${oldPackageStakes.length} stakes: ${result.digest}`);
+        
       } else {
-        toast.error(`Migration failed: ${errorCount} stake${errorCount > 1 ? 's' : ''} could not be migrated`);
+        // Single stake migration
+        const stake = oldPackageStakes[0];
+        
+        if (!stake.objectId) {
+          throw new Error('Invalid stake object ID');
+        }
+
+        const transaction = buildSelfServiceMigrateStakeTransaction(
+          stake.objectId,
+          OLD_PACKAGE_ID
+        );
+
+        const result = await signAndExecute({ transaction });
+        
+        if (!result || typeof result !== 'object' || !('digest' in result)) {
+          throw new Error('Transaction returned an unexpected response format');
+        }
+        
+        const responseError = getTransactionResponseError(result);
+        if (responseError) {
+          throw new Error(responseError);
+        }
+
+        toast.success(
+          `Migration successful! Stake migrated and Alpha Points awarded. Digest: ${result.digest.substring(0, 10)}...`
+        );
+
+        console.log(`Successfully migrated stake ${stake.objectId}: ${result.digest}`);
       }
+      
+      // Clear old package stakes and refresh data
+      setOldPackageStakes([]);
+      setHasOldPackageStakes(false);
+      
+      setTimeout(() => {
+        refreshData();
+      }, 2000);
 
     } catch (error) {
       console.error('Error during self-serve migration:', error);
@@ -649,9 +664,9 @@ export const StakedPositionsList: React.FC = () => {
               <p className="text-xs text-gray-400">Your active stakes</p>
               {hasOldPackageStakes && (
                 <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                  <span className="text-xs text-red-400 font-medium">
-                    {oldPackageStakes.length} legacy stake{oldPackageStakes.length !== 1 ? 's' : ''} found
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span className="text-xs text-blue-400 font-medium">
+                    {oldPackageStakes.length} legacy stake{oldPackageStakes.length !== 1 ? 's' : ''} ready
                   </span>
                 </div>
               )}
@@ -665,8 +680,8 @@ export const StakedPositionsList: React.FC = () => {
             <button
               onClick={handleSelfServeMigration}
               disabled={migrationInProgress || loading.transaction || checkingOldPackage}
-              className="px-3 py-2 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white text-sm font-medium rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-red-500/25"
-              title={`Migrate ${oldPackageStakes.length} stake${oldPackageStakes.length !== 1 ? 's' : ''} from old package`}
+              className="px-3 py-2 bg-gradient-to-r from-blue-600 to-purple-700 hover:from-blue-500 hover:to-purple-600 text-white text-sm font-medium rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-blue-500/25"
+              title={`Migrate ${oldPackageStakes.length} stake${oldPackageStakes.length !== 1 ? 's' : ''} and receive Alpha Points`}
             >
               {migrationInProgress ? (
                 <>
@@ -680,7 +695,7 @@ export const StakedPositionsList: React.FC = () => {
                 <>
                   <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
                   Checking...
                 </>
@@ -689,11 +704,11 @@ export const StakedPositionsList: React.FC = () => {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
                   </svg>
-                  Migrate ({oldPackageStakes.length})
+                  Claim αP ({oldPackageStakes.length})
                 </>
-                             )}
-             </button>
-           )}
+              )}
+            </button>
+          )}
         </div>
 
         {/* Inline Navigation */}
