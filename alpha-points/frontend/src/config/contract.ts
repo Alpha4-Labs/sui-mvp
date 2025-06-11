@@ -52,6 +52,8 @@ export const ALL_PACKAGE_IDS = [
   PACKAGE_ID_V1,     // V1
   // Additional known packages that created PartnerCapFlex objects
   '0xf933e69aeeeebb9d1fc50b6324070d8f2bdc2595162b0616142a509c90e3cd16', // Package that created user's PartnerCapFlex
+  // Additional package containing user stakes discovered via debugging
+  '0xfd761a2a5979db53f7f3176c0778695f6abafbb7c0eec8ce03136ae10dc2b47d', // Package containing user stakes
 ].filter(Boolean);
 
 
