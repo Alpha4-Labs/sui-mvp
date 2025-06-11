@@ -203,6 +203,21 @@ export const StakedPositionsList: React.FC = () => {
         nextCursor: response.nextCursor
       });
 
+      // Enhanced debugging - log actual response data
+      console.log(`🔍 Raw response data:`, response.data);
+      
+      if (response.data.length > 0 && response.data[0]) {
+        const firstObj = response.data[0];
+        console.log(`🔍 First object structure:`, {
+          hasData: !!firstObj.data,
+          hasContent: !!firstObj.data?.content,
+          contentType: typeof firstObj.data?.content,
+          hasFields: firstObj.data?.content && 'fields' in firstObj.data.content,
+          objectId: firstObj.data?.objectId,
+          type: firstObj.data?.type
+        });
+      }
+
       const oldStakes = response.data.filter(obj => 
         obj.data?.content && 
         'fields' in obj.data.content

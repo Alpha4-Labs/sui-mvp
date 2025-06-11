@@ -9,7 +9,7 @@ import { UserBalancesCard } from '../components/UserBalancesCard';
 import { PointsDisplay } from '../components/PointsDisplay';
 import { PerformanceTodayCard } from '../components/PerformanceTodayCard';
 import { RecentActivityCard } from '../components/RecentActivityCard';
-import { EngagementMilestonesCard } from '../components/EngagementMilestonesCard';
+import { EngagementTracker } from '../components/EngagementTracker';
 import { MainLayout } from '../layouts/MainLayout';
 
 // Define type for projection data to match ProjectionChart.tsx
@@ -166,7 +166,7 @@ export const DashboardPage: React.FC = () => {
         <PerformanceTodayCard />
 
         {/* Engagement Tracking */}
-        <EngagementMilestonesCard />
+                        <EngagementTracker />
 
         {/* Recent Activity & Opportunities */}
         <RecentActivityCard />
