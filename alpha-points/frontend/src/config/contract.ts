@@ -1,6 +1,8 @@
 import { bcs } from '@mysten/sui/bcs';
 
 // --- Contract Configuration ---
+export const PACKAGE_ID_V22 = import.meta.env['VITE_PACKAGE_ID_V22'];
+export const PACKAGE_ID_V21 = import.meta.env['VITE_PACKAGE_ID_V21'];
 export const PACKAGE_ID_V20 = import.meta.env['VITE_PACKAGE_ID_V20'];
 export const PACKAGE_ID_V19 = import.meta.env['VITE_PACKAGE_ID_V19'];
 export const PACKAGE_ID_V17 = import.meta.env['VITE_PACKAGE_ID_V17'];
@@ -26,6 +28,8 @@ export const PACKAGE_ID = import.meta.env['VITE_PACKAGE_ID']; // THIS IS THE SOL
 // Aggregate all known package IDs, newest first
 export const ALL_PACKAGE_IDS = [
   PACKAGE_ID,        // Latest (should be V8)
+  PACKAGE_ID_V22,
+  PACKAGE_ID_V21,
   PACKAGE_ID_V20,
   PACKAGE_ID_V19,
   PACKAGE_ID_V18,
