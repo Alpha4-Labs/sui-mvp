@@ -217,7 +217,6 @@ export const RecentActivityCard: React.FC = () => {
   // Efficient single-query approach: get user's recent transactions and parse locally
   const fetchRecentEvents = useCallback(async () => {
     if (!suiClient || !address) {
-      console.log('📋 No suiClient or address, showing global activity instead');
       // For non-connected users, show some global activity
       setActivities([]);
       setIsLoading(false);
@@ -227,8 +226,6 @@ export const RecentActivityCard: React.FC = () => {
     setIsLoading(true);
     
     try {
-      console.log('📡 Fetching recent transactions for:', address);
-      
       // Single efficient query: get user's recent transactions
       const txns = await suiClient.queryTransactionBlocks({
         filter: { FromAddress: address }, // Get transactions sent by the user
@@ -241,8 +238,6 @@ export const RecentActivityCard: React.FC = () => {
         order: 'descending',
         limit: 50 // Get more transactions to have enough events to filter
       });
-
-      console.log(`📊 Found ${txns.data.length} transactions`);
       
       const allActivities: ActivityItem[] = [];
       const seenIds = new Set<string>();
@@ -407,8 +402,6 @@ export const RecentActivityCard: React.FC = () => {
       
       setActivities(finalActivities);
       setLastRefresh(Date.now());
-      
-      console.log(`✅ Processed ${finalActivities.length} activities from ${txns.data.length} transactions`);
         
     } catch (error) {
       console.error('Error fetching transactions:', error);
