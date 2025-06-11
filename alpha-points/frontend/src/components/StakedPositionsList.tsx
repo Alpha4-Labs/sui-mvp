@@ -143,9 +143,29 @@ export const StakedPositionsList: React.FC = () => {
   // Check for old package stakes on mount and when address changes
   React.useEffect(() => {
     if (alphaIsConnected && alphaAddress && suiClient) {
+      console.log('🔍 Wallet connected, checking for old package stakes...');
       checkForOldPackageStakes();
     }
   }, [alphaIsConnected, alphaAddress, suiClient]);
+
+  // Debug current stakes loading
+  React.useEffect(() => {
+    const currentPackageId = import.meta.env['VITE_PACKAGE_ID'];
+    console.log('📊 StakedPositionsList - Data state update:');
+    console.log(`   - Connected: ${alphaIsConnected}`);
+    console.log(`   - Address: ${alphaAddress}`);
+    console.log(`   - Current Package ID: ${currentPackageId}`);
+    console.log(`   - Old Package ID: ${OLD_PACKAGE_ID}`);
+    console.log(`   - Current stakes: ${stakePositions.length}`);
+    console.log(`   - Orphaned stakes: ${orphanedStakes.length}`);
+    console.log(`   - Loading: ${JSON.stringify(loading)}`);
+    
+    if (alphaIsConnected && alphaAddress && stakePositions.length === 0 && !loading.positions) {
+      console.log('⚠️ User is connected but has no current stakes and not loading - this might indicate a data fetching issue');
+      console.log(`💡 Current package being queried for stakes: ${currentPackageId}`);
+      console.log(`💡 Verify this wallet has stakes in the current package, not the old one`);
+    }
+  }, [alphaIsConnected, alphaAddress, stakePositions, orphanedStakes, loading]);
 
   // Load loans data when component mounts to help distinguish loan collateral from early unstake
   React.useEffect(() => {
@@ -161,6 +181,9 @@ export const StakedPositionsList: React.FC = () => {
     if (!alphaAddress || !suiClient) return;
 
     setCheckingOldPackage(true);
+    console.log(`🔍 Checking for old package stakes for address: ${alphaAddress}`);
+    console.log(`📦 Old package ID: ${OLD_PACKAGE_ID}`);
+    
     try {
       // Query for StakePosition objects from the old package
       const response = await (suiClient as SuiClient).getOwnedObjects({
@@ -174,6 +197,12 @@ export const StakedPositionsList: React.FC = () => {
         }
       });
 
+      console.log(`📋 Query response for old package stakes:`, {
+        total: response.data.length,
+        hasMore: response.hasNextPage,
+        nextCursor: response.nextCursor
+      });
+
       const oldStakes = response.data.filter(obj => 
         obj.data?.content && 
         'fields' in obj.data.content
@@ -182,14 +211,54 @@ export const StakedPositionsList: React.FC = () => {
         content: obj.data?.content
       }));
 
+      console.log(`✅ Found ${oldStakes.length} valid old package stakes`);
+      
+              if (oldStakes.length > 0) {
+          console.log(`🏛️ Old package stakes details:`, oldStakes.map(stake => ({
+            objectId: stake.objectId,
+            contentType: stake.content && 'type' in stake.content ? stake.content.type : 'unknown',
+            fields: stake.content && 'fields' in stake.content ? Object.keys(stake.content.fields) : []
+          })));
+      }
+
       setOldPackageStakes(oldStakes);
       setHasOldPackageStakes(oldStakes.length > 0);
 
       if (oldStakes.length > 0) {
-        console.log(`Found ${oldStakes.length} stakes in old package for migration`);
+        console.log(`🎯 Found ${oldStakes.length} stakes in old package for migration`);
+      } else {
+        console.log(`❌ No stakes found in old package ${OLD_PACKAGE_ID}`);
+        console.log(`💡 Tip: If you expect to have old stakes, verify:`);
+        console.log(`   - The old package ID is correct: ${OLD_PACKAGE_ID}`);
+        console.log(`   - Your stakes are in the old package (not the current one)`);
+        console.log(`   - Your wallet address is correct: ${alphaAddress}`);
       }
     } catch (error) {
-      console.error('Error checking for old package stakes:', error);
+      console.error('❌ Error checking for old package stakes:', error);
+      // Also try to query all objects to see what this user has
+      try {
+        console.log(`🔍 Attempting to query all owned objects for debugging...`);
+        const allObjects = await (suiClient as SuiClient).getOwnedObjects({
+          owner: alphaAddress,
+          options: {
+            showType: true
+          }
+        });
+        console.log(`📊 User owns ${allObjects.data.length} total objects`);
+        
+        const stakeRelatedObjects = allObjects.data.filter(obj => 
+          obj.data?.type?.includes('stake') || 
+          obj.data?.type?.includes('Stake')
+        );
+        console.log(`🎯 Found ${stakeRelatedObjects.length} stake-related objects:`, 
+          stakeRelatedObjects.map(obj => ({
+            objectId: obj.data?.objectId,
+            type: obj.data?.type
+          }))
+        );
+      } catch (debugError) {
+        console.error('❌ Debug query also failed:', debugError);
+      }
     } finally {
       setCheckingOldPackage(false);
     }
@@ -574,6 +643,27 @@ export const StakedPositionsList: React.FC = () => {
     // Only compute if not loading to prevent premature renders
     if (isLoading) return [];
 
+    console.log('🔄 Combining stake data for display:');
+    console.log(`   - Current stakes (stakePositions): ${stakePositions.length}`);
+    console.log(`   - Orphaned stakes: ${orphanedStakes.length}`);
+    console.log(`   - Loading state: ${JSON.stringify(loading)}`);
+    
+    if (stakePositions.length > 0) {
+      console.log('📋 Current stakes details:', stakePositions.map(pos => ({
+        id: pos.id,
+        principal: pos.principal,
+        durationDays: pos.durationDays
+      })));
+    }
+    
+    if (orphanedStakes.length > 0) {
+      console.log('🏚️ Orphaned stakes details:', orphanedStakes.map(orphan => ({
+        stakedSuiObjectId: orphan.stakedSuiObjectId,
+        principalAmount: orphan.principalAmount,
+        durationDays: orphan.durationDays
+      })));
+    }
+
     const orphanedAsSwiperItems: SwiperOrphanedItem[] = orphanedStakes.map((orphan, index) => ({
       ...orphan,
       id: `orphaned-${orphan.stakedSuiObjectId || index}`, // Ensure unique ID
@@ -587,8 +677,11 @@ export const StakedPositionsList: React.FC = () => {
       isOrphaned: false,
     }));
     
-    return [...orphanedAsSwiperItems, ...registeredAsSwiperItems];
-  }, [orphanedStakes, stakePositions, isLoading]);
+    const combined = [...orphanedAsSwiperItems, ...registeredAsSwiperItems];
+    console.log(`✅ Combined ${combined.length} total items for display`);
+    
+    return combined;
+  }, [orphanedStakes, stakePositions, isLoading, loading]);
   // --- End Prepare combined data ---
 
   // --- Loading State ---
@@ -662,7 +755,15 @@ export const StakedPositionsList: React.FC = () => {
             <h2 className="text-base font-semibold text-white">Staked Positions</h2>
             <div className="flex items-center gap-2">
               <p className="text-xs text-gray-400">Your active stakes</p>
-              {hasOldPackageStakes && (
+              {checkingOldPackage && (
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                  <span className="text-xs text-yellow-400 font-medium">
+                    Checking for legacy stakes...
+                  </span>
+                </div>
+              )}
+              {hasOldPackageStakes && !checkingOldPackage && (
                 <div className="flex items-center gap-1">
                   <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                   <span className="text-xs text-blue-400 font-medium">
@@ -709,6 +810,8 @@ export const StakedPositionsList: React.FC = () => {
               )}
             </button>
           )}
+          
+
         </div>
 
         {/* Inline Navigation */}

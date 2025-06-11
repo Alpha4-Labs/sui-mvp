@@ -123,6 +123,71 @@ export const StakeCard: React.FC = () => {
   // Correctly find the index of the current selectedDuration - add null check
   const selectedDurationIndex = selectedDuration ? durations.findIndex(d => d.days === selectedDuration.days) : -1;
 
+  // --- Validation Functions ---
+  const checkSufficientBalance = () => {
+    if (!amount || !suiBalance) return true; // Don't block if no amount entered or balance loading
+    
+    const amountFloat = parseFloat(amount);
+    if (isNaN(amountFloat) || amountFloat <= 0) return true; // Don't block for invalid amounts, let other validation handle it
+    
+    const amountInMist = BigInt(Math.floor(amountFloat * 1_000_000_000));
+    const availableInMist = BigInt(suiBalance);
+    const gasBuffer = BigInt(10_000_000); // 0.01 SUI buffer
+    const minStakeSuiSystem = BigInt(1_000_000_000); // 1 SUI minimum
+    
+    return amountInMist >= minStakeSuiSystem && amountInMist + gasBuffer <= availableInMist;
+  };
+
+  // Get validation state and message for the current amount
+  const getAmountValidation = () => {
+    if (!amount || amount.trim() === '') {
+      return { isValid: true, message: '', type: 'neutral' };
+    }
+
+    const amountFloat = parseFloat(amount);
+    if (isNaN(amountFloat) || amountFloat <= 0) {
+      return { isValid: false, message: 'Please enter a valid positive amount', type: 'error' };
+    }
+
+    if (!suiBalance) {
+      return { isValid: true, message: 'Loading balance...', type: 'loading' };
+    }
+
+    const amountInMist = BigInt(Math.floor(amountFloat * 1_000_000_000));
+    const availableInMist = BigInt(suiBalance);
+    const gasBuffer = BigInt(10_000_000); // 0.01 SUI buffer
+    const minStakeSuiSystem = BigInt(1_000_000_000); // 1 SUI minimum
+
+    // Check minimum requirement
+    if (amountInMist < minStakeSuiSystem) {
+      return { 
+        isValid: false, 
+        message: 'Minimum stake amount is 1.00 SUI', 
+        type: 'error' 
+      };
+    }
+
+    // Check if enough balance for amount + buffer
+    if (amountInMist + gasBuffer > availableInMist) {
+      const availableForStaking = (Number(availableInMist - gasBuffer) / 1_000_000_000);
+      const availableDisplay = availableForStaking > 0 ? availableForStaking.toFixed(3) : '0';
+      return { 
+        isValid: false, 
+        message: `Insufficient balance. Available: ${availableDisplay} SUI (after 0.01 gas buffer)`, 
+        type: 'error' 
+      };
+    }
+
+    // Valid amount
+    return { 
+      isValid: true, 
+      message: `✓ Valid amount (${(Number(gasBuffer) / 1_000_000_000).toFixed(2)} SUI reserved for gas)`, 
+      type: 'success' 
+    };
+  };
+
+  const validation = getAmountValidation();
+
   const handleDurationSliderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const sliderIndex = parseInt(event.target.value, 10);
     if (durations[sliderIndex]) {
@@ -204,8 +269,31 @@ export const StakeCard: React.FC = () => {
     const gasBuffer = BigInt(10_000_000); 
     const minStakeSuiSystem = BigInt(1_000_000_000); // 1 SUI for sui_system::request_add_stake
     
-    if (amountInMist < minStakeSuiSystem) return setError('Minimum Stake is 1 SUI + 0.01 buffer');
-    if (amountInMist + gasBuffer > availableInMist) return setError('Insufficient: 1 SUI min + 0.01 buffer.');
+    if (amountInMist < minStakeSuiSystem) {
+      toast.error('Minimum stake amount is 1 SUI + 0.01 buffer for gas fees.', {
+        position: "top-center",
+        autoClose: 5000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        theme: "dark",
+      });
+      return;
+    }
+    
+    if (amountInMist + gasBuffer > availableInMist) {
+      toast.error('Insufficient balance: You need at least 1 SUI + 0.01 buffer for gas fees.', {
+        position: "top-center",
+        autoClose: 5000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        theme: "dark",
+      });
+      return;
+    }
 
     // Randomly select a validator from the list
     const randomIndex = Math.floor(Math.random() * validators.length);
@@ -362,7 +450,10 @@ export const StakeCard: React.FC = () => {
     let tx2Digest: string | null = null;
 
     try {
-      const tx2 = buildRegisterStakeTransaction(newStakedSuiId, selectedDuration!.days);
+      if (!selectedDuration) {
+        throw new Error("Selected duration is required for registration");
+      }
+      const tx2 = buildRegisterStakeTransaction(newStakedSuiId, selectedDuration.days);
 
       if (alphaProvider === 'google') {
         tx2.setSender(alphaAddress);
@@ -595,7 +686,15 @@ export const StakeCard: React.FC = () => {
                       setAmount(maxPossible.toFixed(9).replace(/\.?0+$/, ''));
                     } else {
                       setAmount('');
-                      setError(`Insufficient balance. You need at least ${minStakeSui + gasBufferInSui} SUI.`);
+                      toast.error(`Insufficient balance. You need at least ${minStakeSui + gasBufferInSui} SUI.`, {
+                        position: "top-center",
+                        autoClose: 5000,
+                        hideProgressBar: false,
+                        closeOnClick: true,
+                        pauseOnHover: true,
+                        draggable: true,
+                        theme: "dark",
+                      });
                     }
                   }
                 }}
@@ -606,7 +705,7 @@ export const StakeCard: React.FC = () => {
               </button>
             </div>
             
-            <div className="relative">
+            <div className="relative group">
               <input
                 id="stake-amount"
                 type="text"
@@ -620,14 +719,32 @@ export const StakeCard: React.FC = () => {
                   }
                 }}
                 placeholder="1"
-                className="w-full bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-gray-400 focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 transition-all duration-300 pr-12"
+                className={`w-full bg-black/20 backdrop-blur-lg border rounded-xl px-4 py-3 text-white placeholder:text-gray-400 focus:ring-2 transition-all duration-300 pr-12 ${
+                  validation.type === 'error' 
+                    ? 'border-red-500/50 focus:border-red-500 focus:ring-red-500/20' 
+                    : validation.type === 'success'
+                    ? 'border-green-500/50 focus:border-green-500 focus:ring-green-500/20'
+                    : 'border-white/10 focus:border-purple-500/50 focus:ring-purple-500/20'
+                }`}
                 aria-label="Amount to Stake in SUI"
                 disabled={!alphaIsConnected || contextLoading.transaction}
+                title={validation.type === 'error' ? validation.message : ''}
               />
               <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm font-medium">
                 SUI
               </span>
+              
+              {/* Validation Tooltip */}
+              {validation.type === 'error' && validation.message && (
+                <div className="absolute bottom-full left-0 mb-2 px-3 py-2 bg-red-900/90 backdrop-blur-lg border border-red-500/30 rounded-lg text-xs text-red-200 whitespace-nowrap opacity-0 invisible group-hover:opacity-100 group-hover:visible focus-within:opacity-100 focus-within:visible transition-all duration-200 z-10 pointer-events-none">
+                  {validation.message}
+                  <div className="absolute top-full left-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-red-900/90"></div>
+                </div>
+              )}
             </div>
+            
+
+            
           </div>
 
           {/* Duration Selection */}
@@ -734,6 +851,7 @@ export const StakeCard: React.FC = () => {
             disabled={ 
                 !alphaIsConnected || 
                 (!amount || !(parseFloat(amount) >= 1.0)) ||
+                !checkSufficientBalance() ||
                 isLoadingBalance ||
                 (stakingStage !== 'idle' && stakingStage !== 'failed' && stakingStage !== 'success')
             }
