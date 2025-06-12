@@ -29,16 +29,14 @@ export function PartnersPage() {
     return partnerCaps[0] || null;
   };
 
-  // Determine current tab from URL
-  const getCurrentTab = (): 'overview' | 'perks' | 'analytics' | 'settings' => {
+  // Determine current tab from URL (memoized to prevent unnecessary re-renders)
+  const currentTab = React.useMemo((): 'overview' | 'perks' | 'analytics' | 'settings' => {
     const path = location.pathname;
     if (path.includes('/perks')) return 'perks';
     if (path.includes('/analytics')) return 'analytics';
     if (path.includes('/settings')) return 'settings';
     return 'overview'; // default
-  };
-
-  const currentTab = getCurrentTab();
+  }, [location.pathname]);
 
   // Handle detection errors
   useEffect(() => {
@@ -47,8 +45,8 @@ export function PartnersPage() {
     }
   }, [detectionError]);
 
-  // Manual refresh function for dashboard
-  const handleRefresh = async () => {
+  // Manual refresh function for dashboard (memoized to prevent re-renders)
+  const handleRefresh = React.useCallback(async () => {
     setIsRefreshing(true);
     try {
       const detectedCaps = await detectPartnerCaps();
@@ -62,22 +60,18 @@ export function PartnersPage() {
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [detectPartnerCaps, setPartnerCaps]);
 
-  // Handler for when a partner cap is created - includes mode switching
-  const handlePartnerCreated = async () => {
+  // Handler for when a partner cap is created - includes mode switching (memoized)
+  const handlePartnerCreated = React.useCallback(async () => {
     try {
-
-      
       // Use force detection with retries for newly created partner caps
       const detectedCaps = await forceDetectPartnerCaps(5, 3000); // 5 retries, 3 second delays
       
       if (detectedCaps.length > 0) {
-
         // Update global state with fresh caps
         setPartnerCaps(detectedCaps);
       } else {
-
         // Fallback to regular detection
         const fallbackCaps = await detectPartnerCaps();
         if (fallbackCaps.length > 0) {
@@ -91,7 +85,7 @@ export function PartnersPage() {
       console.error('❌ Error detecting partner caps after creation:', error);
       return [];
     }
-  };
+  }, [forceDetectPartnerCaps, detectPartnerCaps, setPartnerCaps]);
 
   // Loading state for initial partner detection
   if (isDetectionLoading && !isRefreshing) {
