@@ -250,31 +250,67 @@ export const EngagementTracker: React.FC = () => {
   const streakStyle = getStreakStatusStyle();
 
   // Define milestone roadmap - split into two tiers
+  // Unlocked based on longest streak (achievements), but progress shows current streak
   const tierOneMilestones = [
-    { day: 0, icon: '🌱', name: 'Start', unlocked: true, color: 'text-gray-400' },
-    { day: 1, icon: '⚡', name: 'First Step', unlocked: data.longestStreak >= 1, color: 'text-blue-400' },
-    { day: 3, icon: '🔥', name: 'Getting Warm', unlocked: data.longestStreak >= 3, color: 'text-orange-400' },
-    { day: 7, icon: '💪', name: 'Weekly Warrior', unlocked: data.longestStreak >= 7, color: 'text-green-400' },
+    { day: 0, icon: '🌱', name: 'Start', unlocked: true, color: 'text-gray-400', currentProgress: data.currentStreak >= 0 },
+    { day: 1, icon: '⚡', name: 'First Step', unlocked: data.longestStreak >= 1, color: 'text-blue-400', currentProgress: data.currentStreak >= 1 },
+    { day: 3, icon: '🔥', name: 'Getting Warm', unlocked: data.longestStreak >= 3, color: 'text-orange-400', currentProgress: data.currentStreak >= 3 },
+    { day: 7, icon: '💪', name: 'Weekly Warrior', unlocked: data.longestStreak >= 7, color: 'text-green-400', currentProgress: data.currentStreak >= 7 },
   ];
 
   const tierTwoMilestones = [
-    { day: 14, icon: '🚀', name: 'Momentum', unlocked: data.longestStreak >= 14, color: 'text-purple-400' },
-    { day: 30, icon: '👑', name: 'Consistency King', unlocked: data.longestStreak >= 30, color: 'text-yellow-400' },
-    { day: 50, icon: '💎', name: 'Diamond Hands', unlocked: data.longestStreak >= 50, color: 'text-cyan-400' },
-    { day: 100, icon: '🏆', name: 'Legend', unlocked: data.longestStreak >= 100, color: 'text-amber-400' },
+    { day: 14, icon: '🚀', name: 'Momentum', unlocked: data.longestStreak >= 14, color: 'text-purple-400', currentProgress: data.currentStreak >= 14 },
+    { day: 30, icon: '👑', name: 'Consistency King', unlocked: data.longestStreak >= 30, color: 'text-yellow-400', currentProgress: data.currentStreak >= 30 },
+    { day: 50, icon: '💎', name: 'Diamond Hands', unlocked: data.longestStreak >= 50, color: 'text-cyan-400', currentProgress: data.currentStreak >= 50 },
+    { day: 100, icon: '🏆', name: 'Legend', unlocked: data.longestStreak >= 100, color: 'text-amber-400', currentProgress: data.currentStreak >= 100 },
   ];
 
-  // Calculate progress percentage for each tier
+  // Calculate progress percentage for each tier based on current streak
+  // Progress shows how far along the current segment between milestones
   const getTierOneProgress = () => {
-    const maxTierOne = tierOneMilestones[tierOneMilestones.length - 1].day;
-    return Math.min((data.longestStreak / maxTierOne) * 100, 100);
+    const currentStreak = data.currentStreak;
+    const milestones = tierOneMilestones.map(m => m.day).sort((a, b) => a - b);
+    
+    // Find which segment we're in
+    for (let i = 0; i < milestones.length - 1; i++) {
+      const currentMilestone = milestones[i];
+      const nextMilestone = milestones[i + 1];
+      
+      if (currentStreak >= currentMilestone && currentStreak <= nextMilestone) {
+        // Calculate progress within this segment
+        const segmentProgress = (currentStreak - currentMilestone) / (nextMilestone - currentMilestone);
+        // Convert to overall progress (each segment is 1/3 of the total bar)
+        const segmentSize = 100 / (milestones.length - 1);
+        return (i * segmentSize) + (segmentProgress * segmentSize);
+      }
+    }
+    
+    // If beyond all milestones, show 100%
+    return currentStreak >= milestones[milestones.length - 1] ? 100 : 0;
   };
 
   const getTierTwoProgress = () => {
-    if (data.longestStreak < 14) return 0;
-    const minTierTwo = tierTwoMilestones[0].day;
-    const maxTierTwo = tierTwoMilestones[tierTwoMilestones.length - 1].day;
-    return Math.min(((data.longestStreak - minTierTwo) / (maxTierTwo - minTierTwo)) * 100, 100);
+    const currentStreak = data.currentStreak;
+    if (currentStreak < 14) return 0;
+    
+    const milestones = tierTwoMilestones.map(m => m.day).sort((a, b) => a - b);
+    
+    // Find which segment we're in
+    for (let i = 0; i < milestones.length - 1; i++) {
+      const currentMilestone = milestones[i];
+      const nextMilestone = milestones[i + 1];
+      
+      if (currentStreak >= currentMilestone && currentStreak <= nextMilestone) {
+        // Calculate progress within this segment
+        const segmentProgress = (currentStreak - currentMilestone) / (nextMilestone - currentMilestone);
+        // Convert to overall progress (each segment is 1/3 of the total bar)
+        const segmentSize = 100 / (milestones.length - 1);
+        return (i * segmentSize) + (segmentProgress * segmentSize);
+      }
+    }
+    
+    // If beyond all milestones, show 100%
+    return currentStreak >= milestones[milestones.length - 1] ? 100 : 0;
   };
 
   return (
@@ -454,12 +490,14 @@ export const EngagementTracker: React.FC = () => {
                         {/* Milestone Circle */}
                         <div className={`
                           relative w-8 h-8 rounded-full flex items-center justify-center text-sm border-2 transition-all duration-300
-                          ${milestone.unlocked 
+                          ${milestone.currentProgress 
                             ? 'bg-gradient-to-r from-green-500 to-blue-500 border-green-400 shadow-lg shadow-green-500/25' 
+                            : milestone.unlocked
+                            ? 'bg-gradient-to-r from-gray-500 to-gray-400 border-gray-400 shadow-lg shadow-gray-500/25'
                             : 'bg-gray-700/50 border-gray-600 text-gray-500'
                           }
                         `}>
-                          {milestone.unlocked ? milestone.icon : '🔒'}
+                          {milestone.currentProgress ? milestone.icon : milestone.unlocked ? milestone.icon : '🔒'}
                           
                           {/* Reward Available Indicator */}
                           {rewardStatus?.canClaim && (
@@ -478,7 +516,10 @@ export const EngagementTracker: React.FC = () => {
                         
                         {/* Milestone Info */}
                         <div className="text-center">
-                          <div className={`text-xs font-medium ${milestone.unlocked ? milestone.color : 'text-gray-500'}`}>
+                          <div className={`text-xs font-medium ${
+                            milestone.currentProgress ? milestone.color : 
+                            milestone.unlocked ? 'text-gray-400' : 'text-gray-500'
+                          }`}>
                             {milestone.name}
                           </div>
                           <div className="text-xs text-gray-500">
@@ -542,12 +583,14 @@ export const EngagementTracker: React.FC = () => {
                          {/* Milestone Circle */}
                          <div className={`
                            relative w-8 h-8 rounded-full flex items-center justify-center text-sm border-2 transition-all duration-300
-                           ${milestone.unlocked 
+                           ${milestone.currentProgress 
                              ? 'bg-gradient-to-r from-purple-500 to-amber-500 border-purple-400 shadow-lg shadow-purple-500/25' 
+                             : milestone.unlocked
+                             ? 'bg-gradient-to-r from-gray-500 to-gray-400 border-gray-400 shadow-lg shadow-gray-500/25'
                              : 'bg-gray-700/50 border-gray-600 text-gray-500'
                            }
                          `}>
-                           {milestone.unlocked ? milestone.icon : '🔒'}
+                           {milestone.currentProgress ? milestone.icon : milestone.unlocked ? milestone.icon : '🔒'}
                            
                            {/* Reward Available Indicator */}
                            {rewardStatus?.canClaim && (
@@ -566,7 +609,10 @@ export const EngagementTracker: React.FC = () => {
                          
                          {/* Milestone Info */}
                          <div className="text-center">
-                           <div className={`text-xs font-medium ${milestone.unlocked ? milestone.color : 'text-gray-500'}`}>
+                           <div className={`text-xs font-medium ${
+                             milestone.currentProgress ? milestone.color : 
+                             milestone.unlocked ? 'text-gray-400' : 'text-gray-500'
+                           }`}>
                              {milestone.name}
                            </div>
                            <div className="text-xs text-gray-500">

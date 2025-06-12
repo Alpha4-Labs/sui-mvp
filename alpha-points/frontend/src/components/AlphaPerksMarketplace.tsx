@@ -943,7 +943,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                 <span className="text-xl font-semibold text-secondary">{userPoints.toLocaleString()} αP</span>
               </div>
               <div className="text-sm text-green-400 mt-1">
-                ≈ ${(userPoints / 1000).toFixed(2)} USD
+                ≈ ${(userPoints / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </div>
             </div>
           </div>
