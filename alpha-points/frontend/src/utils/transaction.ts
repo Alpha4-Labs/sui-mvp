@@ -2241,34 +2241,58 @@ export function buildOldPackageUnstakeForSuiTransaction(
 ) {
   const tx = new Transaction();
   
-  // Determine function signature based on package ID
-  const isSimplePackage = oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a';
+  const packageInfo = getPackageSignatureInfo(oldPackageId);
   
-  if (isSimplePackage) {
+  if (!packageInfo.functionExists) {
+    throw new Error(`Unsupported package for migration: ${oldPackageId.substring(0, 10)}...`);
+  }
+  
+  // Validate shared object IDs
+  validateSharedObjectIds(oldSharedObjects, oldPackageId);
+  
+  if (packageInfo.argumentCount === 4) {
     // Package 0xbae3eef has 4 arguments (simpler version)
-    tx.moveCall({
-      target: `${oldPackageId}::integration::request_unstake_native_sui`,
-      arguments: [
-        tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
-        tx.object(oldSharedObjects.config || '0x0'),         // config  
-        tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
-        tx.object(oldStakeObjectId),                         // stake_position
-      ]
-    });
+          const moveCall: any = {
+        target: `${oldPackageId}::integration::request_unstake_native_sui`,
+        arguments: [
+          tx.object(oldSharedObjects.stakingManager!), // manager
+          tx.object(oldSharedObjects.config!),         // config  
+          tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
+          tx.object(oldStakeObjectId),                 // stake_position
+        ]
+      };
+    
+    if (packageInfo.needsTypeArguments) {
+      moveCall.typeArguments = [`${oldPackageId}::stake_position::StakePosition`];
+    }
+    
+    tx.moveCall(moveCall);
+  } else if (packageInfo.argumentCount === 6) {
+    // Package 0xdb62a7c has 6 arguments + ctx (handled automatically)
+    if (!oldSharedObjects.ledger || oldSharedObjects.ledger === '0x0') {
+      throw new Error(`Missing ledger for package ${oldPackageId.substring(0, 10)}...`);
+    }
+    
+          const moveCall: any = {
+        target: `${oldPackageId}::integration::request_unstake_native_sui`,
+        arguments: [
+          tx.object(oldSharedObjects.stakingManager!), // manager
+          tx.object(oldSharedObjects.config!),         // config
+          tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
+          tx.object(oldStakeObjectId),                 // stake_position
+          tx.object(CLOCK_ID),                         // clock
+          tx.object(oldSharedObjects.ledger!),         // ledger
+          // ctx is handled automatically by Sui runtime
+        ]
+      };
+    
+    if (packageInfo.needsTypeArguments) {
+      moveCall.typeArguments = [`${oldPackageId}::stake_position::StakePosition`];
+    }
+    
+    tx.moveCall(moveCall);
   } else {
-    // Package 0xdb62a7c has 7 arguments (same as current package)
-    tx.moveCall({
-      target: `${oldPackageId}::integration::request_unstake_native_sui`,
-      arguments: [
-        tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
-        tx.object(oldSharedObjects.config || '0x0'),         // config
-        tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
-        tx.object(oldStakeObjectId),                         // stake_position
-        tx.object(CLOCK_ID),                                 // clock
-        tx.object(oldSharedObjects.ledger || '0x0'),         // ledger
-        // Note: 7th argument might be ctx which is handled automatically
-      ]
-    });
+    throw new Error(`Unsupported argument count ${packageInfo.argumentCount} for package ${oldPackageId.substring(0, 10)}...`);
   }
   
   return tx;
@@ -2294,35 +2318,57 @@ export function buildOldPackageBatchUnstakeForSuiTransaction(
 ) {
   const tx = new Transaction();
   
-  // Determine function signature based on package ID
-  const isSimplePackage = oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a';
+  const packageInfo = getPackageSignatureInfo(oldPackageId);
+  
+  if (!packageInfo.functionExists) {
+    throw new Error(`Unsupported package for batch migration: ${oldPackageId.substring(0, 10)}...`);
+  }
+  
+  // Validate shared object IDs
+  validateSharedObjectIds(oldSharedObjects, oldPackageId);
   
   // Process each stake individually in the same transaction
   for (const stakeObjectId of oldStakeObjectIds) {
-    if (isSimplePackage) {
+    if (packageInfo.argumentCount === 4) {
       // Package 0xbae3eef has 4 arguments (simpler version)
-      tx.moveCall({
-        target: `${oldPackageId}::integration::request_unstake_native_sui`,
-        arguments: [
-          tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
-          tx.object(oldSharedObjects.config || '0x0'),         // config  
-          tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
-          tx.object(stakeObjectId),                            // stake_position
-        ]
-      });
-    } else {
-      // Package 0xdb62a7c has 7 arguments (same as current package)
-      tx.moveCall({
-        target: `${oldPackageId}::integration::request_unstake_native_sui`,
-        arguments: [
-          tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
-          tx.object(oldSharedObjects.config || '0x0'),         // config
-          tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
-          tx.object(stakeObjectId),                            // stake_position
-          tx.object(CLOCK_ID),                                 // clock
-          tx.object(oldSharedObjects.ledger || '0x0'),         // ledger
-        ]
-      });
+              const moveCall: any = {
+          target: `${oldPackageId}::integration::request_unstake_native_sui`,
+          arguments: [
+            tx.object(oldSharedObjects.stakingManager!), // manager
+            tx.object(oldSharedObjects.config!),         // config  
+            tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
+            tx.object(stakeObjectId),                    // stake_position
+          ]
+        };
+      
+      if (packageInfo.needsTypeArguments) {
+        moveCall.typeArguments = [`${oldPackageId}::stake_position::StakePosition`];
+      }
+      
+      tx.moveCall(moveCall);
+    } else if (packageInfo.argumentCount === 6) {
+      // Package 0xdb62a7c has 6 arguments + ctx (handled automatically)
+      if (!oldSharedObjects.ledger || oldSharedObjects.ledger === '0x0') {
+        throw new Error(`Missing ledger for package ${oldPackageId.substring(0, 10)}...`);
+      }
+      
+              const moveCall: any = {
+          target: `${oldPackageId}::integration::request_unstake_native_sui`,
+          arguments: [
+            tx.object(oldSharedObjects.stakingManager!), // manager
+            tx.object(oldSharedObjects.config!),         // config
+            tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
+            tx.object(stakeObjectId),                    // stake_position
+            tx.object(CLOCK_ID),                         // clock
+            tx.object(oldSharedObjects.ledger!),         // ledger
+          ]
+        };
+      
+      if (packageInfo.needsTypeArguments) {
+        moveCall.typeArguments = [`${oldPackageId}::stake_position::StakePosition`];
+      }
+      
+      tx.moveCall(moveCall);
     }
   }
   
@@ -2365,5 +2411,65 @@ export function getOldPackageSharedObjects(oldPackageId: string): {
     config: '0x0', 
     ledger: '0x0',
   };
+}
+
+/**
+ * Get package-specific function signature info
+ * @param oldPackageId Address of the old package
+ * @returns Object containing function signature details
+ */
+function getPackageSignatureInfo(oldPackageId: string): {
+  argumentCount: number;
+  needsTypeArguments: boolean;
+  functionExists: boolean;
+} {
+  switch (oldPackageId) {
+    case '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a':
+      return {
+        argumentCount: 4,
+        needsTypeArguments: false,
+        functionExists: true
+      };
+    case '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf':
+      return {
+        argumentCount: 6, // Excluding ctx which is handled automatically
+        needsTypeArguments: true,
+        functionExists: true
+      };
+    default:
+      return {
+        argumentCount: 0,
+        needsTypeArguments: false,
+        functionExists: false
+      };
+  }
+}
+
+/**
+ * Validate that shared object IDs are properly formatted and not zero addresses
+ * @param sharedObjects Object containing shared object IDs to validate
+ * @param packageId Package ID for context in error messages
+ * @throws Error if validation fails
+ */
+function validateSharedObjectIds(
+  sharedObjects: { stakingManager?: string; config?: string; ledger?: string },
+  packageId: string
+) {
+  const validateObjectId = (id: string | undefined, name: string) => {
+    if (!id || id === '0x0' || id.length < 10) {
+      throw new Error(`Invalid ${name} ID for package ${packageId.substring(0, 10)}...: ${id}`);
+    }
+    if (!id.startsWith('0x')) {
+      throw new Error(`${name} ID must start with 0x for package ${packageId.substring(0, 10)}...: ${id}`);
+    }
+  };
+
+  validateObjectId(sharedObjects.stakingManager, 'stakingManager');
+  validateObjectId(sharedObjects.config, 'config');
+  
+  // ledger is only required for certain packages
+  if (packageId === '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf') {
+    validateObjectId(sharedObjects.ledger, 'ledger');
+  }
 }
 
