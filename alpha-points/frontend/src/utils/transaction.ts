@@ -2341,22 +2341,21 @@ export function getOldPackageSharedObjects(oldPackageId: string): {
   config?: string;
   ledger?: string;
 } {
-  // These IDs would need to be discovered from the old package deployments
-  // For now, returning placeholders - you'll need to find the actual IDs
-  
-  if (oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a') {
+  // Package 0xdb62a7c - Actual shared object IDs from deployment transaction
+  if (oldPackageId === '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf') {
     return {
-      stakingManager: '0x0', // TODO: Find actual StakingManager ID for this package
-      config: '0x0',         // TODO: Find actual Config ID for this package
-      ledger: '0x0',         // TODO: Find actual Ledger ID for this package (if needed)
+      stakingManager: '0xa16cefcddf869a44b74a859b2f77b0d00d48cf0cb57b804802a750e8283dbee2',
+      config: '0x1a5dee16d572830a43e86cad2562be36c6b7350600cff1dcb4496fafaa203ef9',
+      ledger: '0xc6e43029177ccc41afe2c4836fae1843492e8477cd95f7d2465e27d7722bc31d'
     };
   }
   
-  if (oldPackageId === '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf') {
+  // Package 0xbae3eef - Actual shared object IDs from deployment transaction
+  if (oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a') {
     return {
-      stakingManager: '0x0', // TODO: Find actual StakingManager ID for this package
-      config: '0x0',         // TODO: Find actual Config ID for this package
-      ledger: '0x0',         // TODO: Find actual Ledger ID for this package
+      stakingManager: '0xf4f96a8211465553dd477e0471f4a57dc5ec3f1810d457e90d9bf9f9539262eb',
+      config: '0xf180290c291c7c9628e90e04484ec9e5688802273997e9a05df5431798342f05',
+      ledger: '0x46d8bcb53f05d758b4b77924095a8358da5b7005a9b3e08a4e970ef617690335'
     };
   }
   
@@ -2367,3 +2366,4 @@ export function getOldPackageSharedObjects(oldPackageId: string): {
     ledger: '0x0',
   };
 }
+
