@@ -8,9 +8,9 @@ import { ErrorToast, SuccessToast } from './ui/ErrorToast';
 import { toast } from 'react-toastify';
 import { useAlphaContext } from '../context/AlphaContext';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
-import { usePartnerSettings, type MetadataField } from '../hooks/usePartnerSettings';
+import { usePartnerSettings } from '../hooks/usePartnerSettings';
 import { usePartnerAnalytics } from '../hooks/usePartnerAnalytics';
-import { MetadataFieldModal } from './MetadataFieldModal';
+
 import { usePartnerDetection } from '../hooks/usePartnerDetection';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
 import { 
@@ -27,8 +27,8 @@ import {
   findPartnerStatsId,
   buildCreatePartnerStatsIfNotExistsTransaction,
 } from '../utils/transaction';
-import { debugPartnerStatsDetection } from '../utils/debugPartnerStats';
-import { logDuplicateStatsReport, checkPartnerCapForDuplicates } from '../utils/duplicateStatsCleanup';
+
+
 // import { SPONSOR_CONFIG } from '../config/contract'; // Commented out - will re-enable for sponsored transactions later
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
@@ -193,9 +193,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     fetchSettings,
     resetFormToCurrentSettings,
     generateNewSalt,
-    addMetadataField,
-    removeMetadataField,
-    updateMetadataField
+
   } = usePartnerSettings(selectedPartnerCapId);
   
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
@@ -315,41 +313,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   };
 
-  // Check for duplicate stats objects
-  const checkForDuplicates = async () => {
-    if (!suiClient || !selectedPartnerCapId) return;
-    
-    console.log('🔍 Checking for duplicate PartnerPerkStatsV2 objects...');
-    
-    try {
-      // Check this specific partner cap
-      const duplicateInfo = await checkPartnerCapForDuplicates(suiClient, selectedPartnerCapId);
-      
-      if (duplicateInfo) {
-        console.warn('⚠️ DUPLICATES FOUND for this partner cap!');
-        console.warn('⚠️ Duplicate count:', duplicateInfo.duplicateCount);
-        console.warn('⚠️ Stats IDs:', duplicateInfo.statsIds);
-        console.warn('⚠️ Recommended to keep:', duplicateInfo.recommendedStatsId);
-        console.warn('⚠️ Should remove:', duplicateInfo.duplicatesToRemove);
-        
-        toast.error(`Found ${duplicateInfo.duplicateCount} stats objects for this partner! Check console for details.`, {
-          autoClose: 5000
-        });
-      } else {
-        console.log('✅ No duplicates found for this partner cap');
-        toast.success('No duplicate stats objects found for this partner.', {
-          autoClose: 3000
-        });
-      }
-      
-      // Also run the full system scan
-      await logDuplicateStatsReport(suiClient);
-      
-    } catch (error) {
-      console.error('Error checking for duplicates:', error);
-      toast.error('Failed to check for duplicates. See console for details.');
-    }
-  };
+
 
   // NO AUTOMATIC CHECKING - Only manual checks via buttons or partner cap changes
   useEffect(() => {
@@ -406,9 +370,32 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
   // Predefined tag options
   const availableTags = [
+    // Core types
     'Access', 'Service', 'Digital Asset', 'Physical', 'Event',
     'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta',
-    'NFT', 'Discord', 'Support', 'Merch', 'Ticket'
+    'NFT', 'Discord', 'Support', 'Merch', 'Ticket',
+    
+    // DeFi & Finance
+    'DeFi', 'Insurance', 'Protection', 'Cashback', 'Analytics',
+    
+    // Retail & Commerce
+    'Retail', 'Early Access', 'Sales', 'Shipping',
+    
+    // Professional & Business
+    'Professional', 'Data', 'Tools', 'Education', 'Certification',
+    'Mentorship', 'Career',
+    
+    // Entertainment & Events
+    'Events', 'Season Pass', 'Gaming', 'Tournament', 'Competition',
+    
+    // Hospitality & Travel
+    'Hospitality', 'Priority', 'Travel', 'Luxury',
+    
+    // Content & Creator
+    'Creator', 'Collaboration', 'Content', 'Monetization', 'Digital',
+    
+    // Health & Fitness
+    'Fitness', 'Training', 'Nutrition', 'Coaching', 'Health'
   ];
 
   // Blockchain integration hooks
@@ -474,8 +461,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   }>({ type: null, isOpen: false });
 
   // Metadata field modal state
-  const [showMetadataFieldModal, setShowMetadataFieldModal] = useState(false);
-  const [editingMetadataField, setEditingMetadataField] = useState<MetadataField | null>(null);
+
   
   // Salt visibility state
   const [showSalt, setShowSalt] = useState(false);
@@ -487,9 +473,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     showModal: false
   });
 
-  // Metadata schema swiper state
-  const [metadataSwiperInstance, setMetadataSwiperInstance] = useState<any>(null);
-  const [metadataActiveIndex, setMetadataActiveIndex] = useState(0);
+
 
   // Field Guide swiper state
   const [fieldGuideSwiperInstance, setFieldGuideSwiperInstance] = useState<any>(null);
@@ -699,8 +683,6 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     return 90 - reinvestmentPercent;
   };
 
-  const newPerkPartnerShare = calculatePartnerShare(newPerkReinvestmentPercent).toString();
-
   // 🔍 Helper function to validate partner cap ID format
   const validatePartnerCapId = (id: string): { isValid: boolean; format: string; details: string } => {
     if (!id || id.length < 10) {
@@ -908,6 +890,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         return;
       }
       
+      // Calculate partner share percentage for the transaction
+      const newPerkPartnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
+      
       const transaction = buildCreatePerkDefinitionTransaction(
         partnerCap.id,
         {
@@ -915,7 +900,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           description: newPerkDescription.trim(),
           perkType: newPerkType,
           usdcPrice: usdcPrice,
-          partnerSharePercentage: parseInt(newPerkPartnerShare),
+          partnerSharePercentage: newPerkPartnerShare,
           maxUsesPerClaim: undefined,
           expirationTimestampMs: undefined,
           generatesUniqueClaimMetadata: false,
@@ -1237,9 +1222,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
     setIsUpdatingSettings(true);
     try {
-      // Define allowed arrays
-      const allowedPerkTypes = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta'];
-      const allowedTags = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta', 'NFT', 'Discord', 'Support', 'Merch', 'Ticket'];
+      // Define allowed arrays - use all available tags from frontend to make system unrestricted
+      const allowedPerkTypes = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta', 'Financial', 'Education', 'Digital'];
+      const allowedTags = availableTags; // Use all tags from the frontend availableTags array
 
       // 1. Update perk control settings first
       toast.info('Step 1/3: Updating perk control settings...');
@@ -1864,6 +1849,19 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             <>
               <div className="w-2 h-2 rounded-full bg-red-500"></div>
               <span className="text-red-400">Tags: Contains disallowed tags</span>
+              <button
+                onClick={() => {
+                  if (currentTab !== 'settings') {
+                    // Navigate to settings tab if not already there
+                    window.location.hash = '#settings';
+                  }
+                  toast.info('💡 Go to Settings tab and click "Save Settings" to allow all tags', { autoClose: 5000 });
+                }}
+                className="ml-2 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                title="Update settings to allow all tags"
+              >
+                Fix
+              </button>
             </>
           );
         } else {
@@ -2110,7 +2108,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             <PortalTooltip show={showBlueTooltip} position={tooltipPosition}>
               <div className="text-blue-300 w-72 border-blue-700">
                 <strong>Ready for Implementation:</strong> Perk creation will integrate with the on-chain perk_manager contract. 
-                Revenue splits: {newPerkPartnerShare || 70}% revenue to you, {newPerkReinvestmentPercent}% reinvested in your TVL, 10% to platform.
+                Revenue splits: {calculatePartnerShare(newPerkReinvestmentPercent)}% revenue to you, {newPerkReinvestmentPercent}% reinvested in your TVL, 10% to platform.
               </div>
             </PortalTooltip>
             
@@ -4263,24 +4261,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 </div>
               )}
               
-              {hasPartnerStats === true && (
-                <div className="flex items-center space-x-2">
-                  <Button 
-                    className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-2 py-1"
-                    onClick={() => debugPartnerStatsDetection(suiClient, selectedPartnerCapId)}
-                    title="Debug detected stats object (check console)"
-                  >
-                    🐛 Debug Found
-                  </Button>
-                  <Button 
-                    className="bg-orange-600 hover:bg-orange-700 text-white text-sm px-2 py-1"
-                    onClick={checkForDuplicates}
-                    title="Check for duplicate stats objects (check console)"
-                  >
-                    🔍 Check Duplicates
-                  </Button>
-                </div>
-              )}
+
               
               {currentSettings && (
                 <Button 
@@ -4384,124 +4365,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   </label>
               </div>
             
-            <div className="space-y-3">
-              <div className="bg-gray-900/50 rounded-lg p-3">
-                <div className="flex justify-between items-center mb-2">
-                  <div>
-                    <div className="text-sm text-gray-300 font-medium">Metadata Schema</div>
-                    <div className="text-xs text-gray-500">Define what information your perks collect</div>
-                  </div>
-                  <Button 
-                    onClick={() => {
-                      setEditingMetadataField(null);
-                      setShowMetadataFieldModal(true);
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1"
-                  >
-                    Add Field
-                  </Button>
-                </div>
-                
-                {perkSettings.metadataSchema && perkSettings.metadataSchema.length > 0 ? (
-                  <div className="relative">
-                    {/* Navigation arrows for metadata fields */}
-                    {perkSettings.metadataSchema.length > 3 && (
-                      <>
-                        <button
-                          onClick={() => metadataSwiperInstance?.slidePrev()}
-                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-gray-700 hover:bg-gray-600 text-white p-1 rounded-full transition-colors"
-                          style={{ marginLeft: '-12px' }}
-                        >
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => metadataSwiperInstance?.slideNext()}
-                          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-gray-700 hover:bg-gray-600 text-white p-1 rounded-full transition-colors"
-                          style={{ marginRight: '-12px' }}
-                        >
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </>
-                    )}
-                    
-                    <Swiper
-                      modules={[Navigation, A11y]}
-                      spaceBetween={12}
-                      slidesPerView={Math.min(3, perkSettings.metadataSchema.length)}
-                      slidesPerGroup={3}
-                      onSwiper={setMetadataSwiperInstance}
-                      onSlideChange={(swiper) => setMetadataActiveIndex(swiper.activeIndex)}
-                      className="metadata-schema-swiper"
-                    >
-                      {perkSettings.metadataSchema.map((field, index) => (
-                        <SwiperSlide key={field.key}>
-                          <div className="bg-gray-800 rounded p-3 h-24 flex flex-col justify-between">
-                            <div className="flex-1 min-h-0">
-                              <div className="text-sm text-white font-medium flex items-center gap-2 truncate">
-                                <span className="flex-shrink-0">{field.key}</span>
-                                {field.required && (
-                                  <span className="text-yellow-400 text-xs flex-shrink-0">Required</span>
-                                )}
-                                {field.description && (
-                                  <span className="text-gray-400 text-xs truncate">
-                                    - {field.description}
-                                  </span>
-                                )}
-                                {!field.description && (
-                                  <span className="text-gray-500 text-xs flex-shrink-0">No description</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex space-x-1 mt-2">
-                              <Button 
-                                onClick={() => {
-                                  setEditingMetadataField(field);
-                                  setShowMetadataFieldModal(true);
-                                }}
-                                className="bg-gray-600 hover:bg-gray-700 text-xs px-2 py-1 flex-1"
-                              >
-                                Edit
-                              </Button>
-                              <Button 
-                                onClick={() => removeMetadataField(field.key)}
-                                className="bg-red-600 hover:bg-red-700 text-xs px-2 py-1 flex-1"
-                              >
-                                Remove
-                              </Button>
-                            </div>
-                          </div>
-                        </SwiperSlide>
-                      ))}
-                    </Swiper>
-                    
-                    {/* Pagination dots for metadata fields */}
-                    {perkSettings.metadataSchema.length > 3 && (
-                      <div className="flex justify-center mt-3 space-x-1">
-                        {Array.from({ length: Math.ceil(perkSettings.metadataSchema.length / 3) }).map((_, pageIndex) => (
-                          <button
-                            key={pageIndex}
-                            onClick={() => metadataSwiperInstance?.slideTo(pageIndex * 3)}
-                            className={`w-2 h-2 rounded-full transition-colors ${
-                              Math.floor(metadataActiveIndex / 3) === pageIndex 
-                                ? 'bg-blue-500' 
-                                : 'bg-gray-600 hover:bg-gray-500'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-xs text-gray-500 text-center py-4">
-                    No metadata fields configured. Add fields to collect user information with your perks.
-                  </div>
-                )}
-              </div>
-            </div>
+
 
             {/* Save Button */}
             <div className="pt-4 border-t border-gray-700">
@@ -5032,22 +4896,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       {renderCollateralModal()}
       
       {/* Metadata Field Modal */}
-      <MetadataFieldModal
-        isOpen={showMetadataFieldModal}
-        onClose={() => {
-          setShowMetadataFieldModal(false);
-          setEditingMetadataField(null);
-        }}
-        onSubmit={(field) => {
-          if (editingMetadataField) {
-            updateMetadataField(editingMetadataField.key, field);
-          } else {
-            addMetadataField(field);
-          }
-        }}
-        editingField={editingMetadataField}
-        existingKeys={perkSettings.metadataSchema?.map(f => f.key) || []}
-      />
+
 
       {/* Enhanced Salt Regeneration Modal */}
       {saltRegenerationFlow.showModal && (
