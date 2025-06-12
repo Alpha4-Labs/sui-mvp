@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { toast } from 'react-toastify';
 import { useAlphaContext, OrphanedStake } from '../context/AlphaContext';
-import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction, buildSelfServiceMigrateStakeTransaction, buildSelfServiceBatchMigrateStakesTransaction } from '../utils/transaction';
+import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction, buildSelfServiceMigrateStakeTransaction, buildSelfServiceBatchMigrateStakesTransaction, buildOldPackageUnstakeForSuiTransaction, buildOldPackageBatchUnstakeForSuiTransaction, getOldPackageSharedObjects } from '../utils/transaction';
 import {
   getTransactionErrorMessage,
   getTransactionResponseError,
@@ -293,9 +293,9 @@ export const StakedPositionsList: React.FC = () => {
   };
 
   /**
-   * Handles self-serve migration of all user's old package stakes
-   * Uses the new self-service migration after stakes have been unencumbered by admin
-   * Now supports stakes from multiple old packages
+   * OPTION 1: Handles migration by calling old package's request_unstake_native_sui directly
+   * This allows users to get their actual SUI back from validators instead of just Alpha Points
+   * Falls back to Option 2 (Alpha Points) if Option 1 fails
    */
   const handleSelfServeMigration = async () => {
     if (!alphaAddress || !suiClient || oldPackageStakes.length === 0) {
@@ -321,6 +321,8 @@ export const StakedPositionsList: React.FC = () => {
         Object.keys(stakesByPackage).map(id => `${id.substring(0, 10)}... (${stakesByPackage[id].length} stakes)`));
 
       let totalMigrated = 0;
+      let suiReclaimed = 0;
+      let alphaPointsAwarded = 0;
       const results: string[] = [];
 
       // Process each package separately
@@ -328,19 +330,43 @@ export const StakedPositionsList: React.FC = () => {
         const packageStakes = stakes as any[]; // Type assertion since we know the structure
         console.log(`🔄 Processing ${packageStakes.length} stakes from package ${packageId.substring(0, 10)}...`);
 
-        if (packageStakes.length > 1) {
-          // Batch migration for multiple stakes from same package
-          const stakeObjectIds = packageStakes.map(stake => stake.objectId).filter(Boolean);
+        // Get old package shared objects
+        const oldSharedObjects = getOldPackageSharedObjects(packageId);
+        
+        try {
+          // OPTION 1: Try to call old package's request_unstake_native_sui directly
+          console.log(`🎯 OPTION 1: Attempting to reclaim SUI from validators for package ${packageId.substring(0, 10)}...`);
           
-          if (stakeObjectIds.length === 0) {
-            console.warn(`⚠️ No valid stake object IDs found for package ${packageId}`);
-            continue;
-          }
+          let transaction;
+          if (packageStakes.length > 1) {
+            // Batch unstake for SUI
+            const stakeObjectIds = packageStakes.map(stake => stake.objectId).filter(Boolean);
+            
+            if (stakeObjectIds.length === 0) {
+              console.warn(`⚠️ No valid stake object IDs found for package ${packageId}`);
+              continue;
+            }
 
-          const transaction = buildSelfServiceBatchMigrateStakesTransaction(
-            stakeObjectIds,
-            packageId
-          );
+            transaction = buildOldPackageBatchUnstakeForSuiTransaction(
+              stakeObjectIds,
+              packageId,
+              oldSharedObjects
+            );
+          } else {
+            // Single stake unstake for SUI
+            const stake = packageStakes[0];
+            
+            if (!stake.objectId) {
+              console.warn(`⚠️ Invalid stake object ID for package ${packageId}`);
+              continue;
+            }
+
+            transaction = buildOldPackageUnstakeForSuiTransaction(
+              stake.objectId,
+              packageId,
+              oldSharedObjects
+            );
+          }
 
           const result = await signAndExecute({ transaction });
           
@@ -350,49 +376,75 @@ export const StakedPositionsList: React.FC = () => {
           
           const responseError = getTransactionResponseError(result);
           if (responseError) {
-            throw new Error(`Batch migration failed for package ${packageId}: ${responseError}`);
+            throw new Error(`Option 1 failed for package ${packageId}: ${responseError}`);
           }
 
-          console.log(`✅ Successfully batch migrated ${packageStakes.length} stakes from package ${packageId.substring(0, 10)}...: ${result.digest}`);
+          console.log(`✅ OPTION 1 SUCCESS: SUI withdrawal initiated for ${packageStakes.length} stakes from package ${packageId.substring(0, 10)}...: ${result.digest}`);
           totalMigrated += packageStakes.length;
+          suiReclaimed += packageStakes.length;
           results.push(result.digest);
           
-        } else {
-          // Single stake migration
-          const stake = packageStakes[0];
+        } catch (option1Error) {
+          console.warn(`⚠️ OPTION 1 failed for package ${packageId}:`, option1Error);
+          console.log(`🔄 OPTION 2: Falling back to Alpha Points migration for package ${packageId.substring(0, 10)}...`);
           
-          if (!stake.objectId) {
-            console.warn(`⚠️ Invalid stake object ID for package ${packageId}`);
-            continue;
-          }
+          try {
+            // OPTION 2: Fallback to Alpha Points migration
+            let fallbackTransaction;
+            if (packageStakes.length > 1) {
+              // Batch migration for Alpha Points
+              const stakeObjectIds = packageStakes.map(stake => stake.objectId).filter(Boolean);
+              
+              fallbackTransaction = buildSelfServiceBatchMigrateStakesTransaction(
+                stakeObjectIds,
+                packageId
+              );
+            } else {
+              // Single stake migration for Alpha Points
+              const stake = packageStakes[0];
+              
+              fallbackTransaction = buildSelfServiceMigrateStakeTransaction(
+                stake.objectId,
+                packageId
+              );
+            }
 
-          const transaction = buildSelfServiceMigrateStakeTransaction(
-            stake.objectId,
-            packageId
-          );
+            const fallbackResult = await signAndExecute({ transaction: fallbackTransaction });
+            
+            if (!fallbackResult || typeof fallbackResult !== 'object' || !('digest' in fallbackResult)) {
+              throw new Error(`Fallback transaction returned an unexpected response format for package ${packageId}`);
+            }
+            
+            const fallbackResponseError = getTransactionResponseError(fallbackResult);
+            if (fallbackResponseError) {
+              throw new Error(`Option 2 fallback failed for package ${packageId}: ${fallbackResponseError}`);
+            }
 
-          const result = await signAndExecute({ transaction });
-          
-          if (!result || typeof result !== 'object' || !('digest' in result)) {
-            throw new Error(`Transaction returned an unexpected response format for package ${packageId}`);
+            console.log(`✅ OPTION 2 SUCCESS: Alpha Points awarded for ${packageStakes.length} stakes from package ${packageId.substring(0, 10)}...: ${fallbackResult.digest}`);
+            totalMigrated += packageStakes.length;
+            alphaPointsAwarded += packageStakes.length;
+            results.push(fallbackResult.digest);
+            
+          } catch (option2Error) {
+            console.error(`❌ Both Option 1 and Option 2 failed for package ${packageId}:`, option2Error);
+            throw new Error(`All migration options failed for package ${packageId}: ${option2Error}`);
           }
-          
-          const responseError = getTransactionResponseError(result);
-          if (responseError) {
-            throw new Error(`Single migration failed for package ${packageId}: ${responseError}`);
-          }
-
-          console.log(`✅ Successfully migrated stake ${stake.objectId} from package ${packageId.substring(0, 10)}...: ${result.digest}`);
-          totalMigrated += 1;
-          results.push(result.digest);
         }
       }
 
       if (totalMigrated > 0) {
-        toast.success(
-          `Migration successful! ${totalMigrated} stakes migrated from ${Object.keys(stakesByPackage).length} packages and Alpha Points awarded. ` +
-          `Digests: ${results.map(d => d.substring(0, 8)).join(', ')}...`
-        );
+        let successMessage = `Migration successful! ${totalMigrated} stakes migrated from ${Object.keys(stakesByPackage).length} packages. `;
+        
+        if (suiReclaimed > 0) {
+          successMessage += `${suiReclaimed} stakes: SUI withdrawal tickets received (claim from validators). `;
+        }
+        if (alphaPointsAwarded > 0) {
+          successMessage += `${alphaPointsAwarded} stakes: Alpha Points awarded. `;
+        }
+        
+        successMessage += `Digests: ${results.map(d => d.substring(0, 8)).join(', ')}...`;
+        
+        toast.success(successMessage);
       } else {
         throw new Error('No stakes were successfully migrated');
       }
@@ -843,7 +895,7 @@ export const StakedPositionsList: React.FC = () => {
               onClick={handleSelfServeMigration}
               disabled={migrationInProgress || loading.transaction || checkingOldPackage}
               className="px-3 py-2 bg-gradient-to-r from-blue-600 to-purple-700 hover:from-blue-500 hover:to-purple-600 text-white text-sm font-medium rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg hover:shadow-blue-500/25"
-              title={`Migrate ${oldPackageStakes.length} stake${oldPackageStakes.length !== 1 ? 's' : ''} and receive Alpha Points`}
+              title={`Migrate ${oldPackageStakes.length} stake${oldPackageStakes.length !== 1 ? 's' : ''} - Get SUI back from validators (preferred) or Alpha Points (fallback)`}
             >
               {migrationInProgress ? (
                 <>
@@ -866,7 +918,7 @@ export const StakedPositionsList: React.FC = () => {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
                   </svg>
-                  Claim αP ({oldPackageStakes.length})
+                  Reclaim SUI ({oldPackageStakes.length})
                 </>
               )}
             </button>

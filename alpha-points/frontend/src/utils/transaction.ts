@@ -2220,3 +2220,150 @@ export const buildCreatePartnerStatsIfNotExistsTransaction = async (
     };
   }
 };
+
+/**
+ * OPTION 1: Call old package's request_unstake_native_sui directly to get SUI back from validators
+ * This is the preferred migration method since users get their actual SUI back
+ * 
+ * @param oldStakeObjectId Object ID of the old package stake position
+ * @param oldPackageId Address of the old package containing the stake
+ * @param oldSharedObjects Object containing the old package's shared object IDs
+ * @returns Transaction object ready for execution
+ */
+export function buildOldPackageUnstakeForSuiTransaction(
+  oldStakeObjectId: string,
+  oldPackageId: string,
+  oldSharedObjects: {
+    stakingManager?: string;
+    config?: string;
+    ledger?: string;
+  }
+) {
+  const tx = new Transaction();
+  
+  // Determine function signature based on package ID
+  const isSimplePackage = oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a';
+  
+  if (isSimplePackage) {
+    // Package 0xbae3eef has 4 arguments (simpler version)
+    tx.moveCall({
+      target: `${oldPackageId}::integration::request_unstake_native_sui`,
+      arguments: [
+        tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
+        tx.object(oldSharedObjects.config || '0x0'),         // config  
+        tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
+        tx.object(oldStakeObjectId),                         // stake_position
+      ]
+    });
+  } else {
+    // Package 0xdb62a7c has 7 arguments (same as current package)
+    tx.moveCall({
+      target: `${oldPackageId}::integration::request_unstake_native_sui`,
+      arguments: [
+        tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
+        tx.object(oldSharedObjects.config || '0x0'),         // config
+        tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
+        tx.object(oldStakeObjectId),                         // stake_position
+        tx.object(CLOCK_ID),                                 // clock
+        tx.object(oldSharedObjects.ledger || '0x0'),         // ledger
+        // Note: 7th argument might be ctx which is handled automatically
+      ]
+    });
+  }
+  
+  return tx;
+}
+
+/**
+ * OPTION 1 BATCH: Call old package's request_unstake_native_sui for multiple stakes
+ * Processes multiple stakes from the same old package
+ * 
+ * @param oldStakeObjectIds Array of object IDs of old package stakes
+ * @param oldPackageId Address of the old package containing the stakes
+ * @param oldSharedObjects Object containing the old package's shared object IDs
+ * @returns Transaction object ready for execution
+ */
+export function buildOldPackageBatchUnstakeForSuiTransaction(
+  oldStakeObjectIds: string[],
+  oldPackageId: string,
+  oldSharedObjects: {
+    stakingManager?: string;
+    config?: string;
+    ledger?: string;
+  }
+) {
+  const tx = new Transaction();
+  
+  // Determine function signature based on package ID
+  const isSimplePackage = oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a';
+  
+  // Process each stake individually in the same transaction
+  for (const stakeObjectId of oldStakeObjectIds) {
+    if (isSimplePackage) {
+      // Package 0xbae3eef has 4 arguments (simpler version)
+      tx.moveCall({
+        target: `${oldPackageId}::integration::request_unstake_native_sui`,
+        arguments: [
+          tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
+          tx.object(oldSharedObjects.config || '0x0'),         // config  
+          tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
+          tx.object(stakeObjectId),                            // stake_position
+        ]
+      });
+    } else {
+      // Package 0xdb62a7c has 7 arguments (same as current package)
+      tx.moveCall({
+        target: `${oldPackageId}::integration::request_unstake_native_sui`,
+        arguments: [
+          tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
+          tx.object(oldSharedObjects.config || '0x0'),         // config
+          tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
+          tx.object(stakeObjectId),                            // stake_position
+          tx.object(CLOCK_ID),                                 // clock
+          tx.object(oldSharedObjects.ledger || '0x0'),         // ledger
+        ]
+      });
+    }
+  }
+  
+  return tx;
+}
+
+/**
+ * Helper function to get old package shared object IDs
+ * These would need to be discovered or hardcoded based on the old package deployment
+ * 
+ * @param oldPackageId Address of the old package
+ * @returns Object containing the old package's shared object IDs
+ */
+export function getOldPackageSharedObjects(oldPackageId: string): {
+  stakingManager?: string;
+  config?: string;
+  ledger?: string;
+} {
+  // These IDs would need to be discovered from the old package deployments
+  // For now, returning placeholders - you'll need to find the actual IDs
+  
+  if (oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a') {
+    return {
+      stakingManager: '0x0', // TODO: Find actual StakingManager ID for this package
+      config: '0x0',         // TODO: Find actual Config ID for this package
+      ledger: '0x0',         // TODO: Find actual Ledger ID for this package (if needed)
+    };
+  }
+  
+  if (oldPackageId === '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf') {
+    return {
+      stakingManager: '0x0', // TODO: Find actual StakingManager ID for this package
+      config: '0x0',         // TODO: Find actual Config ID for this package
+      ledger: '0x0',         // TODO: Find actual Ledger ID for this package
+    };
+  }
+  
+  // Default fallback
+  return {
+    stakingManager: '0x0',
+    config: '0x0', 
+    ledger: '0x0',
+  };
+}
