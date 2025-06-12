@@ -911,67 +911,191 @@ export const findPartnerStatsId = async (
   partnerCapId: string
 ): Promise<string> => {
   try {
-    console.log('🔍 Searching for PartnerPerkStatsV2 for partner cap:', partnerCapId);
-    console.log('🔍 Using package ID:', PACKAGE_ID);
+    console.log('🔍 ===== SEARCHING FOR PARTNERPERKSTATSV2 =====');
+    console.log('🔍 Partner Cap ID:', partnerCapId);
+    console.log('🔍 Package ID:', PACKAGE_ID);
+    console.log('🔍 Expected object type:', `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`);
 
     if (!PACKAGE_ID) {
       throw new Error('PACKAGE_ID not configured');
     }
 
-    // Primary approach: Query events for PartnerPerkStatsCreatedV2 to find the stats object
-    console.log('🔍 Searching via PartnerPerkStatsCreatedV2 events...');
+    const allFoundStatsIds: string[] = [];
+
+    // Multi-approach search strategy for PartnerPerkStatsV2 objects
+    const objectType = `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`;
+    console.log('🔍 Looking for objects of type:', objectType);
     
-    const eventsResponse = await suiClient.queryEvents({
-      query: {
-        MoveEventType: `${PACKAGE_ID}::perk_manager::PartnerPerkStatsCreatedV2`
-      },
-      limit: 100,
-      order: 'descending'
-    });
-
-    console.log('🔍 Found PartnerPerkStatsCreatedV2 events:', eventsResponse.data.length);
-
-    for (const event of eventsResponse.data) {
-      if (event.parsedJson && event.parsedJson.partner_cap_id === partnerCapId) {
-        const statsId = event.parsedJson.stats_id;
-        console.log('✅ Found stats ID from event:', statsId);
-        
-        // Verify the object still exists and is accessible
+    // Approach 1: Search via transaction history (most reliable)
+    console.log('🔍 Approach 1: Searching via transaction history...');
+    try {
+      // Search for recent transactions that created PartnerPerkStatsV2 objects
+      const recentTxs = await suiClient.queryTransactionBlocks({
+        filter: {
+          MoveFunction: {
+            package: PACKAGE_ID,
+            module: 'perk_manager',
+            function: 'create_partner_perk_stats_v2'
+          }
+        },
+        limit: 50,
+        order: 'descending'
+      });
+      
+      console.log('🔍 Found', recentTxs.data.length, 'recent PartnerPerkStatsV2 creation transactions');
+      
+      for (const tx of recentTxs.data) {
         try {
-          const objectResponse = await suiClient.getObject({
-            id: statsId,
-            options: { 
-              showContent: true,
-              showType: true
+          const txResponse = await suiClient.getTransactionBlock({
+            digest: tx.digest,
+            options: {
+              showObjectChanges: true,
+              showEvents: true
             }
           });
           
-          if (objectResponse.data && objectResponse.data.content) {
-            console.log('✅ Verified stats object exists and is accessible:', statsId);
-            return statsId;
-          } else {
-            console.log('❌ Stats object exists but content not accessible:', statsId);
+          // Check object changes for created PartnerPerkStatsV2 objects
+          if (txResponse.objectChanges) {
+            for (const change of txResponse.objectChanges) {
+              if (change.type === 'created' && 
+                  change.objectType && 
+                  change.objectType.includes('PartnerPerkStatsV2')) {
+                
+                console.log('🔍 Found PartnerPerkStatsV2 object:', change.objectId);
+                
+                // Check if this object belongs to our partner cap
+                try {
+                  const objectResponse = await suiClient.getObject({
+                    id: change.objectId,
+                    options: { showContent: true }
+                  });
+                  
+                  if (objectResponse.data?.content?.dataType === 'moveObject') {
+                    const fields = (objectResponse.data.content as any).fields;
+                    console.log('🔍 Object fields:', fields);
+                    
+                    if (fields.partner_cap_id === partnerCapId) {
+                      console.log('✅ Found matching PartnerPerkStatsV2:', change.objectId);
+                      allFoundStatsIds.push(change.objectId);
+                    }
+                  }
+                } catch (error) {
+                  console.log('❌ Error accessing object:', change.objectId, error);
+                }
+              }
+            }
           }
-        } catch (verifyError) {
-          console.log('❌ Stats object from event no longer exists:', statsId, verifyError);
+          
+          // Also check events as fallback
+          if (txResponse.events) {
+            for (const event of txResponse.events) {
+              if (event.type && event.type.includes('PartnerPerkStatsCreated')) {
+                console.log('🔍 Found PartnerPerkStatsCreated event:', event);
+                if (event.parsedJson && 
+                    event.parsedJson.partner_cap_id === partnerCapId &&
+                    event.parsedJson.stats_id) {
+                  console.log('✅ Found matching stats ID from event:', event.parsedJson.stats_id);
+                  if (!allFoundStatsIds.includes(event.parsedJson.stats_id)) {
+                    allFoundStatsIds.push(event.parsedJson.stats_id);
+                  }
+                }
+              }
+            }
+          }
+        } catch (txError) {
+          console.log('❌ Error processing transaction:', tx.digest, txError);
         }
       }
+    } catch (searchError) {
+      console.log('🔍 Transaction-based search failed:', (searchError as Error).message);
     }
 
-    // Fallback: Try to query all objects of the PartnerPerkStatsV2 type
-    // This is more expensive but comprehensive
-    console.log('🔍 Trying comprehensive object search...');
-    
+    // Approach 2: Fallback event search (in case transaction search missed something)
+    console.log('🔍 Approach 2: Fallback event search...');
     try {
-      // Query multiGetObjects for known patterns or use getAllObjects with filter if available
-      // This is a fallback that may not work on all RPC endpoints
-      console.log('🔍 Fallback search not implemented - using event-based approach only');
-    } catch (fallbackError) {
-      console.log('🔍 Fallback search failed:', fallbackError);
+      // Try different event type variations
+      const eventTypes = [
+        `${PACKAGE_ID}::perk_manager::PartnerPerkStatsCreatedV2`,
+        `${PACKAGE_ID}::perk_manager::PartnerPerkStatsCreated`,
+        `${PACKAGE_ID}::perk_manager::StatsCreated`
+      ];
+      
+      for (const eventType of eventTypes) {
+        try {
+          console.log('🔍 Trying event type:', eventType);
+          const eventsResponse = await suiClient.queryEvents({
+            query: {
+              MoveEventType: eventType
+            },
+            limit: 100,
+            order: 'descending'
+          });
+          
+          console.log('🔍 Found', eventsResponse.data.length, 'events for', eventType);
+          
+          for (const event of eventsResponse.data) {
+            if (event.parsedJson && event.parsedJson.partner_cap_id === partnerCapId) {
+              const statsId = event.parsedJson.stats_id;
+              if (statsId && !allFoundStatsIds.includes(statsId)) {
+                console.log('✅ Found matching stats ID from event:', statsId);
+                
+                // Verify the object exists
+                try {
+                  const objectResponse = await suiClient.getObject({
+                    id: statsId,
+                    options: { showContent: true }
+                  });
+                  
+                  if (objectResponse.data?.content) {
+                    console.log('✅ Verified stats object exists:', statsId);
+                    allFoundStatsIds.push(statsId);
+                  }
+                } catch (verifyError) {
+                  console.log('❌ Stats object from event no longer exists:', statsId);
+                }
+              }
+            }
+          }
+          
+          // If we found events with this type, no need to try others
+          if (eventsResponse.data.length > 0) {
+            break;
+          }
+        } catch (eventError) {
+          console.log('🔍 Event type', eventType, 'failed:', (eventError as Error).message);
+        }
+      }
+    } catch (searchError) {
+      console.log('🔍 Fallback event search failed:', (searchError as Error).message);
     }
 
-    console.error('❌ No PartnerPerkStatsV2 found for partner cap:', partnerCapId);
-    throw new Error(`No PartnerPerkStatsV2 found for partner cap ${partnerCapId}. The partner needs to create their stats object first using the partner dashboard.`);
+    // Handle results - check for duplicates and return appropriate response
+    if (allFoundStatsIds.length === 0) {
+      console.error('❌ No PartnerPerkStatsV2 found for partner cap:', partnerCapId);
+      throw new Error(`No PartnerPerkStatsV2 found for partner cap ${partnerCapId}. The partner needs to create their stats object first using the partner dashboard.`);
+    } else if (allFoundStatsIds.length === 1) {
+      const statsId = allFoundStatsIds[0];
+      if (statsId) {
+        console.log('✅ Found exactly one PartnerPerkStatsV2:', statsId);
+        return statsId;
+      }
+    } else {
+      console.warn('⚠️ DUPLICATE STATS OBJECTS DETECTED!');
+      console.warn('⚠️ Found', allFoundStatsIds.length, 'PartnerPerkStatsV2 objects for partner cap:', partnerCapId);
+      console.warn('⚠️ Stats IDs:', allFoundStatsIds);
+      console.warn('⚠️ This should not happen - each partner should have only one stats object!');
+      console.warn('⚠️ Using the first one found, but this needs to be resolved.');
+      
+      // Return the first one but log the issue
+      const firstStatsId = allFoundStatsIds[0];
+      if (firstStatsId) {
+        return firstStatsId;
+      }
+    }
+    
+    // Fallback if somehow we get here
+    console.error('❌ Unexpected error: Found stats IDs but none are valid');
+    throw new Error(`Found ${allFoundStatsIds.length} stats objects but none are accessible for partner cap ${partnerCapId}`);
     
   } catch (error) {
     console.error('Error finding partner stats ID:', error);
@@ -2059,4 +2183,187 @@ export function getCurrentTimestampMs(): string {
  */
 export function calculateRecoveryAlphaPoints(principalMist: string): string {
   return convertSuiToAlphaPoints(principalMist);
+}
+
+/**
+ * Safely creates a PartnerPerkStatsV2 object only if one doesn't already exist
+ * This prevents duplicate stats objects for the same partner cap
+ * 
+ * @param suiClient SUI client instance
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param dailyQuotaLimit Daily quota limit for the partner
+ * @returns Transaction object ready for execution, or null if stats already exist
+ */
+export const buildCreatePartnerStatsIfNotExistsTransaction = async (
+  suiClient: any,
+  partnerCapId: string,
+  dailyQuotaLimit: number = 10000
+): Promise<{ transaction: Transaction | null; alreadyExists: boolean; existingStatsId?: string; duplicateCount?: number }> => {
+  try {
+    // First check if stats already exist
+    const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
+    
+    console.log('⚠️ PartnerPerkStatsV2 already exists for this partner cap:', existingStatsId);
+    return { 
+      transaction: null, 
+      alreadyExists: true, 
+      existingStatsId 
+    };
+  } catch (error) {
+    // Stats don't exist, safe to create
+    console.log('✅ No existing PartnerPerkStatsV2 found, creating new one...');
+    
+    const transaction = buildCreatePartnerStatsIfNeededTransaction(partnerCapId, dailyQuotaLimit);
+    return { 
+      transaction, 
+      alreadyExists: false 
+    };
+  }
+};
+
+/**
+ * OPTION 1: Call old package's request_unstake_native_sui directly to get SUI back from validators
+ * This is the preferred migration method since users get their actual SUI back
+ * 
+ * @param oldStakeObjectId Object ID of the old package stake position
+ * @param oldPackageId Address of the old package containing the stake
+ * @param oldSharedObjects Object containing the old package's shared object IDs
+ * @returns Transaction object ready for execution
+ */
+export function buildOldPackageUnstakeForSuiTransaction(
+  oldStakeObjectId: string,
+  oldPackageId: string,
+  oldSharedObjects: {
+    stakingManager?: string;
+    config?: string;
+    ledger?: string;
+  }
+) {
+  const tx = new Transaction();
+  
+  // Determine function signature based on package ID
+  const isSimplePackage = oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a';
+  
+  if (isSimplePackage) {
+    // Package 0xbae3eef has 4 arguments (simpler version)
+    tx.moveCall({
+      target: `${oldPackageId}::integration::request_unstake_native_sui`,
+      arguments: [
+        tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
+        tx.object(oldSharedObjects.config || '0x0'),         // config  
+        tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
+        tx.object(oldStakeObjectId),                         // stake_position
+      ]
+    });
+  } else {
+    // Package 0xdb62a7c has 7 arguments (same as current package)
+    tx.moveCall({
+      target: `${oldPackageId}::integration::request_unstake_native_sui`,
+      arguments: [
+        tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
+        tx.object(oldSharedObjects.config || '0x0'),         // config
+        tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
+        tx.object(oldStakeObjectId),                         // stake_position
+        tx.object(CLOCK_ID),                                 // clock
+        tx.object(oldSharedObjects.ledger || '0x0'),         // ledger
+        // Note: 7th argument might be ctx which is handled automatically
+      ]
+    });
+  }
+  
+  return tx;
+}
+
+/**
+ * OPTION 1 BATCH: Call old package's request_unstake_native_sui for multiple stakes
+ * Processes multiple stakes from the same old package
+ * 
+ * @param oldStakeObjectIds Array of object IDs of old package stakes
+ * @param oldPackageId Address of the old package containing the stakes
+ * @param oldSharedObjects Object containing the old package's shared object IDs
+ * @returns Transaction object ready for execution
+ */
+export function buildOldPackageBatchUnstakeForSuiTransaction(
+  oldStakeObjectIds: string[],
+  oldPackageId: string,
+  oldSharedObjects: {
+    stakingManager?: string;
+    config?: string;
+    ledger?: string;
+  }
+) {
+  const tx = new Transaction();
+  
+  // Determine function signature based on package ID
+  const isSimplePackage = oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a';
+  
+  // Process each stake individually in the same transaction
+  for (const stakeObjectId of oldStakeObjectIds) {
+    if (isSimplePackage) {
+      // Package 0xbae3eef has 4 arguments (simpler version)
+      tx.moveCall({
+        target: `${oldPackageId}::integration::request_unstake_native_sui`,
+        arguments: [
+          tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
+          tx.object(oldSharedObjects.config || '0x0'),         // config  
+          tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
+          tx.object(stakeObjectId),                            // stake_position
+        ]
+      });
+    } else {
+      // Package 0xdb62a7c has 7 arguments (same as current package)
+      tx.moveCall({
+        target: `${oldPackageId}::integration::request_unstake_native_sui`,
+        arguments: [
+          tx.object(oldSharedObjects.stakingManager || '0x0'), // manager
+          tx.object(oldSharedObjects.config || '0x0'),         // config
+          tx.object(SUI_SYSTEM_STATE_ID),                      // sui_system_state
+          tx.object(stakeObjectId),                            // stake_position
+          tx.object(CLOCK_ID),                                 // clock
+          tx.object(oldSharedObjects.ledger || '0x0'),         // ledger
+        ]
+      });
+    }
+  }
+  
+  return tx;
+}
+
+/**
+ * Helper function to get old package shared object IDs
+ * These would need to be discovered or hardcoded based on the old package deployment
+ * 
+ * @param oldPackageId Address of the old package
+ * @returns Object containing the old package's shared object IDs
+ */
+export function getOldPackageSharedObjects(oldPackageId: string): {
+  stakingManager?: string;
+  config?: string;
+  ledger?: string;
+} {
+  // These IDs would need to be discovered from the old package deployments
+  // For now, returning placeholders - you'll need to find the actual IDs
+  
+  if (oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a') {
+    return {
+      stakingManager: '0x0', // TODO: Find actual StakingManager ID for this package
+      config: '0x0',         // TODO: Find actual Config ID for this package
+      ledger: '0x0',         // TODO: Find actual Ledger ID for this package (if needed)
+    };
+  }
+  
+  if (oldPackageId === '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf') {
+    return {
+      stakingManager: '0x0', // TODO: Find actual StakingManager ID for this package
+      config: '0x0',         // TODO: Find actual Config ID for this package
+      ledger: '0x0',         // TODO: Find actual Ledger ID for this package
+    };
+  }
+  
+  // Default fallback
+  return {
+    stakingManager: '0x0',
+    config: '0x0', 
+    ledger: '0x0',
+  };
 }

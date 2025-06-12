@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { useAlphaContext } from '../context/AlphaContext';
-import { ALL_PACKAGE_IDS } from '../config/contract';
+import { processUserEngagement, EngagementStats, getMilestoneRewardStatus, calculatePendingRewards, getNextMilestone, MilestoneRewardStatus, PartnerQuotaInfo } from '../utils/engagementProcessor';
+import { fetchAlpha4Quota, formatQuotaInfo, assessRewardSustainability } from '../utils/partnerQuotaMonitor';
 
-interface EngagementData {
-  currentStreak: number;
-  longestStreak: number;
-  totalActivities: number;
-  lastActiveEpoch: number;
-  streakStatus: 'active' | 'broken' | 'new';
+interface EngagementData extends EngagementStats {
   recentMilestones: any[];
   isLoading: boolean;
+  milestoneRewards: MilestoneRewardStatus[];
+  pendingRewards: number;
+  rewardedMilestones: number[];
+  partnerQuota: PartnerQuotaInfo | null;
+  sustainabilityInfo: any;
 }
 
 export const EngagementTracker: React.FC = () => {
@@ -18,13 +20,19 @@ export const EngagementTracker: React.FC = () => {
     currentStreak: 0,
     longestStreak: 0,
     totalActivities: 0,
-    lastActiveEpoch: 0,
+    lastActivityTimestamp: undefined,
     streakStatus: 'new',
+    activitiesByType: { earn: 0, spend: 0, stake: 0, claim: 0 },
     recentMilestones: [],
-    isLoading: true
+    isLoading: true,
+    milestoneRewards: [],
+    pendingRewards: 0,
+    rewardedMilestones: [],
+    partnerQuota: null,
+    sustainabilityInfo: null
   });
 
-  // Function to fetch user's engagement data from on-chain events
+  // Function to fetch user's engagement data using event-based processing
   const fetchEngagementData = useCallback(async () => {
     if (!suiClient || !address) {
       setData(prev => ({ ...prev, isLoading: false }));
@@ -34,125 +42,155 @@ export const EngagementTracker: React.FC = () => {
     setData(prev => ({ ...prev, isLoading: true }));
 
     try {
-      console.log('📊 Fetching engagement data for:', address);
+      // Use the new event-based engagement processor
+      const engagementStats = await processUserEngagement({
+        userAddress: address,
+        suiClient,
+        limit: 200 // Get comprehensive history for accurate streaks
+      });
       
-      // Get all packages to query for engagement events
-      const packageId = import.meta.env['VITE_PACKAGE_ID'];
-      const packagesToQuery = [packageId, ...ALL_PACKAGE_IDS].filter(Boolean);
+      // Fetch Alpha4 partner quota for dynamic rewards
+      const partnerQuota = await fetchAlpha4Quota(suiClient);
       
-      let allActivities = 0;
-      let allStreakUpdates: any[] = [];
-      let allMilestones: any[] = [];
+      // TODO: Load rewardedMilestones from user's local storage or smart contract state
+      const rewardedMilestones: number[] = JSON.parse(localStorage.getItem(`rewards-${address}`) || '[]');
       
-      // Query engagement events from all packages
-      for (const pkgId of packagesToQuery) {
-        try {
-          // Query engagement activity events
-          const activityEvents = await suiClient.queryEvents({
-            query: { MoveEventType: `${pkgId}::engagement::EngagementActivity` },
-            order: 'descending',
-            limit: 100
-          });
-          
-          // Count user's activities
-          const userActivities = activityEvents.data.filter(
-            (event: any) => event.parsedJson?.user === address
-          );
-          allActivities += userActivities.length;
-          
-          // Query streak update events
-          const streakEvents = await suiClient.queryEvents({
-            query: { MoveEventType: `${pkgId}::engagement::EngagementStreakUpdated` },
-            order: 'descending',
-            limit: 50
-          });
-          
-          const userStreakUpdates = streakEvents.data.filter(
-            (event: any) => event.parsedJson?.user === address
-          );
-          allStreakUpdates.push(...userStreakUpdates);
-          
-          // Query milestone events
-          const milestoneEvents = await suiClient.queryEvents({
-            query: { MoveEventType: `${pkgId}::engagement::EngagementMilestone` },
-            order: 'descending',
-            limit: 50
-          });
-          
-          const userMilestones = milestoneEvents.data.filter(
-            (event: any) => event.parsedJson?.user === address
-          );
-          allMilestones.push(...userMilestones);
-          
-        } catch (error) {
-          console.warn(`Failed to query engagement events for package ${pkgId}:`, error);
-        }
-      }
+      const milestoneRewards = getMilestoneRewardStatus(
+        engagementStats.currentStreak,
+        engagementStats.longestStreak,
+        rewardedMilestones,
+        partnerQuota || undefined
+      );
       
-      // Process streak updates to get current stats
-      let currentStreak = 0;
-      let longestStreak = 0;
-      let lastActiveEpoch = 0;
+      const pendingRewards = calculatePendingRewards(
+        engagementStats.longestStreak,
+        rewardedMilestones,
+        partnerQuota || undefined
+      );
       
-      if (allStreakUpdates.length > 0) {
-        // Sort by epoch descending to get most recent
-        allStreakUpdates.sort((a, b) => {
-          const epochA = parseInt(a.parsedJson?.epoch || '0');
-          const epochB = parseInt(b.parsedJson?.epoch || '0');
-          return epochB - epochA;
-        });
-        
-        const latestUpdate = allStreakUpdates[0].parsedJson;
-        currentStreak = parseInt(latestUpdate?.current_streak || '0');
-        longestStreak = parseInt(latestUpdate?.longest_streak || '0');
-        lastActiveEpoch = parseInt(latestUpdate?.epoch || '0');
-      }
-      
-      // Determine streak status based on current epoch
-      const currentEpoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000)); // Simple epoch calculation
-      let streakStatus: 'active' | 'broken' | 'new' = 'new';
-      
-      if (currentStreak > 0) {
-        if (currentEpoch - lastActiveEpoch <= 1) {
-          streakStatus = 'active';
-        } else {
-          streakStatus = 'broken';
-        }
-      }
-      
-      // Process milestones (keep recent 5)
-      const recentMilestones = allMilestones
-        .sort((a, b) => {
-          const epochA = parseInt(a.parsedJson?.epoch || '0');
-          const epochB = parseInt(b.parsedJson?.epoch || '0');
-          return epochB - epochA;
-        })
-        .slice(0, 5)
-        .map(event => event.parsedJson);
+      // Assess sustainability for admin insights
+      const sustainabilityInfo = partnerQuota ? assessRewardSustainability(partnerQuota, 500) : null;
       
       setData({
-        currentStreak,
-        longestStreak,
-        totalActivities: allActivities,
-        lastActiveEpoch,
-        streakStatus,
-        recentMilestones,
+        ...engagementStats,
+        recentMilestones: [], // TODO: Add milestone detection to event processor
+        milestoneRewards,
+        pendingRewards,
+        rewardedMilestones,
+        partnerQuota,
+        sustainabilityInfo,
         isLoading: false
       });
       
-      console.log('✅ Engagement data loaded:', {
-        currentStreak,
-        longestStreak,
-        totalActivities: allActivities,
-        milestones: recentMilestones.length,
-        streakStatus
-      });
-      
     } catch (error) {
-      console.error('Error fetching engagement data:', error);
+      console.error('Error processing user engagement:', error);
       setData(prev => ({ ...prev, isLoading: false }));
     }
   }, [suiClient, address]);
+
+  // Function to claim milestone rewards
+  const claimMilestoneReward = useCallback(async (milestoneDay: number) => {
+    if (!address) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+    
+    // Get reward details for toast
+    const rewardStatus = data.milestoneRewards.find(r => r.milestone.day === milestoneDay);
+    if (!rewardStatus?.canClaim) {
+      toast.error('This milestone reward is not available to claim');
+      return;
+    }
+
+    // Show loading toast
+    const loadingToast = toast.loading(`Claiming ${rewardStatus.milestone.name} reward...`);
+    
+    try {
+      /* 
+      TODO: SMART CONTRACT INTEGRATION
+      
+      1. CONTRACT FUNCTION NEEDED:
+         public entry fun claim_milestone_reward(
+           partner_cap: &mut PartnerCap,
+           milestone_day: u64,
+           recipient: address,
+           ctx: &mut TxContext
+         ) {
+           // Verify user eligibility by checking on-chain engagement events
+           // Verify user hasn't already claimed this milestone (check user's milestone_claims object)
+           // Verify partner cap has sufficient daily quota remaining
+           // Calculate dynamic reward amount based on current quota and milestone percentage
+           // Mint Alpha Points to user using partner_cap
+           // Update partner_cap daily quota usage
+           // Create/update user's milestone_claims tracking object
+           // Emit MilestoneRewardClaimed event
+         }
+      
+      2. VERIFICATION SYSTEM:
+         - Query user's engagement events from blockchain to verify streak
+         - Check user's milestone_claims object to prevent double-claiming
+         - Validate reward amount matches current quota percentage
+      
+      3. TRANSACTION STRUCTURE:
+         const tx = new TransactionBlock();
+         tx.moveCall({
+           target: `${ALPHA_POINTS_PACKAGE_ID}::milestone_rewards::claim_milestone_reward`,
+           arguments: [
+             tx.object(ALPHA4_PARTNER_CAP_ID),
+             tx.pure(milestoneDay),
+             tx.pure(address),
+           ],
+         });
+         
+         const result = await suiClient.signAndExecuteTransactionBlock({
+           signer: wallet,
+           transactionBlock: tx,
+         });
+      
+      4. STATE MANAGEMENT:
+         - Replace localStorage with on-chain milestone_claims object
+         - Query claimed milestones from user's on-chain state
+         - Listen for MilestoneRewardClaimed events for real-time updates
+      
+      5. ERROR HANDLING:
+         - Handle insufficient quota errors
+         - Handle already claimed errors  
+         - Handle engagement verification failures
+         - Provide user-friendly error messages
+      */
+      
+      console.log(`[FRONTEND SIMULATION] Claiming reward for ${milestoneDay}-day milestone`);
+      console.log(`[FRONTEND SIMULATION] Reward amount: ${rewardStatus.dynamicReward} AP`);
+      console.log(`[FRONTEND SIMULATION] User: ${address}`);
+      
+      // Simulate transaction delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // For now, just update local storage (will be replaced with on-chain state)
+      const currentRewarded = JSON.parse(localStorage.getItem(`rewards-${address}`) || '[]');
+      const updatedRewarded = [...currentRewarded, milestoneDay];
+      localStorage.setItem(`rewards-${address}`, JSON.stringify(updatedRewarded));
+      
+      // Refresh data to update UI
+      await fetchEngagementData();
+      
+      // Success toast
+      toast.success(
+        `🎉 Claimed ${rewardStatus.dynamicReward} AP for ${rewardStatus.milestone.name}!`,
+        { 
+          id: loadingToast,
+          duration: 5000,
+        }
+      );
+      
+    } catch (error) {
+      console.error('Error claiming milestone reward:', error);
+      toast.error(
+        'Failed to claim reward. Please try again.',
+        { id: loadingToast }
+      );
+    }
+  }, [address, data.milestoneRewards, fetchEngagementData]);
 
   // Load data on mount and when dependencies change
   useEffect(() => {
@@ -174,6 +212,8 @@ export const EngagementTracker: React.FC = () => {
         return { color: 'emerald', icon: '🔥', text: 'Active Streak', bgClass: 'from-emerald-500/10 to-emerald-600/10', borderClass: 'border-emerald-500/20', textClass: 'text-emerald-400' };
       case 'broken':
         return { color: 'orange', icon: '💔', text: 'Streak Broken', bgClass: 'from-orange-500/10 to-orange-600/10', borderClass: 'border-orange-500/20', textClass: 'text-orange-400' };
+      case 'new':
+        return { color: 'purple', icon: '🌟', text: 'New Streak', bgClass: 'from-purple-500/10 to-purple-600/10', borderClass: 'border-purple-500/20', textClass: 'text-purple-400' };
       default:
         return { color: 'blue', icon: '🌟', text: 'Start Your Streak', bgClass: 'from-blue-500/10 to-blue-600/10', borderClass: 'border-blue-500/20', textClass: 'text-blue-400' };
     }
@@ -200,7 +240,6 @@ export const EngagementTracker: React.FC = () => {
   if (!isConnected) {
     return (
       <div className="card-modern p-4">
-        <h3 className="text-base font-semibold text-white mb-4">Engagement Tracker</h3>
         <div className="text-center py-8">
           <p className="text-gray-400">Connect your wallet to view engagement stats</p>
         </div>
@@ -210,109 +249,364 @@ export const EngagementTracker: React.FC = () => {
 
   const streakStyle = getStreakStatusStyle();
 
+  // Define milestone roadmap - split into two tiers
+  const tierOneMilestones = [
+    { day: 0, icon: '🌱', name: 'Start', unlocked: true, color: 'text-gray-400' },
+    { day: 1, icon: '⚡', name: 'First Step', unlocked: data.longestStreak >= 1, color: 'text-blue-400' },
+    { day: 3, icon: '🔥', name: 'Getting Warm', unlocked: data.longestStreak >= 3, color: 'text-orange-400' },
+    { day: 7, icon: '💪', name: 'Weekly Warrior', unlocked: data.longestStreak >= 7, color: 'text-green-400' },
+  ];
+
+  const tierTwoMilestones = [
+    { day: 14, icon: '🚀', name: 'Momentum', unlocked: data.longestStreak >= 14, color: 'text-purple-400' },
+    { day: 30, icon: '👑', name: 'Consistency King', unlocked: data.longestStreak >= 30, color: 'text-yellow-400' },
+    { day: 50, icon: '💎', name: 'Diamond Hands', unlocked: data.longestStreak >= 50, color: 'text-cyan-400' },
+    { day: 100, icon: '🏆', name: 'Legend', unlocked: data.longestStreak >= 100, color: 'text-amber-400' },
+  ];
+
+  // Calculate progress percentage for each tier
+  const getTierOneProgress = () => {
+    const maxTierOne = tierOneMilestones[tierOneMilestones.length - 1].day;
+    return Math.min((data.longestStreak / maxTierOne) * 100, 100);
+  };
+
+  const getTierTwoProgress = () => {
+    if (data.longestStreak < 14) return 0;
+    const minTierTwo = tierTwoMilestones[0].day;
+    const maxTierTwo = tierTwoMilestones[tierTwoMilestones.length - 1].day;
+    return Math.min(((data.longestStreak - minTierTwo) / (maxTierTwo - minTierTwo)) * 100, 100);
+  };
+
   return (
     <div className="card-modern p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-semibold text-white">Engagement Tracker</h3>
-        <button
-          onClick={fetchEngagementData}
-          disabled={data.isLoading}
-          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700/50 transition-colors disabled:opacity-50"
-          title="Refresh engagement data"
-        >
-          <svg 
-            className={`w-4 h-4 ${data.isLoading ? 'animate-spin' : ''}`} 
-            fill="none" 
-            stroke="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        </button>
-      </div>
 
-      {/* Streak Status */}
-      <div className={`bg-gradient-to-r ${streakStyle.bgClass} p-4 rounded-lg border ${streakStyle.borderClass} mb-4`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center space-x-2 mb-1">
-              <span className="text-lg">{streakStyle.icon}</span>
-              <span className={`text-sm font-medium ${streakStyle.textClass}`}>{streakStyle.text}</span>
-            </div>
-            <div className="flex items-baseline space-x-3">
-              <div>
-                <span className={`text-2xl font-bold ${streakStyle.textClass}`}>
-                  {data.isLoading ? '...' : data.currentStreak}
-                </span>
-                <span className={`text-xs ${streakStyle.textClass}/70 ml-1`}>current</span>
-              </div>
-              <div>
-                <span className={`text-lg font-semibold ${streakStyle.textClass}`}>
-                  {data.isLoading ? '...' : data.longestStreak}
-                </span>
-                <span className={`text-xs ${streakStyle.textClass}/70 ml-1`}>best</span>
-              </div>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className={`text-xs ${streakStyle.textClass}/70`}>Total Activities</p>
-            <p className={`text-lg font-bold ${streakStyle.textClass}`}>
-              {data.isLoading ? '...' : data.totalActivities}
-            </p>
-          </div>
+      {data.isLoading ? (
+        <div className="space-y-4">
+          <div className="h-12 bg-gray-800/20 rounded-lg animate-pulse"></div>
+          <div className="h-20 bg-gray-800/20 rounded-lg animate-pulse"></div>
         </div>
-      </div>
-
-      {/* Recent Achievements */}
-      <div className="space-y-3">
-        <h4 className="text-sm font-medium text-gray-300 flex items-center">
-          <svg className="w-4 h-4 mr-2 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-          </svg>
-          Recent Achievements
-        </h4>
-
-        {data.isLoading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="bg-gray-700/30 p-3 rounded-lg animate-pulse">
-                <div className="h-4 w-3/4 bg-gray-600/50 rounded mb-2"></div>
-                <div className="h-3 w-1/2 bg-gray-600/30 rounded"></div>
-              </div>
-            ))}
-          </div>
-        ) : data.recentMilestones.length > 0 ? (
-          <div className="space-y-2">
-            {data.recentMilestones.map((milestone, index) => {
-              const milestoneInfo = getMilestoneInfo(parseInt(milestone.milestone_type));
-              return (
-                <div key={index} className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 p-3 rounded-lg border border-purple-500/20">
-                  <div className="flex items-center space-x-3">
-                    <span className="text-xl">{milestoneInfo.icon}</span>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-purple-400">{milestoneInfo.name}</p>
-                      <p className="text-xs text-purple-300/70">{milestoneInfo.description}</p>
-                      {milestone.streak_length > 0 && (
-                        <p className="text-xs text-purple-300/50 mt-1">
-                          Streak: {milestone.streak_length} epochs
-                        </p>
-                      )}
+      ) : (
+        <div className="space-y-4">
+          {/* Elegant Stats Display */}
+          <div className={`relative overflow-hidden rounded-2xl border ${streakStyle.borderClass} bg-gradient-to-r ${streakStyle.bgClass} backdrop-blur-sm`}>
+            {/* Subtle background pattern */}
+            <div className="absolute inset-0 bg-gradient-to-r from-white/[0.02] to-transparent"></div>
+            
+            <div className="relative p-4">
+              <div className="flex items-center justify-between">
+                {/* Left Section - Streak Stats */}
+                <div className="flex items-center space-x-4">
+                  {/* Status Icon with subtle glow */}
+                  <div className={`
+                    w-12 h-12 rounded-2xl flex items-center justify-center text-2xl
+                    bg-gradient-to-br from-white/10 to-white/5 border border-white/10
+                    shadow-lg backdrop-blur-sm
+                  `}>
+                    {streakStyle.icon}
+                  </div>
+                  
+                  {/* Streak Numbers */}
+                  <div className="flex items-center space-x-6">
+                    <div className="text-center group">
+                      <div className="text-2xl font-bold text-white mb-0.5 transition-transform group-hover:scale-105">
+                        {data.currentStreak}
+                      </div>
+                      <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        Current
+                      </div>
+                    </div>
+                    
+                    {/* Elegant separator */}
+                    <div className="w-px h-8 bg-gradient-to-b from-transparent via-white/20 to-transparent"></div>
+                    
+                    <div className="text-center group relative">
+                      <div className="text-2xl font-bold text-white mb-0.5 transition-transform group-hover:scale-105">
+                        {data.longestStreak}
+                      </div>
+                      <div className="flex items-center justify-center space-x-1">
+                        <div className="text-xs font-medium text-gray-300 uppercase tracking-wider">
+                          Best
+                        </div>
+                        {/* Quota Info Tooltip */}
+                        {data.partnerQuota && data.sustainabilityInfo && (
+                          <div className="relative group/tooltip">
+                            <div className="w-3 h-3 rounded-full bg-blue-500/30 border border-blue-400/50 flex items-center justify-center cursor-help">
+                              <span className="text-xs text-blue-300">i</span>
+                            </div>
+                            
+                            {/* Tooltip Content */}
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover/tooltip:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+                              <div className="bg-gray-900/95 backdrop-blur-sm border border-gray-600/50 rounded-lg p-3 shadow-xl min-w-[280px]">
+                                <div className="text-xs font-medium text-gray-200 mb-2 flex items-center space-x-1">
+                                  <span>📊</span>
+                                  <span>Reward System Status</span>
+                                </div>
+                                
+                                <div className="space-y-2">
+                                  {/* Daily Quota */}
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div>
+                                      <div className="text-gray-400">Daily Quota</div>
+                                      <div className="text-white font-medium">
+                                        {formatQuotaInfo(data.partnerQuota).dailyQuotaFormatted}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-400">Remaining</div>
+                                      <div className={`font-medium ${formatQuotaInfo(data.partnerQuota).utilizationColor}`}>
+                                        {formatQuotaInfo(data.partnerQuota).remainingTodayFormatted}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Sustainability */}
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div>
+                                      <div className="text-gray-400">Sustainability</div>
+                                      <div className={`font-medium ${
+                                        data.sustainabilityInfo.riskLevel === 'low' ? 'text-green-400' :
+                                        data.sustainabilityInfo.riskLevel === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                                      }`}>
+                                        {data.sustainabilityInfo.riskLevel.toUpperCase()}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-gray-400">Pool Health</div>
+                                      <div className="text-white font-medium">
+                                        {formatQuotaInfo(data.partnerQuota).lifetimePercentageFormatted}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {/* Tooltip Arrow */}
+                                <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-600/50"></div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              );
-            })}
+                
+                {/* Right Section - Total Activities */}
+                <div className="text-right">
+                  <div className="text-xs font-medium text-gray-300 uppercase tracking-wider mb-1">
+                    Total Activities
+                  </div>
+                  <div className="flex items-center justify-end space-x-2">
+                    <div className="text-3xl font-bold text-white">
+                      {data.totalActivities}
+                    </div>
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="bg-gray-700/20 p-4 rounded-lg border border-gray-600/20 text-center">
-            <div className="text-4xl mb-2">🎯</div>
-            <p className="text-sm text-gray-400 mb-1">No achievements yet</p>
-            <p className="text-xs text-gray-500">
-              Complete Alpha Points activities to start earning milestones!
-            </p>
+
+                                {/* Achievement Tracker */}
+          <div className="space-y-4">
+            {/* Pending Rewards Indicator with Quota Info */}
+            {data.pendingRewards > 0 && (
+              <div className="flex items-center justify-center">
+                <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 rounded-lg px-3 py-1">
+                  <span className="text-yellow-400 text-sm">🎁</span>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-medium text-yellow-300">
+                      {data.pendingRewards.toLocaleString()} AP to claim!
+                    </span>
+                    {data.partnerQuota && (
+                      <span className="text-xs text-yellow-400/70">
+                        Dynamic rewards • {formatQuotaInfo(data.partnerQuota).remainingTodayFormatted} quota left
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Tier 1: Early Days (0-7) */}
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-400 font-medium">Early Days</span>
+                <div className="h-px bg-gray-600/50 flex-1"></div>
+              </div>
+              
+              <div className="relative">
+                {/* Progress Bar Background */}
+                <div className="absolute top-6 left-4 right-4 h-1 bg-gray-700/50 rounded-full"></div>
+                
+                {/* Progress Bar Fill */}
+                <div 
+                  className="absolute top-6 left-4 h-1 bg-gradient-to-r from-green-500 to-blue-500 rounded-full transition-all duration-1000 ease-out"
+                  style={{ width: `calc(${getTierOneProgress()}% - 2rem)` }}
+                ></div>
+                
+                {/* Milestone Points */}
+                <div className="flex justify-between items-start relative">
+                  {tierOneMilestones.map((milestone, index) => {
+                    const rewardStatus = data.milestoneRewards.find(r => r.milestone.day === milestone.day);
+                    
+                    return (
+                      <div key={milestone.day} className="flex flex-col items-center space-y-1 group">
+                        {/* Milestone Circle */}
+                        <div className={`
+                          relative w-8 h-8 rounded-full flex items-center justify-center text-sm border-2 transition-all duration-300
+                          ${milestone.unlocked 
+                            ? 'bg-gradient-to-r from-green-500 to-blue-500 border-green-400 shadow-lg shadow-green-500/25' 
+                            : 'bg-gray-700/50 border-gray-600 text-gray-500'
+                          }
+                        `}>
+                          {milestone.unlocked ? milestone.icon : '🔒'}
+                          
+                          {/* Reward Available Indicator */}
+                          {rewardStatus?.canClaim && (
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full animate-pulse flex items-center justify-center">
+                              <span className="text-xs">!</span>
+                            </div>
+                          )}
+                          
+                          {/* Already Rewarded Indicator */}
+                          {rewardStatus?.isRewarded && (
+                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full flex items-center justify-center">
+                              <span className="text-xs">✓</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Milestone Info */}
+                        <div className="text-center">
+                          <div className={`text-xs font-medium ${milestone.unlocked ? milestone.color : 'text-gray-500'}`}>
+                            {milestone.name}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {milestone.day === 0 ? 'Start' : `${milestone.day}d`}
+                          </div>
+                          
+                          {/* Dynamic Reward Amount */}
+                          {rewardStatus && milestone.day > 0 && (
+                            <div className="text-xs text-yellow-400 mt-1">
+                              {rewardStatus.dynamicReward.toLocaleString()} AP
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Claim Button (appears on hover) */}
+                        {rewardStatus?.canClaim && (
+                          <button
+                            onClick={() => claimMilestoneReward(milestone.day)}
+                            className="
+                              opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                              absolute top-12 bg-gradient-to-r from-yellow-500 to-orange-500 
+                              text-white text-xs px-2 py-1 rounded-full shadow-lg
+                              hover:shadow-yellow-500/25 transform hover:scale-105
+                              z-10 whitespace-nowrap
+                            "
+                          >
+                            Claim Reward
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Tier 2: Master Level (14-100) */}
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-400 font-medium">Master Level</span>
+                <div className="h-px bg-gray-600/50 flex-1"></div>
+              </div>
+              
+              <div className="relative">
+                {/* Progress Bar Background */}
+                <div className="absolute top-6 left-4 right-4 h-1 bg-gray-700/50 rounded-full"></div>
+                
+                {/* Progress Bar Fill */}
+                <div 
+                  className="absolute top-6 left-4 h-1 bg-gradient-to-r from-purple-500 to-amber-500 rounded-full transition-all duration-1000 ease-out"
+                  style={{ width: `calc(${getTierTwoProgress()}% - 2rem)` }}
+                ></div>
+                
+                                 {/* Milestone Points */}
+                 <div className="flex justify-between items-start relative">
+                   {tierTwoMilestones.map((milestone, index) => {
+                     const rewardStatus = data.milestoneRewards.find(r => r.milestone.day === milestone.day);
+                     
+                     return (
+                       <div key={milestone.day} className="flex flex-col items-center space-y-1 group">
+                         {/* Milestone Circle */}
+                         <div className={`
+                           relative w-8 h-8 rounded-full flex items-center justify-center text-sm border-2 transition-all duration-300
+                           ${milestone.unlocked 
+                             ? 'bg-gradient-to-r from-purple-500 to-amber-500 border-purple-400 shadow-lg shadow-purple-500/25' 
+                             : 'bg-gray-700/50 border-gray-600 text-gray-500'
+                           }
+                         `}>
+                           {milestone.unlocked ? milestone.icon : '🔒'}
+                           
+                           {/* Reward Available Indicator */}
+                           {rewardStatus?.canClaim && (
+                             <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full animate-pulse flex items-center justify-center">
+                               <span className="text-xs">!</span>
+                             </div>
+                           )}
+                           
+                           {/* Already Rewarded Indicator */}
+                           {rewardStatus?.isRewarded && (
+                             <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full flex items-center justify-center">
+                               <span className="text-xs">✓</span>
+                             </div>
+                           )}
+                         </div>
+                         
+                         {/* Milestone Info */}
+                         <div className="text-center">
+                           <div className={`text-xs font-medium ${milestone.unlocked ? milestone.color : 'text-gray-500'}`}>
+                             {milestone.name}
+                           </div>
+                           <div className="text-xs text-gray-500">
+                             {milestone.day}d
+                           </div>
+                           
+                           {/* Dynamic Reward Amount */}
+                           {rewardStatus && (
+                             <div className="text-xs text-yellow-400 mt-1">
+                               {rewardStatus.dynamicReward.toLocaleString()} AP
+                             </div>
+                           )}
+                         </div>
+                         
+                         {/* Claim Button (appears on hover) */}
+                         {rewardStatus?.canClaim && (
+                           <button
+                             onClick={() => claimMilestoneReward(milestone.day)}
+                             className="
+                               opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                               absolute top-12 bg-gradient-to-r from-yellow-500 to-orange-500 
+                               text-white text-xs px-2 py-1 rounded-full shadow-lg
+                               hover:shadow-yellow-500/25 transform hover:scale-105
+                               z-10 whitespace-nowrap
+                             "
+                           >
+                             Claim Reward
+                           </button>
+                         )}
+                       </div>
+                     );
+                   })}
+                 </div>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+
+
+        </div>
+      )}
     </div>
   );
 }; 

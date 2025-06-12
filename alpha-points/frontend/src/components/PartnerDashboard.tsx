@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { PartnerCapInfo } from '../hooks/usePartnerDetection';
@@ -25,7 +25,10 @@ import {
   buildAddNftCollateralTransaction,
   buildCreatePartnerPerkStatsTransaction,
   findPartnerStatsId,
+  buildCreatePartnerStatsIfNotExistsTransaction,
 } from '../utils/transaction';
+import { debugPartnerStatsDetection } from '../utils/debugPartnerStats';
+import { logDuplicateStatsReport, checkPartnerCapForDuplicates } from '../utils/duplicateStatsCleanup';
 // import { SPONSOR_CONFIG } from '../config/contract'; // Commented out - will re-enable for sponsored transactions later
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
@@ -60,6 +63,23 @@ import 'swiper/css';
 import 'swiper/css/navigation';
 // @ts-ignore
 import 'swiper/css/pagination';
+
+// Global singleton to prevent multiple simultaneous stats checks for the same partner cap
+const globalStatsCheckTracker = new Map<string, Promise<void>>();
+
+// Helper function to get or create a stats check promise for a partner cap
+const getOrCreateStatsCheck = (partnerCapId: string, checkFunction: () => Promise<void>): Promise<void> => {
+  if (globalStatsCheckTracker.has(partnerCapId)) {
+    return globalStatsCheckTracker.get(partnerCapId)!;
+  }
+  
+  const checkPromise = checkFunction().finally(() => {
+    globalStatsCheckTracker.delete(partnerCapId);
+  });
+  
+  globalStatsCheckTracker.set(partnerCapId, checkPromise);
+  return checkPromise;
+};
 
 /*
  * SPONSORED TRANSACTIONS - FUTURE IMPLEMENTATION
@@ -119,6 +139,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const suiClient = useSuiClient();
   const { mutate: signAndExecuteTransactionMain } = useSignAndExecuteTransaction();
   
+  // Component initialization (debug logging removed to prevent spam)
+  
   // Portal Tooltip Component
   const PortalTooltip: React.FC<{ children: React.ReactNode; show: boolean; position: { x: number; y: number } }> = ({ children, show, position }) => {
     if (!show) return null;
@@ -152,6 +174,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   // Tooltip state
   const [showBlueTooltip, setShowBlueTooltip] = useState(false);
   const [showYellowTooltip, setShowYellowTooltip] = useState(false);
+  const [showGreenTooltip, setShowGreenTooltip] = useState(false);
   const [showInsightTooltip, setShowInsightTooltip] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   
@@ -183,39 +206,54 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const [isCreatingStats, setIsCreatingStats] = useState(false);
 
   // Check if partner has stats object
-  const checkPartnerStats = useCallback(async (forceRefresh: boolean = false) => {
-    if (!selectedPartnerCapId || !suiClient) return;
+  const checkPartnerStats = useCallback(async (forceRefresh: boolean = false, partnerCapIdOverride?: string) => {
+    const partnerCapIdToCheck = partnerCapIdOverride || selectedPartnerCapId;
+    
+    if (!partnerCapIdToCheck || !suiClient) {
+      console.log('⚠️ Cannot check stats: missing partnerCapId or suiClient');
+      return;
+    }
     
     // Get the current partner name for better logging
-    const currentPartner = partnerCaps.find(cap => cap.id === selectedPartnerCapId);
+    const currentPartner = partnerCaps.find(cap => cap.id === partnerCapIdToCheck);
     const partnerName = currentPartner?.partnerName || 'Unknown Partner';
     
-    try {
-      setIsCheckingStats(true);
-      
-      console.log(`🔍 Checking PartnerPerkStatsV2 for: "${partnerName}"`);
-      console.log(`🔍 Partner Cap ID: ${selectedPartnerCapId}`);
-      
-      if (forceRefresh) {
-        console.log('🔄 Force refresh requested');
+    // Use global singleton to prevent multiple simultaneous checks for the same partner cap
+    const actualCheckFunction = async () => {
+      try {
+        setIsCheckingStats(true);
+        
+        // Checking stats for partner (logging reduced for cleaner console)
+        
+        // Add a small delay to ensure client is ready
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const statsId = await findPartnerStatsId(suiClient, partnerCapIdToCheck);
+        
+        // Stats found successfully
+        setHasPartnerStats(true);
+        
+        // Show success toast only on perks tab for better UX - and only once per check
+        if (currentTab === 'perks' && !globalStatsCheckTracker.has(partnerCapIdToCheck)) {
+          toast.success(`✅ Stats object verified for ${partnerName}`, { autoClose: 2000 });
+        }
+      } catch (error) {
+        // No stats object found for this partner
+        setHasPartnerStats(false);
+        
+        // Show error toast only on perks tab for better UX - and only once per check
+        if (currentTab === 'perks' && !globalStatsCheckTracker.has(partnerCapIdToCheck)) {
+          toast.error(`❌ No stats object found for ${partnerName}`, { autoClose: 3000 });
+        }
+      } finally {
+        setIsCheckingStats(false);
       }
-      
-      // Add a small delay to ensure client is ready
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const statsId = await findPartnerStatsId(suiClient, selectedPartnerCapId);
-      
-      console.log(`✅ PartnerPerkStatsV2 found for "${partnerName}":`, statsId);
-      setHasPartnerStats(true);
-    } catch (error) {
-      console.log(`❌ No PartnerPerkStatsV2 found for "${partnerName}" (${selectedPartnerCapId})`);
-      console.log('❌ Error details:', error);
-      setHasPartnerStats(false);
-    } finally {
-      setIsCheckingStats(false);
-    }
-  }, [suiClient, selectedPartnerCapId, partnerCaps]);
+    };
+    
+    // Use the global singleton pattern to prevent duplicate checks
+    return getOrCreateStatsCheck(partnerCapIdToCheck, actualCheckFunction);
+  }, [suiClient, selectedPartnerCapId, partnerCaps, currentTab, setIsCheckingStats]);
 
-  // Create partner stats object
+  // Create partner stats object (with duplicate prevention)
   const createPartnerStats = async () => {
     if (!selectedPartnerCapId || !suiClient) {
       toast.error('Client not ready. Please try again in a moment.');
@@ -226,27 +264,49 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       setIsCreatingStats(true);
       
       const dailyQuotaLimit = 10000; // Default quota limit
-      const transaction = buildCreatePartnerPerkStatsTransaction(selectedPartnerCapId, dailyQuotaLimit);
       
-              signAndExecuteTransactionMain(
-          { transaction },
-          {
-            onSuccess: (result: any) => {
-              console.log('✅ Partner stats created successfully:', result.digest);
-              toast.success('Partner stats object created successfully! Users can now purchase your perks.');
-              setHasPartnerStats(true);
-              onRefresh?.();
-              // Force refresh stats detection after successful creation
-              setTimeout(() => {
-                checkPartnerStats(true);
-              }, 2000);
-            },
-            onError: (error: any) => {
-              console.error('❌ Failed to create partner stats:', error);
-              toast.error(`Failed to create partner stats: ${error.message || 'Unknown error'}`);
-            },
-          }
-        );
+      // Use the safer creation function that checks for existing stats first
+      const result = await buildCreatePartnerStatsIfNotExistsTransaction(
+        suiClient, 
+        selectedPartnerCapId, 
+        dailyQuotaLimit
+      );
+      
+      if (result.alreadyExists) {
+        console.log('✅ PartnerPerkStatsV2 already exists:', result.existingStatsId);
+        toast.success('Partner stats object already exists! No need to create another one.');
+        setHasPartnerStats(true);
+        // Force refresh to update UI
+        setTimeout(() => {
+          checkPartnerStats(true);
+        }, 1000);
+        return;
+      }
+      
+      if (!result.transaction) {
+        toast.error('Failed to create transaction. Please try again.');
+        return;
+      }
+      
+      signAndExecuteTransactionMain(
+        { transaction: result.transaction },
+        {
+          onSuccess: (txResult: any) => {
+            console.log('✅ Partner stats created successfully:', txResult.digest);
+            toast.success('Partner stats object created successfully! Users can now purchase your perks.');
+            setHasPartnerStats(true);
+            onRefresh?.();
+            // Force refresh stats detection after successful creation
+            setTimeout(() => {
+              checkPartnerStats(true);
+            }, 2000);
+          },
+          onError: (error: any) => {
+            console.error('❌ Failed to create partner stats:', error);
+            toast.error(`Failed to create partner stats: ${error.message || 'Unknown error'}`);
+          },
+        }
+      );
     } catch (error) {
       console.error('Error creating partner stats:', error);
       toast.error(`Error creating partner stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -255,25 +315,52 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   };
 
-  // Check partner stats on component mount and when partner cap changes
+  // Check for duplicate stats objects
+  const checkForDuplicates = async () => {
+    if (!suiClient || !selectedPartnerCapId) return;
+    
+    console.log('🔍 Checking for duplicate PartnerPerkStatsV2 objects...');
+    
+    try {
+      // Check this specific partner cap
+      const duplicateInfo = await checkPartnerCapForDuplicates(suiClient, selectedPartnerCapId);
+      
+      if (duplicateInfo) {
+        console.warn('⚠️ DUPLICATES FOUND for this partner cap!');
+        console.warn('⚠️ Duplicate count:', duplicateInfo.duplicateCount);
+        console.warn('⚠️ Stats IDs:', duplicateInfo.statsIds);
+        console.warn('⚠️ Recommended to keep:', duplicateInfo.recommendedStatsId);
+        console.warn('⚠️ Should remove:', duplicateInfo.duplicatesToRemove);
+        
+        toast.error(`Found ${duplicateInfo.duplicateCount} stats objects for this partner! Check console for details.`, {
+          autoClose: 5000
+        });
+      } else {
+        console.log('✅ No duplicates found for this partner cap');
+        toast.success('No duplicate stats objects found for this partner.', {
+          autoClose: 3000
+        });
+      }
+      
+      // Also run the full system scan
+      await logDuplicateStatsReport(suiClient);
+      
+    } catch (error) {
+      console.error('Error checking for duplicates:', error);
+      toast.error('Failed to check for duplicates. See console for details.');
+    }
+  };
+
+  // NO AUTOMATIC CHECKING - Only manual checks via buttons or partner cap changes
   useEffect(() => {
-    if (selectedPartnerCapId && suiClient) {
-      // Check immediately if we're on settings tab, otherwise debounce
-      const delay = currentTab === 'settings' ? 100 : 300;
-      
-      const timeoutId = setTimeout(() => {
-        checkPartnerStats();
-      }, delay);
-      
-      return () => clearTimeout(timeoutId);
-    } else {
-      // Reset state when no partner cap is selected or client is not ready
+    // Only reset state when no partner cap is selected
+    if (!selectedPartnerCapId || !suiClient) {
       setHasPartnerStats(null);
     }
-  }, [selectedPartnerCapId, suiClient, currentTab, checkPartnerStats]);
+  }, [selectedPartnerCapId, suiClient]);
 
   // Tooltip helper functions
-  const handleTooltipEnter = (event: React.MouseEvent, tooltipType: 'blue' | 'yellow') => {
+  const handleTooltipEnter = (event: React.MouseEvent, tooltipType: 'blue' | 'yellow' | 'green') => {
     setTooltipPosition({
       x: event.clientX,
       y: event.clientY
@@ -281,8 +368,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     
     if (tooltipType === 'blue') {
       setShowBlueTooltip(true);
-    } else {
+    } else if (tooltipType === 'yellow') {
       setShowYellowTooltip(true);
+    } else if (tooltipType === 'green') {
+      setShowGreenTooltip(true);
     }
   };
 
@@ -293,11 +382,13 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     });
   };
 
-  const handleTooltipLeave = (tooltipType: 'blue' | 'yellow') => {
+  const handleTooltipLeave = (tooltipType: 'blue' | 'yellow' | 'green') => {
     if (tooltipType === 'blue') {
       setShowBlueTooltip(false);
-    } else {
+    } else if (tooltipType === 'yellow') {
       setShowYellowTooltip(false);
+    } else if (tooltipType === 'green') {
+      setShowGreenTooltip(false);
     }
   };
 
@@ -399,6 +490,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   // Metadata schema swiper state
   const [metadataSwiperInstance, setMetadataSwiperInstance] = useState<any>(null);
   const [metadataActiveIndex, setMetadataActiveIndex] = useState(0);
+
+  // Field Guide swiper state
+  const [fieldGuideSwiperInstance, setFieldGuideSwiperInstance] = useState<any>(null);
+  const [fieldGuideActiveIndex, setFieldGuideActiveIndex] = useState(0);
 
   // Copy partner salt to clipboard
   const copySalt = async () => {
@@ -599,15 +694,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   // 50% reinvestment = 35% direct revenue, 55% reinvestment
   // 90% reinvestment = 7% direct revenue, 83% reinvestment
   const calculatePartnerShare = (reinvestmentPercent: number): number => {
-    const partnerPoolPercent = 90; // 90% goes to partner pool (10% platform)
-    const defaultRevenue = 70; // Default 70% revenue
-    const defaultReinvestment = 20; // Default 20% reinvestment
-    
-    // Calculate how much to shift from revenue to reinvestment
-    const reinvestmentShift = (reinvestmentPercent - defaultReinvestment);
-    const directRevenue = Math.max(0, defaultRevenue - reinvestmentShift);
-    
-    return Math.floor(directRevenue);
+    // With new 0-90 slider: Revenue = 90 - reinvestmentPercent
+    // Platform is always 10% (fixed)
+    return 90 - reinvestmentPercent;
   };
 
   const newPerkPartnerShare = calculatePartnerShare(newPerkReinvestmentPercent).toString();
@@ -1567,30 +1656,32 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       // CRITICAL: Check PartnerPerkStats requirement FIRST (required for any perk operations)
       if (hasPartnerStats === false && !isCheckingStats) {
         return (
-          <div className="bg-red-600/10 border border-red-600/30 rounded-lg p-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full bg-red-500"></div>
-              <div className="flex-1">
-                <div className="text-red-400 font-medium text-sm">Partner Stats Object Required</div>
-                <div className="text-red-300 text-xs mt-1">
-                  "{partnerCap.partnerName}" needs a PartnerPerkStatsV2 object to create and manage perks. This is required for tracking purchase quotas and analytics.
-                </div>
-              </div>
-              <div className="flex space-x-2">
-                <button
-                  onClick={createPartnerStats}
-                  disabled={isCreatingStats}
-                  className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded font-medium transition-colors disabled:opacity-50"
-                >
-                  {isCreatingStats ? 'Creating...' : 'Create Stats'}
-                </button>
-                <button
-                  onClick={() => navigate('/partners/settings')}
-                  className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs rounded font-medium transition-colors"
-                >
-                  Go to Settings
-                </button>
-              </div>
+          <div className="flex items-center space-x-2 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2 min-h-[40px]">
+            <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></div>
+            <span className="text-red-400 text-xs font-medium flex-1">Stats Object Required</span>
+            <div className="flex space-x-1 flex-shrink-0">
+              <button
+                onClick={() => checkPartnerStats(true)}
+                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                title="Refresh detection - check if stats object exists"
+              >
+                🔄
+              </button>
+              <button
+                onClick={createPartnerStats}
+                disabled={isCreatingStats}
+                className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors disabled:opacity-50"
+                title="Create PartnerPerkStatsV2 object for tracking quotas and analytics"
+              >
+                {isCreatingStats ? '⏳' : 'Create'}
+              </button>
+              <button
+                onClick={() => navigate('/partners/settings')}
+                className="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs rounded transition-colors"
+                title="Go to Settings tab"
+              >
+                Settings
+              </button>
             </div>
           </div>
         );
@@ -1599,16 +1690,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       // Show loading state while checking stats
       if (isCheckingStats) {
         return (
-          <div className="bg-gray-600/10 border border-gray-600/30 rounded-lg p-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full bg-gray-500 animate-pulse"></div>
-              <div className="flex-1">
-                <div className="text-gray-400 font-medium text-sm">Checking Partner Stats...</div>
-                <div className="text-gray-500 text-xs mt-1">
-                  Verifying PartnerPerkStatsV2 object exists for "{partnerCap.partnerName}"
-                </div>
-              </div>
-            </div>
+          <div className="flex items-center space-x-2 bg-gray-500/10 border border-gray-500/20 rounded-md px-3 py-2 min-h-[40px]">
+            <div className="w-2 h-2 rounded-full bg-gray-500 animate-pulse flex-shrink-0"></div>
+            <span className="text-gray-400 text-xs font-medium flex-1">Checking Stats...</span>
+            <div className="text-xs text-gray-500 flex-shrink-0">⏳</div>
           </div>
         );
       }
@@ -1617,22 +1702,16 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       // If currentSettings is null, this partner cap has NEVER been configured
       if (!currentSettings && !isLoadingSettings) {
         return (
-          <div className="bg-orange-600/10 border border-orange-600/30 rounded-lg p-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full bg-orange-500"></div>
-              <div className="flex-1">
-                <div className="text-orange-400 font-medium text-sm">Settings Configuration Required</div>
-                <div className="text-orange-300 text-xs mt-1">
-                  "{partnerCap.partnerName}" has no blockchain settings configured. Configure settings after creating stats object.
-                </div>
-              </div>
-              <button
-                onClick={() => navigate('/partners/settings')}
-                className="px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white text-xs rounded font-medium transition-colors"
-              >
-                Configure Settings
-              </button>
-            </div>
+          <div className="flex items-center space-x-2 bg-orange-500/10 border border-orange-500/20 rounded-md px-3 py-2 min-h-[40px]">
+            <div className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0"></div>
+            <span className="text-orange-400 text-xs font-medium flex-1">Settings Required</span>
+            <button
+              onClick={() => navigate('/partners/settings')}
+              className="px-2 py-1 bg-orange-600 hover:bg-orange-700 text-white text-xs rounded transition-colors flex-shrink-0"
+              title="Configure blockchain settings"
+            >
+              Configure
+            </button>
           </div>
         );
       }
@@ -1640,16 +1719,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       // Show loading state while fetching settings
       if (isLoadingSettings) {
         return (
-          <div className="bg-gray-600/10 border border-gray-600/30 rounded-lg p-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full bg-gray-500 animate-pulse"></div>
-              <div className="flex-1">
-                <div className="text-gray-400 font-medium text-sm">Loading On-Chain Settings...</div>
-                <div className="text-gray-500 text-xs mt-1">
-                  Fetching validation rules from blockchain for "{partnerCap.partnerName}"
-                </div>
-              </div>
-            </div>
+          <div className="flex items-center space-x-2 bg-gray-500/10 border border-gray-500/20 rounded-md px-3 py-2 min-h-[40px]">
+            <div className="w-2 h-2 rounded-full bg-gray-500 animate-pulse flex-shrink-0"></div>
+            <span className="text-gray-400 text-xs font-medium flex-1">Loading Settings...</span>
           </div>
         );
       }
@@ -1671,21 +1743,16 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       
       if (hasInvalidSettings) {
         return (
-          <div className="card-modern p-4">
-            <div className="flex items-center space-x-3">
-              <div className="flex-1">
-                <div className="text-blue-400 font-medium text-sm">Settings Need Configuration</div>
-                <div className="text-blue-300 text-xs mt-1">
-                  Settings exist for "{partnerCap.partnerName}" but contain invalid values. Please update them.
-                </div>
-              </div>
-              <button
-                onClick={() => navigate('/partners/settings')}
-                className="btn-modern-primary text-xs px-3 py-1"
-              >
-                Fix Settings
-              </button>
-            </div>
+          <div className="flex items-center space-x-2 bg-blue-500/10 border border-blue-500/20 rounded-md px-3 py-2 min-h-[40px]">
+            <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
+            <span className="text-blue-400 text-xs font-medium flex-1">Invalid Settings</span>
+            <button
+              onClick={() => navigate('/partners/settings')}
+              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors flex-shrink-0"
+              title="Fix invalid settings values"
+            >
+              Fix
+            </button>
           </div>
         );
       }
@@ -1696,37 +1763,25 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       // Show loading state while fetching settings
       if (isLoadingSettings) {
         return (
-          <div className="bg-gray-600/10 border border-gray-600/30 rounded-lg p-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 rounded-full bg-gray-500 animate-pulse"></div>
-              <div className="flex-1">
-                <div className="text-gray-400 font-medium text-sm">Loading On-Chain Settings...</div>
-                <div className="text-gray-500 text-xs mt-1">
-                  Fetching validation rules from blockchain for "{partnerCap.partnerName}"
-                </div>
-              </div>
-            </div>
+          <div className="flex items-center space-x-2 bg-gray-500/10 border border-gray-500/20 rounded-md px-3 py-2 min-h-[40px]">
+            <div className="w-2 h-2 rounded-full bg-gray-500 animate-pulse flex-shrink-0"></div>
+            <span className="text-gray-400 text-xs font-medium flex-1">Loading Settings...</span>
           </div>
         );
       }
       
       if (isUnconfigured) {
         return (
-          <div className="card-modern p-4">
-            <div className="flex items-center space-x-3">
-              <div className="flex-1">
-                <div className="text-blue-400 font-medium text-sm">Settings Configuration Required</div>
-                <div className="text-blue-300 text-xs mt-1">
-                  Configure settings for "{partnerCap.partnerName}" to enable perk creation validation.
-                </div>
-              </div>
-              <button
-                onClick={() => navigate('/partners/settings')}
-                className="btn-modern-primary text-xs px-3 py-1"
-              >
-                Go to Settings
-              </button>
-            </div>
+          <div className="flex items-center space-x-2 bg-blue-500/10 border border-blue-500/20 rounded-md px-3 py-2 min-h-[40px]">
+            <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
+            <span className="text-blue-400 text-xs font-medium flex-1">Settings Required</span>
+            <button
+              onClick={() => navigate('/partners/settings')}
+              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors flex-shrink-0"
+              title="Configure settings to enable perk validation"
+            >
+              Configure
+            </button>
           </div>
         );
       }
@@ -1888,34 +1943,51 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         }
       };
       
-      // Normal validation when settings are configured
+      // If we have stats and settings, only show validation grid (no "Ready to Create" banner)
+      if (hasPartnerStats === true && currentSettings) {
+        return (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            {/* Left Column - Validation Status */}
+            <div className="space-y-2">
+              {/* Price Validation */}
+              <div className="flex items-center space-x-2">
+                {renderPriceValidation()}
+              </div>
+              
+              {/* Revenue Split Validation */}
+              <div className="flex items-center space-x-2">
+                {renderSplitValidation()}
+              </div>
+            </div>
+            
+            {/* Right Column - Requirements */}
+            <div className="space-y-2">
+              {/* Tags Validation */}
+              <div className="flex items-center space-x-2">
+                {renderTagsValidation()}
+              </div>
+              
+              {/* Type Validation */}
+              <div className="flex items-center space-x-2">
+                {renderTypeValidation()}
+              </div>
+            </div>
+          </div>
+        );
+      }
+      
+      // Fallback - should not reach here if logic is correct
       return (
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          {/* Left Column - Validation Status */}
-          <div className="space-y-2">
-            {/* Price Validation */}
-            <div className="flex items-center space-x-2">
-              {renderPriceValidation()}
-            </div>
-            
-            {/* Revenue Split Validation */}
-            <div className="flex items-center space-x-2">
-              {renderSplitValidation()}
-            </div>
-          </div>
-          
-          {/* Right Column - Requirements */}
-          <div className="space-y-2">
-            {/* Tags Validation */}
-            <div className="flex items-center space-x-2">
-              {renderTagsValidation()}
-            </div>
-            
-            {/* Overall Readiness */}
-            <div className="flex items-center space-x-2">
-              {renderReadinessValidation()}
-            </div>
-          </div>
+        <div className="flex items-center space-x-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md px-3 py-2 min-h-[40px]">
+          <div className="w-2 h-2 rounded-full bg-yellow-500 flex-shrink-0"></div>
+          <span className="text-yellow-400 text-xs font-medium flex-1">Unexpected State</span>
+          <button
+            onClick={() => checkPartnerStats(true)}
+            className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs rounded transition-colors flex-shrink-0"
+            title="Refresh detection"
+          >
+            🔄
+          </button>
         </div>
       );
     };
@@ -1923,12 +1995,90 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     return (
       <div>
         {/* Create New Perk Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
-          {/* Perk Creation Form */}
-          <div className="bg-background-card rounded-lg p-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-4">
+          {/* Extended Perk Creation Form - Takes 2 columns */}
+          <div className="lg:col-span-2 bg-background-card rounded-lg p-3">
             <div className="flex items-center justify-between mb-3">
               <h4 className="text-lg font-semibold text-white">Create New Perk</h4>
               <div className="flex items-center space-x-1">
+                {/* Best Practices Icons */}
+                <div className="flex items-center space-x-1 mr-2">
+                  {/* Pricing Strategy */}
+                  <span 
+                    className="text-lg cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'pricing')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    💰
+                  </span>
+                  
+                  {/* Revenue Split Strategy */}
+                  <span 
+                    className="text-lg cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'revenue')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    ⚖️
+                  </span>
+                  
+                  {/* Tag Optimization */}
+                  <span 
+                    className="text-lg cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'tags')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    🏷️
+                  </span>
+                  
+                  {/* Success Metrics */}
+                  <span 
+                    className="text-lg cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'metrics')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    📊
+                  </span>
+                  
+                  {/* Pro Strategies */}
+                  <span 
+                    className="text-lg cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'strategies')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    🔄
+                  </span>
+                  
+                  {/* Value Stacking */}
+                  <span 
+                    className="text-lg cursor-help"
+                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'value')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={handleInsightTooltipLeave}
+                  >
+                    💎
+                  </span>
+                </div>
+                
+                {/* Field Guide Pro Tips Tooltip */}
+                <div className="flex items-center space-x-1 mr-2">
+                  <svg 
+                    className="w-4 h-4 text-green-400 cursor-help" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                    onMouseEnter={(e) => handleTooltipEnter(e, 'green')}
+                    onMouseMove={handleTooltipMove}
+                    onMouseLeave={() => handleTooltipLeave('green')}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                  </svg>
+                </div>
+                
                 <div className="flex items-center space-x-1">
                   <svg 
                     className="w-4 h-4 text-blue-400 cursor-help" 
@@ -1974,6 +2124,17 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 • Digital Asset → 🖼️ (picture)<br/>
                 • Physical → 📦 (package)<br/>
                 • Default → 🎁 (gift)
+              </div>
+            </PortalTooltip>
+
+            <PortalTooltip show={showGreenTooltip} position={tooltipPosition}>
+              <div className="text-green-300 w-80 border-green-700">
+                <div className="text-green-400 font-medium text-sm mb-2">💡 Pro Tips</div>
+                <div className="text-xs text-gray-300 space-y-1">
+                  <div><strong>Revenue Split:</strong> The slider controls your revenue split. More reinvestment grows your TVL (increasing future quotas), while more direct revenue gives immediate profit.</div>
+                  <div><strong>Default Split:</strong> 70% revenue, 20% reinvestment, 10% platform</div>
+                  <div><strong>Strategy:</strong> Use templates in Field Guide to auto-fill optimal settings for different perk types.</div>
+                </div>
               </div>
             </PortalTooltip>
 
@@ -2025,8 +2186,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             </PortalTooltip>
             
             <div className="space-y-3">
-              {/* 3-Column Layout: Input Stack | Revenue Slider | Alpha Points */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* 2-Column Layout: Extended Input Stack | Revenue Slider + Alpha Points */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 
                 {/* LEFT COLUMN: Input Fields Stack */}
                 <div className="space-y-3">
@@ -2146,64 +2307,102 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   </div>
                 </div>
                 
-                {/* MIDDLE COLUMN: Revenue Slider */}
-                <div className="flex flex-col justify-center" title="Control revenue split: Direct payment vs. TVL reinvestment">
-                  <div className="text-center mb-4">
-                    <div className="text-sm font-medium text-gray-300 mb-2">Revenue Split</div>
-                    <div className="text-xs text-gray-400 mb-3">
-                      Adjust the balance between direct revenue and TVL reinvestment
-                    </div>
+                {/* RIGHT COLUMN: Revenue Slider + Alpha Points + Compliance */}
+                <div className="space-y-4">
+                  {/* Compliance Check - Top */}
+                  <div className="flex justify-center">
+                    {renderComplianceCheck()}
                   </div>
                   
-                  <div className="relative px-2">
-                    <input
-                      type="range"
-                      min="0"
-                      max="60"
-                      value={newPerkReinvestmentPercent}
-                      onChange={(e) => setNewPerkReinvestmentPercent(parseInt(e.target.value))}
-                      disabled={isCreatingPerk}
-                      className={`w-full h-3 bg-gray-600 rounded-lg appearance-none cursor-pointer slider ${
-                        (() => {
-                          const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
-                          return (partnerShare < 10 || partnerShare > 90) ? 'border-2 border-red-500' : '';
-                        })()
-                      }`}
-                      style={{
-                        background: `linear-gradient(to right, #10b981 0%, #10b981 ${((70 - newPerkReinvestmentPercent) / 70) * 100}%, #3b82f6 ${((70 - newPerkReinvestmentPercent) / 70) * 100}%, #3b82f6 100%)`
-                      }}
-                    />
-                    <div className="flex justify-between text-xs text-gray-400 mt-2">
-                      <span>💰 Revenue</span>
-                      <span>🔄 Reinvest</span>
+                  {/* Revenue Slider */}
+                  <div className="flex flex-col justify-center">
+                    <div className="relative px-2">
+                      {/* Visual track with platform section */}
+                      <div className="relative w-full h-3 bg-gray-600 rounded-lg mb-1">
+                        {/* Main slider area (0-90%) */}
+                        <div 
+                          className="absolute left-0 top-0 h-full rounded-l-lg"
+                          style={{
+                            width: '90%',
+                            background: `linear-gradient(to right, #10b981 0%, #10b981 ${(90 - newPerkReinvestmentPercent) / 90 * 100}%, #3b82f6 ${(90 - newPerkReinvestmentPercent) / 90 * 100}%, #3b82f6 100%)`
+                          }}
+                        />
+                        {/* Platform section (90-100%) in red */}
+                        <div 
+                          className="absolute right-0 top-0 h-full bg-red-500/70 rounded-r-lg"
+                          style={{ width: '10%' }}
+                        />
+                        {/* Platform label overlay */}
+                        <div className="absolute right-1 top-0 h-full flex items-center">
+                          <span className="text-xs text-white font-medium">10%</span>
+                        </div>
+                      </div>
+                      
+                      {/* Actual slider input */}
+                      <input
+                        type="range"
+                        min="0"
+                        max="90"
+                        value={newPerkReinvestmentPercent}
+                        onChange={(e) => setNewPerkReinvestmentPercent(parseInt(e.target.value))}
+                        disabled={isCreatingPerk}
+                        className="w-full h-3 bg-transparent rounded-lg appearance-none cursor-pointer slider absolute top-0"
+                        style={{ width: '90%' }}
+                      />
+                      
+                      {/* Dynamic Labels with Values */}
+                      <div className="flex items-center text-xs text-gray-400 mt-1">
+                        <div className="flex items-center space-x-1">
+                          <span>💰</span>
+                          <span className="text-green-400 font-medium">{90 - newPerkReinvestmentPercent}%</span>
+                          <span>Revenue</span>
+                        </div>
+                        <div className="flex-1 text-center">
+                          <div className="flex items-center justify-center space-x-1">
+                            <span>🔄</span>
+                            <span>Reinvest</span>
+                            <span className="text-blue-400 font-medium">{newPerkReinvestmentPercent}%</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <span>🏛️</span>
+                          <span className="text-red-400 font-medium">Platform 10%</span>
+                        </div>
+                      </div>
                     </div>
+                    
+                    {/* Warning indicator if needed */}
+                    {(() => {
+                      const revenuePercent = 90 - newPerkReinvestmentPercent;
+                      if (revenuePercent < 10) {
+                        return (
+                          <div className="text-center mt-2">
+                            <div className="text-xs text-red-400">
+                              ⚠️ Revenue share too low ({revenuePercent}%) - minimum recommended: 10%
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                   
-                  <div className="text-center mt-4">
-                    <div className={`text-lg font-bold mb-1 ${
-                      (() => {
-                        const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
-                        return (partnerShare < 10 || partnerShare > 90) ? 'text-red-400' : 'text-white';
-                      })()
-                    }`}>
-                      {calculatePartnerShare(newPerkReinvestmentPercent)}% / {newPerkReinvestmentPercent}% / 10%
-                      {(() => {
-                        const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
-                        return (partnerShare < 10 || partnerShare > 90) ? ' ⚠️' : '';
-                      })()}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Revenue / Reinvest / Platform
-                    </div>
-                  </div>
-                </div>
-                
-                {/* RIGHT COLUMN: Alpha Points Display */}
-                <div className="flex flex-col justify-center">
+                  {/* Alpha Points Calculator - Compact */}
                   {newPerkUsdcPrice && parseFloat(newPerkUsdcPrice) > 0 ? (
-                    <div className="text-center p-4 bg-gray-900/50 rounded-lg border border-gray-600">
-                      <div className="text-sm text-gray-400 mb-2">Alpha Points Cost</div>
-                      <div className={`font-bold text-green-400 mb-2 ${
+                    <div className="text-center p-3 bg-gray-900/50 rounded-lg border border-gray-600">
+                      <div className="flex items-center justify-center gap-1 text-sm text-gray-400 mb-2">
+                        <span>Alpha Points Cost</span>
+                        <div className="group relative">
+                          <svg className="w-3 h-3 text-gray-500 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                          </svg>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block w-48 p-3 bg-gray-900 border border-gray-600 rounded-lg shadow-lg z-10">
+                            <p className="text-xs text-gray-300 font-medium mb-1">Conversion Rate</p>
+                            <p className="text-xs text-gray-400">$1 USD = 1,000 Alpha Points</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className={`font-bold text-green-400 mb-1 ${
                         (() => {
                           const apValue = usdToAlphaPointsDisplay(parseFloat(newPerkUsdcPrice));
                           const apString = formatAP(apValue);
@@ -2215,24 +2414,29 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                       }`}>
                         {formatAP(usdToAlphaPointsDisplay(parseFloat(newPerkUsdcPrice)))}
                       </div>
-                      <div className="text-sm text-gray-500 mb-4">
-                        ${newPerkUsdcPrice} USD = {usdToAlphaPointsDisplay(parseFloat(newPerkUsdcPrice)).toLocaleString()} Alpha Points
-                      </div>
-                      <div className="text-xs text-gray-400 pt-2">
-                        Rate: $1 USD = 1,000 Alpha Points
+                      <div className="text-xs text-gray-500">
+                        ${newPerkUsdcPrice} USD = {usdToAlphaPointsDisplay(parseFloat(newPerkUsdcPrice)).toLocaleString()} AP
                       </div>
                     </div>
                   ) : (
-                    <div className="text-center p-4 bg-background-input rounded-lg border border-gray-600 opacity-50">
-                      <div className="text-sm text-gray-400 mb-2">Alpha Points Cost</div>
-                      <div className="text-3xl font-bold text-gray-500 mb-2">
+                    <div className="text-center p-3 bg-background-input rounded-lg border border-gray-600 opacity-50">
+                      <div className="flex items-center justify-center gap-1 text-sm text-gray-400 mb-2">
+                        <span>Alpha Points Cost</span>
+                        <div className="group relative">
+                          <svg className="w-3 h-3 text-gray-500 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                          </svg>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block w-48 p-3 bg-gray-900 border border-gray-600 rounded-lg shadow-lg z-10">
+                            <p className="text-xs text-gray-300 font-medium mb-1">Conversion Rate</p>
+                            <p className="text-xs text-gray-400">$1 USD = 1,000 Alpha Points</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-2xl font-bold text-gray-500 mb-1">
                         --,--- AP
                       </div>
-                      <div className="text-sm text-gray-500 mb-4">
+                      <div className="text-xs text-gray-500">
                         Enter price to see cost
-                      </div>
-                      <div className="text-xs text-gray-400 pt-2">
-                        Rate: $1 USD = 1,000 Alpha Points
                       </div>
                     </div>
                   )}
@@ -2281,169 +2485,706 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             </div>
           </div>
           
-          {/* Field Guide & Examples - 2x2 Grid with Swiper */}
-          <div className="bg-background-card rounded-lg p-3">
+          {/* Enhanced Field Guide with Swiper - Takes 1 column */}
+          <div className="lg:col-span-1 bg-background-card rounded-lg p-3">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-lg font-semibold text-white">Field Guide & Examples</h4>
-              <div className="flex items-center space-x-1 group relative">
-                <h5 className="text-sm font-medium text-blue-400">{exampleSets[currentExampleSet]?.title || 'Examples'}</h5>
-                <svg className="w-3 h-3 text-blue-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-2 bg-gray-900 border border-blue-700 rounded-lg shadow-lg z-10">
-                  <p className="text-blue-300 text-xs">{exampleSets[currentExampleSet]?.tooltip || 'Example tooltip'}</p>
-                </div>
-              </div>
-              <div className="flex space-x-1">
-                {exampleSets.map((_, index) => (
+              <h4 className="text-lg font-semibold text-white">Field Guide</h4>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-400">
+                  {fieldGuideActiveIndex + 1} of 9
+                </span>
+                <div className="flex space-x-1">
                   <button
-                    key={index}
-                    onClick={() => setCurrentExampleSet(index)}
-                    className={`w-2 h-2 rounded-full transition-colors ${
-                      index === currentExampleSet ? 'bg-blue-400' : 'bg-gray-600'
-                    }`}
-                  />
-                ))}
-              </div>
-              <div className="flex items-center space-x-1 group relative">
-                <svg className="w-4 h-4 text-green-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-                </svg>
-                <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-80 p-3 bg-gray-900 border border-green-700 rounded-lg shadow-lg z-10">
-                  <p className="text-green-300 text-sm">
-                    <strong>💡 Pro Tip:</strong> The slider controls your revenue split. More reinvestment grows your TVL (increasing future quotas), while more direct revenue gives immediate profit. Default: 70% revenue, 20% reinvestment, 10% platform.
-                  </p>
+                    onClick={() => fieldGuideSwiperInstance?.slidePrev()}
+                    disabled={!fieldGuideSwiperInstance}
+                    className="w-6 h-6 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50 flex items-center justify-center"
+                  >
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => fieldGuideSwiperInstance?.slideNext()}
+                    disabled={!fieldGuideSwiperInstance}
+                    className="w-6 h-6 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50 flex items-center justify-center"
+                  >
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>
             
-            {/* Example Perk Templates */}
-            <div className="mt-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {exampleSets[currentExampleSet]?.cards.map((card, index) => (
-                  <div key={index} className="bg-background rounded-lg p-2 border border-gray-700">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="text-lg">
-                        {card.type === 'Access' ? '🔑' :
-                         card.type === 'Service' ? '🎧' :
-                         card.type === 'Digital Asset' ? '🖼️' :
-                         card.type === 'Physical' ? '📦' :
-                         card.type === 'Event' ? '🎫' : '🎁'}
-                      </span>
-                      <div className="flex-1">
-                        <div className="font-medium text-white text-sm">{card.title}</div>
-                        <div className="text-xs text-gray-400">{card.type}</div>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Price:</span>
-                        <span className="text-green-400">${card.price}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Revenue:</span>
-                        <span className="text-purple-400">{card.share}%</span>
-                      </div>
-                    </div>
-                    
-                    <p className="text-xs text-gray-500 line-clamp-2">{card.description}</p>
-                    
-                    <button
-                      className="w-full mt-1 px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
-                      onClick={() => {
-                        // Auto-fill form with example data
-                        setNewPerkName(card.title);
-                        setNewPerkDescription(card.description);
-                        setNewPerkType(card.type);
-                        setNewPerkUsdcPrice(card.price);
-                        const reinvestmentPercent = 90 - parseInt(card.share);
-                        setNewPerkReinvestmentPercent(reinvestmentPercent);
-                        setNewPerkTags([card.type]);
-                      }}
-                    >
-                      Use Template
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            {/* Best Practices & Key Insights */}
-            <div className="mt-4">
-              <h5 className="text-sm font-semibold text-white flex items-center mb-2">
-                <span className="text-purple-400 mr-2">💡</span>
-                Best Practices & Key Insights
-              </h5>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  {/* Pricing Strategy */}
-                  <span 
-                    className="text-xl cursor-help"
-                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'pricing')}
-                    onMouseMove={handleTooltipMove}
-                    onMouseLeave={handleInsightTooltipLeave}
-                  >
-                    💰
-                  </span>
-                  
-                  {/* Revenue Split Strategy */}
-                  <span 
-                    className="text-xl cursor-help"
-                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'revenue')}
-                    onMouseMove={handleTooltipMove}
-                    onMouseLeave={handleInsightTooltipLeave}
-                  >
-                    ⚖️
-                  </span>
-                  
-                  {/* Tag Optimization */}
-                  <span 
-                    className="text-xl cursor-help"
-                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'tags')}
-                    onMouseMove={handleTooltipMove}
-                    onMouseLeave={handleInsightTooltipLeave}
-                  >
-                    🏷️
-                  </span>
-                  
-                  {/* Success Metrics */}
-                  <span 
-                    className="text-xl cursor-help"
-                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'metrics')}
-                    onMouseMove={handleTooltipMove}
-                    onMouseLeave={handleInsightTooltipLeave}
-                  >
-                    📊
-                  </span>
-                  
-                  {/* Pro Strategies */}
-                  <span 
-                    className="text-xl cursor-help"
-                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'strategies')}
-                    onMouseMove={handleTooltipMove}
-                    onMouseLeave={handleInsightTooltipLeave}
-                  >
-                    🔄
-                  </span>
-                  
-                  {/* Value Stacking */}
-                  <span 
-                    className="text-xl cursor-help"
-                    onMouseEnter={(e) => handleInsightTooltipEnter(e, 'value')}
-                    onMouseMove={handleTooltipMove}
-                    onMouseLeave={handleInsightTooltipLeave}
-                  >
-                    💎
-                  </span>
-                </div>
-                
-                {/* Live Compliance Checking - Inline */}
-                <div className="flex-1 max-w-md ml-4">
-                  {renderComplianceCheck()}
-                </div>
-              </div>
-            </div>
+            {/* Perk Template Swiper */}
+            <div className="mb-4">
+              <Swiper
+                modules={[Navigation, Pagination, A11y]}
+                spaceBetween={0}
+                slidesPerView={1}
+                loop={true}
+                onSwiper={setFieldGuideSwiperInstance}
+                onSlideChange={(swiper) => setFieldGuideActiveIndex(swiper.realIndex)}
+                className="field-guide-swiper"
+              >
+                                 {/* Page 1: DeFi Protocol Enhancement Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">⚡</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Priority Transaction Access</div>
+                           <div className="text-xs text-gray-400">DeFi • Premium Service</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$45.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">80%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Skip the queue with priority transaction processing for staking and swaps</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Priority Transaction Access");
+                           setNewPerkDescription("Skip the queue with priority transaction processing for staking and swaps");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("45.00");
+                           setNewPerkReinvestmentPercent(10);
+                           setNewPerkTags(["DeFi", "Premium", "Service"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🔒</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Insurance Coverage</div>
+                           <div className="text-xs text-gray-400">DeFi • Risk Protection</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$60.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">70%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Smart contract insurance coverage for staked assets and liquidity positions</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Insurance Coverage");
+                           setNewPerkDescription("Smart contract insurance coverage for staked assets and liquidity positions");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("60.00");
+                           setNewPerkReinvestmentPercent(20);
+                           setNewPerkTags(["Insurance", "DeFi", "Protection"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+
+                 {/* Page 2: Retail & E-commerce Enhancement Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🎯</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Cashback Multiplier</div>
+                           <div className="text-xs text-gray-400">Retail • Loyalty Enhancement</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$12.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">85%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">2x cashback rewards on all verified purchases for premium shoppers</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Cashback Multiplier");
+                           setNewPerkDescription("2x cashback rewards on all verified purchases for premium shoppers");
+                           setNewPerkType("Financial");
+                           setNewPerkUsdcPrice("12.00");
+                           setNewPerkReinvestmentPercent(5);
+                           setNewPerkTags(["Cashback", "Retail", "Premium"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🛍️</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Early Access Sales</div>
+                           <div className="text-xs text-gray-400">Retail • Exclusive Shopping</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$22.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">80%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">24-hour early access to sales, new releases, and limited edition items</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Early Access Sales");
+                           setNewPerkDescription("24-hour early access to sales, new releases, and limited edition items");
+                           setNewPerkType("Access");
+                           setNewPerkUsdcPrice("22.00");
+                           setNewPerkReinvestmentPercent(10);
+                           setNewPerkTags(["Early Access", "Sales", "Exclusive"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+
+                 {/* Page 3: Logistics & Shipping Enhancement Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🚚</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Free Express Shipping</div>
+                           <div className="text-xs text-gray-400">Logistics • Customer Service</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$18.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">70%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Unlimited free express shipping for 12 months on all orders</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Free Express Shipping");
+                           setNewPerkDescription("Unlimited free express shipping for 12 months on all orders");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("18.00");
+                           setNewPerkReinvestmentPercent(20);
+                           setNewPerkTags(["Shipping", "Service", "Premium"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">📊</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Advanced Analytics Dashboard</div>
+                           <div className="text-xs text-gray-400">Data • Professional Tools</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$25.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">75%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Professional-grade portfolio tracking with yield optimization insights</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Advanced Analytics Dashboard");
+                           setNewPerkDescription("Professional-grade portfolio tracking with yield optimization insights");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("25.00");
+                           setNewPerkReinvestmentPercent(15);
+                           setNewPerkTags(["Analytics", "Professional", "Data"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+
+                 {/* Page 4: Event & Venue Enhancement Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🎪</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">VIP Event Access</div>
+                           <div className="text-xs text-gray-400">Events • Exclusive Experience</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$75.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">65%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Backstage access and meet-and-greet opportunities at partner venues</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("VIP Event Access");
+                           setNewPerkDescription("Backstage access and meet-and-greet opportunities at partner venues");
+                           setNewPerkType("Event");
+                           setNewPerkUsdcPrice("75.00");
+                           setNewPerkReinvestmentPercent(25);
+                           setNewPerkTags(["VIP", "Events", "Exclusive"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🎫</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Season Pass Upgrade</div>
+                           <div className="text-xs text-gray-400">Events • Premium Access</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$95.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">60%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Annual season pass with premium seating and exclusive member events</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Season Pass Upgrade");
+                           setNewPerkDescription("Annual season pass with premium seating and exclusive member events");
+                           setNewPerkType("Event");
+                           setNewPerkUsdcPrice("95.00");
+                           setNewPerkReinvestmentPercent(30);
+                           setNewPerkTags(["Season Pass", "Premium", "Events"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+
+                 {/* Page 5: Hospitality Enhancement Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🍽️</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Priority Reservations</div>
+                           <div className="text-xs text-gray-400">Hospitality • Concierge Service</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$35.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">80%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Skip waitlists with guaranteed table reservations at partner restaurants</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Priority Reservations");
+                           setNewPerkDescription("Skip waitlists with guaranteed table reservations at partner restaurants");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("35.00");
+                           setNewPerkReinvestmentPercent(10);
+                           setNewPerkTags(["Hospitality", "Priority", "Service"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🏨</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Hotel Upgrade Package</div>
+                           <div className="text-xs text-gray-400">Travel • Luxury Service</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$65.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">75%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Automatic room upgrades and complimentary amenities at partner hotels</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Hotel Upgrade Package");
+                           setNewPerkDescription("Automatic room upgrades and complimentary amenities at partner hotels");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("65.00");
+                           setNewPerkReinvestmentPercent(15);
+                           setNewPerkTags(["Travel", "Luxury", "Hospitality"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+
+                 {/* Page 6: Content & Creator Enhancement Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🎬</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Creator Collaboration</div>
+                           <div className="text-xs text-gray-400">Content • Partnership Opportunity</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$50.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">60%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Featured collaboration opportunities with verified content creators</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Creator Collaboration");
+                           setNewPerkDescription("Featured collaboration opportunities with verified content creators");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("50.00");
+                           setNewPerkReinvestmentPercent(30);
+                           setNewPerkTags(["Creator", "Collaboration", "Content"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">📺</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Content Monetization Tools</div>
+                           <div className="text-xs text-gray-400">Creator • Revenue Sharing</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$40.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">65%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Advanced monetization features with subscriber tiers and tip integration</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Content Monetization Tools");
+                           setNewPerkDescription("Advanced monetization features with subscriber tiers and tip integration");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("40.00");
+                           setNewPerkReinvestmentPercent(25);
+                           setNewPerkTags(["Monetization", "Creator", "Tools"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+
+                 {/* Page 7: Health & Fitness Enhancement Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">💪</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Personal Training Sessions</div>
+                           <div className="text-xs text-gray-400">Fitness • Professional Service</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$120.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">70%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Monthly 1-on-1 training sessions with certified fitness professionals</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Personal Training Sessions");
+                           setNewPerkDescription("Monthly 1-on-1 training sessions with certified fitness professionals");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("120.00");
+                           setNewPerkReinvestmentPercent(20);
+                           setNewPerkTags(["Fitness", "Training", "Premium"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🥗</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Nutrition Coaching</div>
+                           <div className="text-xs text-gray-400">Health • Wellness Program</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$80.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">75%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Personalized meal plans and nutrition guidance from certified dietitians</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Nutrition Coaching");
+                           setNewPerkDescription("Personalized meal plans and nutrition guidance from certified dietitians");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("80.00");
+                           setNewPerkReinvestmentPercent(15);
+                           setNewPerkTags(["Nutrition", "Coaching", "Health"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+
+                 {/* Page 8: Education & Professional Development Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🎓</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Certification Fast Track</div>
+                           <div className="text-xs text-gray-400">Education • Career Development</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$85.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">65%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Accelerated certification programs with industry-recognized credentials</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Certification Fast Track");
+                           setNewPerkDescription("Accelerated certification programs with industry-recognized credentials");
+                           setNewPerkType("Education");
+                           setNewPerkUsdcPrice("85.00");
+                           setNewPerkReinvestmentPercent(25);
+                           setNewPerkTags(["Education", "Certification", "Professional"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🎯</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Mentorship Program</div>
+                           <div className="text-xs text-gray-400">Career • 1-on-1 Guidance</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$150.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">60%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Monthly 1-on-1 mentorship sessions with industry experts and career guidance</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Mentorship Program");
+                           setNewPerkDescription("Monthly 1-on-1 mentorship sessions with industry experts and career guidance");
+                           setNewPerkType("Service");
+                           setNewPerkUsdcPrice("150.00");
+                           setNewPerkReinvestmentPercent(30);
+                           setNewPerkTags(["Mentorship", "Career", "Professional"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+
+                 {/* Page 9: Premium Services Templates */}
+                 <SwiperSlide>
+                   <div className="space-y-3">
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🎵</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Premium Content Library</div>
+                           <div className="text-xs text-gray-400">Media • Exclusive Access</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$30.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">85%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Access to exclusive music, videos, and digital content library</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Premium Content Library");
+                           setNewPerkDescription("Access to exclusive music, videos, and digital content library");
+                           setNewPerkType("Digital");
+                           setNewPerkUsdcPrice("30.00");
+                           setNewPerkReinvestmentPercent(5);
+                           setNewPerkTags(["Content", "Premium", "Digital"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+
+                     <div className="bg-background rounded-lg p-2 border border-gray-700">
+                       <div className="flex items-center space-x-2 mb-1">
+                         <span className="text-lg">🎮</span>
+                         <div className="flex-1">
+                           <div className="font-medium text-white text-sm">Gaming Tournament Entry</div>
+                           <div className="text-xs text-gray-400">Gaming • Competitive Access</div>
+                         </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
+                           <span className="text-green-400">$55.00</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
+                           <span className="text-purple-400">65%</span>
+                         </div>
+                       </div>
+                       <p className="text-xs text-gray-500 line-clamp-2 mb-2">Guaranteed entry to exclusive gaming tournaments with prize pools</p>
+                       <button
+                         className="w-full px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
+                         onClick={() => {
+                           setNewPerkName("Gaming Tournament Entry");
+                           setNewPerkDescription("Guaranteed entry to exclusive gaming tournaments with prize pools");
+                           setNewPerkType("Event");
+                           setNewPerkUsdcPrice("55.00");
+                           setNewPerkReinvestmentPercent(25);
+                           setNewPerkTags(["Gaming", "Tournament", "Competition"]);
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
+                   </div>
+                 </SwiperSlide>
+               </Swiper>
+             </div>
           </div>
         </div>
         
@@ -2451,24 +3192,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         <div className="bg-background-card rounded-lg p-3">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-lg font-semibold text-white">Your Perks</h4>
-            <div className="flex items-center space-x-2">
-              {/* Show current partner info */}
-              <div className="text-xs text-gray-400">
-                {partnerCap.partnerName}
-              </div>
-              
-              <Button 
-                onClick={() => {
-                  // Clear cache and refresh all perk data
-                  refreshPerkData();
-                  fetchPartnerPerks(partnerCap.id);
-                }}
-                disabled={isLoadingPerks}
-                className="bg-gray-600 hover:bg-gray-500 text-sm px-3 py-1"
-                title={`Refresh perks for ${partnerCap.partnerName}`}
-              >
-                {isLoadingPerks ? '⏳' : '🔄'} Refresh
-              </Button>
+            <div className="text-xs text-gray-400">
+              {partnerCap.partnerName}
             </div>
           </div>
           
@@ -3244,16 +3969,72 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold text-white">Current Settings</h3>
-            {isLoadingSettings && (
-              <div className="flex items-center text-blue-400">
-                <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span className="text-sm">Loading...</span>
+            <div className="flex items-center space-x-3">
+              {isLoadingSettings && (
+                <div className="flex items-center text-blue-400">
+                  <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-sm">Loading...</span>
+                </div>
+              )}
+              
+              {/* Partner Cap ID with Copy Button */}
+              <div className="flex items-center space-x-2 bg-gray-900/50 rounded-lg px-3 py-2">
+                <div className="text-xs text-gray-400">Partner Cap ID:</div>
+                <div className="font-mono text-xs text-gray-300">
+                  {partnerCap.id.slice(0, 8)}...{partnerCap.id.slice(-8)}
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(partnerCap.id);
+                      toast.success('Partner Cap ID copied to clipboard!');
+                    } catch (error) {
+                      toast.error('Failed to copy to clipboard');
+                    }
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors"
+                  title="Copy full Partner Cap ID to clipboard"
+                >
+                  📋
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const response = await client.getObject({
+                        id: partnerCap.id,
+                        options: { showContent: true, showType: true }
+                      });
+                      
+                      if (response.data?.content) {
+                        const fields = (response.data.content as any).fields;
+                        const rawUsdcValue = parseInt(fields.current_effective_usdc_value || '0');
+                        
+                        toast.info(
+                          <div>
+                            <div className="font-semibold">Raw On-Chain Values:</div>
+                            <div className="text-sm mt-1">
+                              <div>current_effective_usdc_value: {rawUsdcValue}</div>
+                              <div>Dashboard shows: ${(partnerCap.currentEffectiveUsdcValue || 0).toLocaleString()}</div>
+                            </div>
+                          </div>,
+                          { autoClose: 10000 }
+                        );
+                      }
+                    } catch (error) {
+                      toast.error('Failed to fetch on-chain data');
+                    }
+                  }}
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white px-2 py-1 rounded text-xs transition-colors"
+                  title="Debug: Check raw on-chain values"
+                >
+                  🔍
+                </button>
               </div>
-            )}
-              </div>
+            </div>
+          </div>
 
           {settingsError ? (
             <div className="text-center py-8">
@@ -3439,17 +4220,66 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   >
                     🔄
                   </Button>
+                  <Button 
+                    className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-2 py-1"
+                    onClick={() => debugPartnerStatsDetection(suiClient, selectedPartnerCapId)}
+                    title="Run debug diagnostics (check console)"
+                  >
+                    🐛
+                  </Button>
+                  <Button 
+                    className="bg-orange-600 hover:bg-orange-700 text-white text-sm px-2 py-1"
+                    onClick={checkForDuplicates}
+                    title="Check for duplicate stats objects (check console)"
+                  >
+                    🔍
+                  </Button>
                 </div>
               )}
               
               {hasPartnerStats === null && !isCheckingStats && (
-                <Button 
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-2 py-1"
-                  onClick={() => checkPartnerStats(true)}
-                  title="Check for stats object"
-                >
-                  Check Stats
-                </Button>
+                <div className="flex items-center space-x-2">
+                  <Button 
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-2 py-1"
+                    onClick={() => checkPartnerStats(true)}
+                    title="Check for stats object"
+                  >
+                    Check Stats
+                  </Button>
+                  <Button 
+                    className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-2 py-1"
+                    onClick={() => debugPartnerStatsDetection(suiClient, selectedPartnerCapId)}
+                    title="Run debug diagnostics (check console)"
+                  >
+                    🐛
+                  </Button>
+                  <Button 
+                    className="bg-orange-600 hover:bg-orange-700 text-white text-sm px-2 py-1"
+                    onClick={checkForDuplicates}
+                    title="Check for duplicate stats objects (check console)"
+                  >
+                    🔍
+                  </Button>
+                </div>
+              )}
+              
+              {hasPartnerStats === true && (
+                <div className="flex items-center space-x-2">
+                  <Button 
+                    className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-2 py-1"
+                    onClick={() => debugPartnerStatsDetection(suiClient, selectedPartnerCapId)}
+                    title="Debug detected stats object (check console)"
+                  >
+                    🐛 Debug Found
+                  </Button>
+                  <Button 
+                    className="bg-orange-600 hover:bg-orange-700 text-white text-sm px-2 py-1"
+                    onClick={checkForDuplicates}
+                    title="Check for duplicate stats objects (check console)"
+                  >
+                    🔍 Check Duplicates
+                  </Button>
+                </div>
               )}
               
               {currentSettings && (
@@ -3696,6 +4526,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const handlePartnerCapChange = (newPartnerCapId: string) => {
     const newPartnerCap = partnerCaps.find(cap => cap.id === newPartnerCapId);
     if (newPartnerCap) {
+      console.log(`🔄 Switching partner cap from ${selectedPartnerCapId} to ${newPartnerCapId}`);
+      
       setSelectedPartnerCapId(newPartnerCapId);
       
       // Reset stats state to force fresh check for new partner cap
@@ -3718,10 +4550,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         setTagInput('');
       }
       
-      // Force immediate stats check for the new partner cap (with small delay for UI responsiveness)
+      // Reset stats state and immediately check for the new partner cap
+      setHasPartnerStats(null);
+      // Partner cap switched - checking stats for new partner
+      
+      // Trigger stats check for the new partner cap (pass the new ID directly)
       setTimeout(() => {
-        checkPartnerStats(true);
-      }, 100);
+        checkPartnerStats(false, newPartnerCapId);
+      }, 100); // Small delay to ensure state is updated
     }
   };
 
@@ -3812,6 +4648,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         toast.success(
           <div>
             <div>Successfully added {additionalSuiAmount} SUI collateral!</div>
+            <div className="text-sm text-gray-300 mt-1">Quotas will update in a few seconds...</div>
             <a 
               href={`https://suiexplorer.com/txblock/${result.digest}?network=testnet`}
               target="_blank"
@@ -3825,7 +4662,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         
         setAdditionalSuiAmount('');
         setShowCollateralModal({ type: null, isOpen: false });
-        onRefresh(); // Refresh partner data
+        
+        // Add delay to ensure blockchain state is updated before refresh
+        setTimeout(() => {
+          onRefresh(); // Refresh partner data including quotas
+        }, 2000);
       }
     } catch (error) {
       console.error('Failed to add SUI collateral:', error);
@@ -3854,6 +4695,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         toast.success(
           <div>
             <div>Successfully added USDC collateral!</div>
+            <div className="text-sm text-gray-300 mt-1">Quotas will update in a few seconds...</div>
             <a 
               href={`https://suiexplorer.com/txblock/${result.digest}?network=testnet`}
               target="_blank"
@@ -3867,7 +4709,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         
         setUsdcCoinIdToAdd('');
         setShowCollateralModal({ type: null, isOpen: false });
-        onRefresh();
+        
+        // Add delay to ensure blockchain state is updated before refresh
+        setTimeout(() => {
+          onRefresh(); // Refresh partner data including quotas
+        }, 2000);
       }
     } catch (error) {
       console.error('Failed to add USDC collateral:', error);
@@ -3902,6 +4748,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         toast.success(
           <div>
             <div>Successfully added NFT collateral!</div>
+            <div className="text-sm text-gray-300 mt-1">Quotas will update in a few seconds...</div>
             <a 
               href={`https://suiexplorer.com/txblock/${result.digest}?network=testnet`}
               target="_blank"
@@ -3917,7 +4764,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         setNftCollectionType('');
         setNftFloorValue('');
         setShowCollateralModal({ type: null, isOpen: false });
-        onRefresh();
+        
+        // Add delay to ensure blockchain state is updated before refresh
+        setTimeout(() => {
+          onRefresh(); // Refresh partner data including quotas
+        }, 2000);
       }
     } catch (error) {
       console.error('Failed to add NFT collateral:', error);

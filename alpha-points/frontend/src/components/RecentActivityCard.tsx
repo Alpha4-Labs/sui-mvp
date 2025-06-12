@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAlphaContext } from '../context/AlphaContext';
 import { TransactionHistoryModal } from './TransactionHistoryModal';
-import { ALL_PACKAGE_IDS } from '../config/contract';
+import { queryUserEvents, ParsedEvent } from '../utils/eventQuerying';
 
 interface ActivityItem {
   id: string;
@@ -150,30 +150,7 @@ export const RecentActivityCard: React.FC = () => {
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(0);
 
-  // Helper function to create unique activity ID based on transaction digest
-  const createUniqueId = (eventType: string, event: any): string => {
-    const eventSeq = event.id?.eventSeq;
-    const txDigest = event.id?.txDigest;
-    const timestamp = event.timestampMs || Date.now();
-    
-    // Use transaction digest + eventSeq as primary identifier to prevent duplicates
-    if (txDigest && eventSeq) {
-      return `${eventType}-${txDigest}-${eventSeq}`;
-    }
-    
-    // Fallback with just transaction digest
-    if (txDigest) {
-      return `${eventType}-${txDigest}-${timestamp}`;
-    }
-    
-    // Fallback for events without digest - use eventSeq if available
-    if (eventSeq) {
-      return `${eventType}-seq-${eventSeq}`;
-    }
-    
-    // Final fallback
-    return `${eventType}-${timestamp}-${Math.random().toString(36).substr(2, 5)}`;
-  };
+
 
   // Helper function to validate activity data
   const isValidActivity = (activity: ActivityItem): boolean => {
@@ -214,10 +191,120 @@ export const RecentActivityCard: React.FC = () => {
     return true;
   };
 
-  // Efficient single-query approach: get user's recent transactions and parse locally
+  // Convert ParsedEvent to ActivityItem for display
+  const convertToActivityItem = (event: ParsedEvent): ActivityItem => {
+    const isUserActivity = event.userAddress === address;
+    
+    switch (event.type) {
+      case 'points_earned':
+        return {
+          id: event.id,
+          type: 'points_earned',
+          title: isUserActivity ? 'You Earned Alpha Points' : 'Alpha Points Earned',
+          description: isUserActivity 
+            ? `Earned ${formatPoints(event.amount || 0)} αP`
+            : `${shortenAddress(event.userAddress || '')} earned ${formatPoints(event.amount || 0)} αP`,
+          timestamp: event.timestamp,
+          value: `+${formatPoints(event.amount || 0)} αP`,
+          icon: 'plus',
+          txDigest: event.txDigest,
+          userAddress: event.userAddress,
+          isUserActivity
+        };
+      case 'points_spent':
+        return {
+          id: event.id,
+          type: 'points_spent',
+          title: isUserActivity ? 'You Spent Alpha Points' : 'Alpha Points Spent',
+          description: isUserActivity
+            ? `Spent ${formatPoints(event.amount || 0)} αP`
+            : `${shortenAddress(event.userAddress || '')} spent ${formatPoints(event.amount || 0)} αP`,
+          timestamp: event.timestamp,
+          value: `-${formatPoints(event.amount || 0)} αP`,
+          icon: 'minus',
+          txDigest: event.txDigest,
+          userAddress: event.userAddress,
+          isUserActivity
+        };
+      case 'perk_claimed':
+        return {
+          id: event.id,
+          type: 'perk_claimed',
+          title: isUserActivity ? 'You Claimed a Perk' : 'Perk Claimed',
+          description: isUserActivity
+            ? `Spent ${formatPoints(event.amount || 0)} αP on perk`
+            : `${shortenAddress(event.userAddress || '')} claimed a perk`,
+          timestamp: event.timestamp,
+          value: `-${formatPoints(event.amount || 0)} αP`,
+          icon: 'gift',
+          txDigest: event.txDigest,
+          userAddress: event.userAddress,
+          isUserActivity
+        };
+      case 'stake_created':
+        return {
+          id: event.id,
+          type: 'stake_created',
+          title: isUserActivity ? 'You Created a Stake Position' : 'New Stake Position',
+          description: isUserActivity
+            ? `Staked ${((event.amount || 0) / 1_000_000_000).toFixed(2)} SUI`
+            : `${shortenAddress(event.userAddress || '')} staked ${((event.amount || 0) / 1_000_000_000).toFixed(2)} SUI`,
+          timestamp: event.timestamp,
+          badge: `${event.eventData?.duration_days || 0}d`,
+          icon: 'trending',
+          txDigest: event.txDigest,
+          userAddress: event.userAddress,
+          isUserActivity
+        };
+      case 'early_unstake':
+        return {
+          id: event.id,
+          type: 'early_unstake',
+          title: isUserActivity ? 'You Early Unstaked for αP' : 'Early Unstake for αP',
+          description: isUserActivity
+            ? `Received ${formatPoints(event.amount || 0)} αP for ${((event.eventData?.principal || 0) / 1_000_000_000).toFixed(2)} SUI`
+            : `${shortenAddress(event.userAddress || '')} early unstaked for αP`,
+          timestamp: event.timestamp,
+          value: `+${formatPoints(event.amount || 0)} αP`,
+          badge: 'Early',
+          icon: 'zap',
+          txDigest: event.txDigest,
+          userAddress: event.userAddress,
+          isUserActivity
+        };
+      case 'loan_created':
+        return {
+          id: event.id,
+          type: 'loan_created',
+          title: isUserActivity ? 'You Created a Loan' : 'New Loan Created',
+          description: isUserActivity
+            ? `Borrowed ${formatPoints(event.amount || 0)} αP`
+            : `${shortenAddress(event.userAddress || '')} borrowed ${formatPoints(event.amount || 0)} αP`,
+          timestamp: event.timestamp,
+          value: `💰 ${formatPoints(event.amount || 0)} αP`,
+          icon: 'coin',
+          txDigest: event.txDigest,
+          userAddress: event.userAddress,
+          isUserActivity
+        };
+      default:
+        return {
+          id: event.id,
+          type: 'points_earned',
+          title: 'Activity',
+          description: 'On-chain activity',
+          timestamp: event.timestamp,
+          icon: 'star',
+          txDigest: event.txDigest,
+          userAddress: event.userAddress,
+          isUserActivity
+        };
+    }
+  };
+
+  // Efficient event querying using shared utility
   const fetchRecentEvents = useCallback(async () => {
     if (!suiClient || !address) {
-      // For non-connected users, show some global activity
       setActivities([]);
       setIsLoading(false);
       return;
@@ -226,181 +313,20 @@ export const RecentActivityCard: React.FC = () => {
     setIsLoading(true);
     
     try {
-      // Single efficient query: get user's recent transactions
-      const txns = await suiClient.queryTransactionBlocks({
-        filter: { FromAddress: address }, // Get transactions sent by the user
-        options: {
-          showEffects: true,
-          showEvents: true,
-          showInput: true,
-          showObjectChanges: true,
-        },
-        order: 'descending',
-        limit: 50 // Get more transactions to have enough events to filter
-      });
-      
-      const allActivities: ActivityItem[] = [];
-      const seenIds = new Set<string>();
-      
-      // Process each transaction locally
-      txns.data.forEach((tx) => {
-        if (!tx.events) return;
-        
-        const txTimestamp = new Date(parseInt(tx.timestampMs || '0'));
-        
-        tx.events.forEach((event) => {
-          const eventData = event.parsedJson;
-          const eventType = event.type;
-          const txDigest = tx.digest;
-          
-          // Check if this is an Alpha Points related event
-          const isAlphaEvent = ALL_PACKAGE_IDS.some(pkgId => eventType?.includes(pkgId || ''));
-          if (!isAlphaEvent) return;
-          
-          const isUserActivity = eventData?.user === address || 
-                                eventData?.staker === address || 
-                                eventData?.borrower === address || 
-                                eventData?.claimer === address;
-
-          let activity: ActivityItem | null = null;
-
-          // Parse event type locally
-          const eventTypeParts = eventType?.split('::') || [];
-          const moduleName = eventTypeParts[1];
-          const eventName = eventTypeParts[2];
-
-          if (!moduleName || !eventName) return;
-
-          // Handle different event types (same parsing logic, but local)
-          switch (`${moduleName}::${eventName}`) {
-            case 'ledger::Earned':
-              const earnedAmount = eventData?.amount;
-              if (earnedAmount && earnedAmount > 0) {
-                activity = {
-                  id: createUniqueId('earned', { id: { txDigest, eventSeq: event.id?.eventSeq }, timestampMs: tx.timestampMs }),
-                  type: 'points_earned',
-                  title: isUserActivity ? 'You Earned Alpha Points' : 'Alpha Points Earned',
-                  description: isUserActivity 
-                    ? `Earned ${formatPoints(earnedAmount)} αP`
-                    : `${shortenAddress(eventData?.user || '')} earned ${formatPoints(earnedAmount)} αP`,
-                  timestamp: txTimestamp,
-                  value: `+${formatPoints(earnedAmount)} αP`,
-                  icon: 'plus',
-                  txDigest,
-                  userAddress: eventData?.user,
-                  isUserActivity
-                };
-              }
-              break;
-
-            case 'ledger::Spent':
-              const spentAmount = eventData?.amount;
-              if (spentAmount && spentAmount > 0) {
-                activity = {
-                  id: createUniqueId('spent', { id: { txDigest, eventSeq: event.id?.eventSeq }, timestampMs: tx.timestampMs }),
-                  type: 'points_spent',
-                  title: isUserActivity ? 'You Spent Alpha Points' : 'Alpha Points Spent',
-                  description: isUserActivity
-                    ? `Spent ${formatPoints(spentAmount)} αP`
-                    : `${shortenAddress(eventData?.user || '')} spent ${formatPoints(spentAmount)} αP`,
-                  timestamp: txTimestamp,
-                  value: `-${formatPoints(spentAmount)} αP`,
-                  icon: 'minus',
-                  txDigest,
-                  userAddress: eventData?.user,
-                  isUserActivity
-                };
-              }
-              break;
-
-            case 'integration::StakeDeposited':
-            case 'integration::NativeStakeStored':
-              activity = {
-                id: createUniqueId('stake', { id: { txDigest, eventSeq: event.id?.eventSeq }, timestampMs: tx.timestampMs }),
-                type: 'stake_created',
-                title: isUserActivity ? 'You Created a Stake Position' : 'New Stake Position',
-                description: isUserActivity
-                  ? `Staked ${((eventData?.principal || 0) / 1_000_000_000).toFixed(2)} SUI`
-                  : `${shortenAddress(eventData?.staker || '')} staked ${((eventData?.principal || 0) / 1_000_000_000).toFixed(2)} SUI`,
-                timestamp: txTimestamp,
-                badge: `${eventData?.duration_days || 0}d`,
-                icon: 'trending',
-                txDigest,
-                userAddress: eventData?.staker,
-                isUserActivity
-              };
-              break;
-
-            case 'integration::EarlyUnstakeForAlphaPoints':
-              const alphaPointsAwarded = eventData?.alpha_points_awarded;
-              const principal = eventData?.principal;
-              
-              if (alphaPointsAwarded && principal && alphaPointsAwarded > 0 && principal > 0) {
-                activity = {
-                  id: createUniqueId('early-unstake', { id: { txDigest, eventSeq: event.id?.eventSeq }, timestampMs: tx.timestampMs }),
-                  type: 'early_unstake',
-                  title: isUserActivity ? 'You Early Unstaked for αP' : 'Early Unstake for αP',
-                  description: isUserActivity
-                    ? `Received ${formatPoints(alphaPointsAwarded)} αP for ${(principal / 1_000_000_000).toFixed(2)} SUI`
-                    : `${shortenAddress(eventData?.staker || '')} early unstaked for αP`,
-                  timestamp: txTimestamp,
-                  value: `+${formatPoints(alphaPointsAwarded)} αP`,
-                  badge: 'Early',
-                  icon: 'zap',
-                  txDigest,
-                  userAddress: eventData?.staker,
-                  isUserActivity
-                };
-              }
-              break;
-
-            case 'loan::LoanOpened':
-              activity = {
-                id: createUniqueId('loan', { id: { txDigest, eventSeq: event.id?.eventSeq }, timestampMs: tx.timestampMs }),
-                type: 'loan_created',
-                title: isUserActivity ? 'You Created a Loan' : 'New Loan Created',
-                description: isUserActivity
-                  ? `Borrowed ${formatPoints(eventData?.principal_points || 0)} αP`
-                  : `${shortenAddress(eventData?.borrower || '')} borrowed ${formatPoints(eventData?.principal_points || 0)} αP`,
-                timestamp: txTimestamp,
-                value: `💰 ${formatPoints(eventData?.principal_points || 0)} αP`,
-                icon: 'coin',
-                txDigest,
-                userAddress: eventData?.borrower,
-                isUserActivity
-              };
-              break;
-
-            case 'perk::PerkClaimed':
-              activity = {
-                id: createUniqueId('perk-claim', { id: { txDigest, eventSeq: event.id?.eventSeq }, timestampMs: tx.timestampMs }),
-                type: 'perk_claimed',
-                title: isUserActivity ? 'You Claimed a Perk' : 'Perk Claimed',
-                description: isUserActivity
-                  ? `Claimed "${eventData?.perk_name || 'perk'}"`
-                  : `${shortenAddress(eventData?.claimer || '')} claimed a perk`,
-                timestamp: txTimestamp,
-                icon: 'gift',
-                txDigest,
-                userAddress: eventData?.claimer,
-                isUserActivity
-              };
-              break;
-          }
-
-          // Add valid activities
-          if (activity && !seenIds.has(activity.id) && isValidActivity(activity)) {
-            seenIds.add(activity.id);
-            allActivities.push(activity);
-          }
-        });
+      // Use shared event querying utility
+      const events = await queryUserEvents({
+        userAddress: address,
+        suiClient,
+        limit: 50
       });
 
-      // Sort by timestamp (newest first) and take top 50
-      allActivities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-      const finalActivities = allActivities.slice(0, 50);
+      // Convert to ActivityItems and filter valid ones
+      const activities = events
+        .map(convertToActivityItem)
+        .filter(isValidActivity)
+        .slice(0, 50);
       
-      setActivities(finalActivities);
+      setActivities(activities);
       setLastRefresh(Date.now());
         
     } catch (error) {
