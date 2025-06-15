@@ -26,7 +26,7 @@ import {
   buildCreatePartnerPerkStatsTransaction,
   findPartnerStatsId,
   buildCreatePartnerStatsIfNotExistsTransaction,
-  buildPartialSuiWithdrawalTransaction,
+  buildWithdrawCollateralTransaction,
 } from '../utils/transaction';
 
 
@@ -4866,9 +4866,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       const suiAmountToWithdraw = withdrawalAmountNum / suiPrice;
       const suiAmountInMist = BigInt(Math.floor(suiAmountToWithdraw * 1e9));
 
-      const tx = buildPartialSuiWithdrawalTransaction(
+      const tx = buildWithdrawCollateralTransaction(
         selectedPartnerCapId,
-        vaultId,
+        'SUI',
         suiAmountInMist
       );
 
@@ -4957,9 +4957,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         return;
       }
 
-      const transaction = buildPartialSuiWithdrawalTransaction(
+      const transaction = buildWithdrawCollateralTransaction(
         partnerCap.id,
-        vaultId,
+        'SUI',
         BigInt(suiAmountInMist)
       );
 
