@@ -8,9 +8,9 @@ import { ErrorToast, SuccessToast } from './ui/ErrorToast';
 import { toast } from 'react-toastify';
 import { useAlphaContext } from '../context/AlphaContext';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
-import { usePartnerSettings, type MetadataField } from '../hooks/usePartnerSettings';
+import { usePartnerSettings } from '../hooks/usePartnerSettings';
 import { usePartnerAnalytics } from '../hooks/usePartnerAnalytics';
-import { MetadataFieldModal } from './MetadataFieldModal';
+
 import { usePartnerDetection } from '../hooks/usePartnerDetection';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
 import { 
@@ -26,9 +26,10 @@ import {
   buildCreatePartnerPerkStatsTransaction,
   findPartnerStatsId,
   buildCreatePartnerStatsIfNotExistsTransaction,
+  buildWithdrawCollateralTransaction,
 } from '../utils/transaction';
-import { debugPartnerStatsDetection } from '../utils/debugPartnerStats';
-import { logDuplicateStatsReport, checkPartnerCapForDuplicates } from '../utils/duplicateStatsCleanup';
+
+
 // import { SPONSOR_CONFIG } from '../config/contract'; // Commented out - will re-enable for sponsored transactions later
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
@@ -171,6 +172,15 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const [newPerkIcon, setNewPerkIcon] = useState('🎁'); // Default icon
   const [isCreatingPerk, setIsCreatingPerk] = useState(false);
   
+  // Expiry functionality
+  const [newPerkExpiryType, setNewPerkExpiryType] = useState<'none' | 'days' | 'date'>('none');
+  const [newPerkExpiryDays, setNewPerkExpiryDays] = useState('30');
+  const [newPerkExpiryDate, setNewPerkExpiryDate] = useState('');
+  
+  // Consumable functionality
+  const [newPerkIsConsumable, setNewPerkIsConsumable] = useState(false);
+  const [newPerkCharges, setNewPerkCharges] = useState('1');
+  
   // Tooltip state
   const [showBlueTooltip, setShowBlueTooltip] = useState(false);
   const [showYellowTooltip, setShowYellowTooltip] = useState(false);
@@ -193,9 +203,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     fetchSettings,
     resetFormToCurrentSettings,
     generateNewSalt,
-    addMetadataField,
-    removeMetadataField,
-    updateMetadataField
+
   } = usePartnerSettings(selectedPartnerCapId);
   
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
@@ -315,41 +323,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   };
 
-  // Check for duplicate stats objects
-  const checkForDuplicates = async () => {
-    if (!suiClient || !selectedPartnerCapId) return;
-    
-    console.log('🔍 Checking for duplicate PartnerPerkStatsV2 objects...');
-    
-    try {
-      // Check this specific partner cap
-      const duplicateInfo = await checkPartnerCapForDuplicates(suiClient, selectedPartnerCapId);
-      
-      if (duplicateInfo) {
-        console.warn('⚠️ DUPLICATES FOUND for this partner cap!');
-        console.warn('⚠️ Duplicate count:', duplicateInfo.duplicateCount);
-        console.warn('⚠️ Stats IDs:', duplicateInfo.statsIds);
-        console.warn('⚠️ Recommended to keep:', duplicateInfo.recommendedStatsId);
-        console.warn('⚠️ Should remove:', duplicateInfo.duplicatesToRemove);
-        
-        toast.error(`Found ${duplicateInfo.duplicateCount} stats objects for this partner! Check console for details.`, {
-          autoClose: 5000
-        });
-      } else {
-        console.log('✅ No duplicates found for this partner cap');
-        toast.success('No duplicate stats objects found for this partner.', {
-          autoClose: 3000
-        });
-      }
-      
-      // Also run the full system scan
-      await logDuplicateStatsReport(suiClient);
-      
-    } catch (error) {
-      console.error('Error checking for duplicates:', error);
-      toast.error('Failed to check for duplicates. See console for details.');
-    }
-  };
+
 
   // NO AUTOMATIC CHECKING - Only manual checks via buttons or partner cap changes
   useEffect(() => {
@@ -406,9 +380,32 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
   // Predefined tag options
   const availableTags = [
+    // Core types
     'Access', 'Service', 'Digital Asset', 'Physical', 'Event',
     'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta',
-    'NFT', 'Discord', 'Support', 'Merch', 'Ticket'
+    'NFT', 'Discord', 'Support', 'Merch', 'Ticket',
+    
+    // DeFi & Finance
+    'DeFi', 'Insurance', 'Protection', 'Cashback', 'Analytics',
+    
+    // Retail & Commerce
+    'Retail', 'Early Access', 'Sales', 'Shipping',
+    
+    // Professional & Business
+    'Professional', 'Data', 'Tools', 'Education', 'Certification',
+    'Mentorship', 'Career',
+    
+    // Entertainment & Events
+    'Events', 'Season Pass', 'Gaming', 'Tournament', 'Competition',
+    
+    // Hospitality & Travel
+    'Hospitality', 'Priority', 'Travel', 'Luxury',
+    
+    // Content & Creator
+    'Creator', 'Collaboration', 'Content', 'Monetization', 'Digital',
+    
+    // Health & Fitness
+    'Fitness', 'Training', 'Nutrition', 'Coaching', 'Health'
   ];
 
   // Blockchain integration hooks
@@ -473,9 +470,13 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     isOpen: boolean;
   }>({ type: null, isOpen: false });
 
+  // TVL withdrawal modal state
+  const [showWithdrawalModal, setShowWithdrawalModal] = useState(false);
+  const [withdrawalAmount, setWithdrawalAmount] = useState('');
+  const [isProcessingWithdrawal, setIsProcessingWithdrawal] = useState(false);
+
   // Metadata field modal state
-  const [showMetadataFieldModal, setShowMetadataFieldModal] = useState(false);
-  const [editingMetadataField, setEditingMetadataField] = useState<MetadataField | null>(null);
+
   
   // Salt visibility state
   const [showSalt, setShowSalt] = useState(false);
@@ -487,9 +488,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     showModal: false
   });
 
-  // Metadata schema swiper state
-  const [metadataSwiperInstance, setMetadataSwiperInstance] = useState<any>(null);
-  const [metadataActiveIndex, setMetadataActiveIndex] = useState(0);
+
 
   // Field Guide swiper state
   const [fieldGuideSwiperInstance, setFieldGuideSwiperInstance] = useState<any>(null);
@@ -626,6 +625,13 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       setNewPerkIcon('🎁');
       setShowTagDropdown(false);
       setTagInput('');
+      // Reset expiry fields
+      setNewPerkExpiryType('none');
+      setNewPerkExpiryDays('30');
+      setNewPerkExpiryDate('');
+      // Reset consumable fields
+      setNewPerkIsConsumable(false);
+      setNewPerkCharges('1');
     }
   }, [currentTab]);
 
@@ -699,7 +705,30 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     return 90 - reinvestmentPercent;
   };
 
-  const newPerkPartnerShare = calculatePartnerShare(newPerkReinvestmentPercent).toString();
+  // Helper function to calculate expiry timestamp
+  const calculateExpiryTimestamp = (): number | undefined => {
+    if (newPerkExpiryType === 'none') {
+      return undefined;
+    } else if (newPerkExpiryType === 'days') {
+      const days = parseInt(newPerkExpiryDays);
+      if (isNaN(days) || days <= 0) return undefined;
+      return Date.now() + (days * 24 * 60 * 60 * 1000);
+    } else if (newPerkExpiryType === 'date') {
+      if (!newPerkExpiryDate) return undefined;
+      const date = new Date(newPerkExpiryDate);
+      if (isNaN(date.getTime())) return undefined;
+      return date.getTime();
+    }
+    return undefined;
+  };
+
+  // Helper function to get max uses per claim (consumable charges)
+  const getMaxUsesPerClaim = (): number | undefined => {
+    if (!newPerkIsConsumable) return undefined;
+    const charges = parseInt(newPerkCharges);
+    if (isNaN(charges) || charges <= 0) return 1;
+    return charges;
+  };
 
   // 🔍 Helper function to validate partner cap ID format
   const validatePartnerCapId = (id: string): { isValid: boolean; format: string; details: string } => {
@@ -730,6 +759,38 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     if (!newPerkName.trim() || !newPerkDescription.trim() || !newPerkTags.length || !newPerkUsdcPrice.trim()) {
       toast.error('Please fill in all required fields');
       return;
+    }
+
+    // Validate expiry settings
+    if (newPerkExpiryType === 'days') {
+      const days = parseInt(newPerkExpiryDays);
+      if (isNaN(days) || days <= 0) {
+        toast.error('Please enter a valid number of days for expiry (minimum 1 day)');
+        return;
+      }
+    } else if (newPerkExpiryType === 'date') {
+      if (!newPerkExpiryDate) {
+        toast.error('Please select an expiry date');
+        return;
+      }
+      const expiryDate = new Date(newPerkExpiryDate);
+      if (isNaN(expiryDate.getTime()) || expiryDate <= new Date()) {
+        toast.error('Please select a valid future date for expiry');
+        return;
+      }
+    }
+
+    // Validate consumable settings
+    if (newPerkIsConsumable) {
+      if (!currentSettings.allowConsumablePerks) {
+        toast.error('Consumable perks are not enabled in your settings. Please enable them first.');
+        return;
+      }
+      const charges = parseInt(newPerkCharges);
+      if (isNaN(charges) || charges <= 0) {
+        toast.error('Please enter a valid number of charges (minimum 1)');
+        return;
+      }
     }
 
     // Safety check: Ensure we have a valid partner cap
@@ -908,6 +969,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         return;
       }
       
+      // Calculate partner share percentage for the transaction
+      const newPerkPartnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
+      
       const transaction = buildCreatePerkDefinitionTransaction(
         partnerCap.id,
         {
@@ -915,9 +979,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           description: newPerkDescription.trim(),
           perkType: newPerkType,
           usdcPrice: usdcPrice,
-          partnerSharePercentage: parseInt(newPerkPartnerShare),
-          maxUsesPerClaim: undefined,
-          expirationTimestampMs: undefined,
+          partnerSharePercentage: newPerkPartnerShare,
+          maxUsesPerClaim: getMaxUsesPerClaim(),
+          expirationTimestampMs: calculateExpiryTimestamp(),
           generatesUniqueClaimMetadata: false,
           tags: newPerkTags,
           maxClaims: undefined,
@@ -1040,6 +1104,13 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         setNewPerkIcon('🎁');
             setShowTagDropdown(false);
             setTagInput('');
+            // Reset expiry fields
+            setNewPerkExpiryType('none');
+            setNewPerkExpiryDays('30');
+            setNewPerkExpiryDate('');
+            // Reset consumable fields
+            setNewPerkIsConsumable(false);
+            setNewPerkCharges('1');
             
             // Refresh perk data
             setTimeout(() => {
@@ -1237,9 +1308,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
     setIsUpdatingSettings(true);
     try {
-      // Define allowed arrays
-      const allowedPerkTypes = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta'];
-      const allowedTags = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta', 'NFT', 'Discord', 'Support', 'Merch', 'Ticket'];
+      // Define allowed arrays - use all available tags from frontend to make system unrestricted
+      const allowedPerkTypes = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta', 'Financial', 'Education', 'Digital'];
+      const allowedTags = availableTags; // Use all tags from the frontend availableTags array
 
       // 1. Update perk control settings first
       toast.info('Step 1/3: Updating perk control settings...');
@@ -1372,199 +1443,422 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   }, [partnerCap?.id]);
 
-  const renderQuotaDisplay = () => {
-    // Use actual chain data with correct conversions
-    const tvlBackingUsd = partnerCap.currentEffectiveUsdcValue || 0; // Already in USD
-    
-    // Correct calculations based on the rules:
-    // $1 = 1,000 Alpha Points
-    // Lifetime quota = locked USD value * 1000
-    // Daily quota = lifetime quota * 0.03
-    const lifetimeQuota = Math.floor(tvlBackingUsd * 1000); // USD * 1000 = Alpha Points
-    const dailyQuota = Math.floor(lifetimeQuota * 0.03); // 3% of lifetime quota
-    
+
+
+  const renderOverviewTab = () => {
+    // Calculate comprehensive business metrics
+    const tvlBackingUsd = partnerCap.currentEffectiveUsdcValue || 0;
+    const lifetimeQuota = Math.floor(tvlBackingUsd * 1000);
+    const dailyQuota = Math.floor(lifetimeQuota * 0.03);
     const pointsMintedToday = partnerCap.pointsMintedToday || 0;
     const lifetimeMinted = partnerCap.totalPointsMintedLifetime || 0;
-    
-    // Calculate actual remaining quotas
     const availableDaily = Math.max(0, dailyQuota - pointsMintedToday);
     const remainingLifetime = Math.max(0, lifetimeQuota - lifetimeMinted);
-    
-    // Calculate usage percentages
     const dailyUsedPercent = dailyQuota > 0 ? (pointsMintedToday / dailyQuota) * 100 : 0;
     const lifetimeUsedPercent = lifetimeQuota > 0 ? (lifetimeMinted / lifetimeQuota) * 100 : 0;
+    const withdrawable = calculateWithdrawableAmount();
+    const metrics = getPartnerPerkMetrics(partnerCap.id);
+    const totalPerks = metrics.totalPerks || partnerCap.totalPerksCreated || 0;
+    
+    // Business intelligence calculations
+    const capitalEfficiency = tvlBackingUsd > 0 ? (lifetimeMinted / (tvlBackingUsd * 1000)) * 100 : 0;
+    const dailyBurnRate = dailyQuota > 0 ? (pointsMintedToday / dailyQuota) * 100 : 0;
+    const projectedDaysToCapacity = remainingLifetime > 0 && pointsMintedToday > 0 ? Math.floor(remainingLifetime / (pointsMintedToday || 1)) : Infinity;
+    const revenueProjection = lifetimeMinted * 0.001; // Assuming $0.001 per point average
+    
+    // Risk assessment
+    const getRiskLevel = () => {
+      if (lifetimeUsedPercent > 90) return { level: 'High', color: 'text-red-400', bg: 'bg-red-500/10' };
+      if (lifetimeUsedPercent > 70) return { level: 'Medium', color: 'text-yellow-400', bg: 'bg-yellow-500/10' };
+      return { level: 'Low', color: 'text-green-400', bg: 'bg-green-500/10' };
+    };
+    const risk = getRiskLevel();
 
     return (
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {/* TVL Backing Card */}
-        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-2">TVL Backing</h3>
-          <div className="text-3xl font-bold text-blue-400 mb-1">
-            ${tvlBackingUsd.toLocaleString()}
-          </div>
-          <div className="text-sm text-gray-400">Current Effective USD Value</div>
-          <div className="text-xs text-gray-500 mt-2">
-            Rate: $1 USD = 1,000 Alpha Points lifetime quota
-          </div>
-          
-          {/* Collateral Management Actions */}
-          <div className="mt-4 pt-3 border-t border-gray-700">
-            <div className="space-y-2">
-              <Button 
-                className="w-full text-sm btn-modern-primary"
-                onClick={() => setShowCollateralModal({ type: 'topup', isOpen: true })}
-              >
-                <span className="mr-2">⬆️</span>
-                Top Up Current Collateral
-              </Button>
-              <Button 
-                className="w-full text-sm bg-green-600 hover:bg-green-700"
-                onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
-              >
-                <span className="mr-2">➕</span>
-                Add Different Backing
-              </Button>
-            </div>
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              Increase your quota by adding more collateral
-            </p>
-          </div>
-        </div>
-        
-        {/* Daily Quota Card */}
-        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-2">Daily Quota</h3>
-          <div className="text-2xl font-bold text-white mb-1">
-            {availableDaily.toLocaleString()} / {dailyQuota.toLocaleString()}
-          </div>
-          <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-            <div 
-              className="bg-blue-400 h-2 rounded-full transition-all duration-300" 
-              style={{ width: `${Math.min(dailyUsedPercent, 100)}%` }}
-            ></div>
-          </div>
-          <div className="text-sm text-gray-400">{dailyUsedPercent.toFixed(1)}% used today</div>
-          <div className="text-xs text-gray-500 mt-1">
-            3% of lifetime quota ({pointsMintedToday.toLocaleString()} minted)
-          </div>
-        </div>
-        
-        {/* Lifetime Quota Card */}
-        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-2">Lifetime Quota</h3>
-          <div className="text-2xl font-bold text-white mb-1">
-            {remainingLifetime.toLocaleString()} / {lifetimeQuota.toLocaleString()}
-          </div>
-          <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-            <div 
-              className="bg-blue-400 h-2 rounded-full transition-all duration-300" 
-              style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
-            ></div>
-          </div>
-          <div className="text-sm text-gray-400">{lifetimeUsedPercent.toFixed(1)}% used total</div>
-          <div className="text-xs text-gray-500 mt-1">
-            Total minted: {lifetimeMinted.toLocaleString()} AP
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderOverviewTab = () => (
-    <div>
-      {renderQuotaDisplay()}
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Partner Status Card */}
-        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Partner Status</h3>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-3 bg-gray-900/50 rounded-lg">
+      <div className="space-y-6">
+        {/* Executive Summary Header */}
+        <div className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 backdrop-blur-lg border border-blue-700/30 rounded-lg p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-8">
               <div>
-                <div className="text-white font-medium">Perks Created</div>
-                <div className="text-sm text-gray-400">Total marketplace perks</div>
+                <h2 className="text-lg font-bold text-white">{partnerCap.partnerName}</h2>
+                <p className="text-xs text-blue-200">Complete operational dashboard</p>
               </div>
-              <div className="text-primary font-semibold">
-                {(() => {
-                  const metrics = getPartnerPerkMetrics(partnerCap.id);
-                  return metrics.totalPerks || partnerCap.totalPerksCreated || 0;
-                })()}
+              
+              <div className="hidden lg:flex items-center space-x-8">
+                <div className="text-center py-1">
+                  <div className="text-xl font-bold text-blue-300 mb-1">${tvlBackingUsd.toLocaleString()}</div>
+                  <div className="text-xs text-blue-200">Capital Deployed</div>
+                </div>
+                <div className="text-center py-1">
+                  <div className="text-xl font-bold text-green-300 mb-1">{lifetimeMinted.toLocaleString()}</div>
+                  <div className="text-xs text-green-200">Points Distributed</div>
+                </div>
+                <div className="text-center py-1">
+                  <div className="text-xl font-bold text-purple-300 mb-1">{totalPerks}</div>
+                  <div className="text-xs text-purple-200">Active Perks</div>
+                </div>
+                <div className="text-center py-1">
+                  <div className="text-xl font-bold text-yellow-300 mb-1">{capitalEfficiency.toFixed(1)}%</div>
+                  <div className="text-xs text-yellow-200">Efficiency</div>
+                </div>
+              </div>
+              
+              <div className="hidden xl:flex items-center space-x-8 border-l border-blue-400/30 pl-8">
+                <div className="text-center py-1">
+                  <div className="text-xl font-bold text-cyan-300 mb-1">{dailyUsedPercent.toFixed(1)}%</div>
+                  <div className="text-xs text-cyan-200">Daily Used</div>
+                </div>
+                <div className="text-center py-1">
+                  <div className="text-xl font-bold text-indigo-300 mb-1">{lifetimeUsedPercent.toFixed(1)}%</div>
+                  <div className="text-xs text-indigo-200">Lifetime Used</div>
+                </div>
+                <div className="text-center py-1">
+                  <div className="text-xl font-bold text-orange-300 mb-1">
+                    {projectedDaysToCapacity === Infinity ? '∞' : projectedDaysToCapacity > 999 ? '999+' : projectedDaysToCapacity}
+                  </div>
+                  <div className="text-xs text-orange-200">Days Runway</div>
+                </div>
               </div>
             </div>
-
-            <div className="flex justify-between items-center p-3 bg-background rounded-lg">
-              <div>
-                <div className="text-white font-medium">Revenue Split</div>
-                <div className="text-sm text-gray-400">70% direct, 20% TVL reinvest, 10% platform</div>
+            
+            <div className="flex items-center space-x-3">
+              <div className="hidden lg:flex items-center space-x-2">
+                <Button 
+                  className="text-xs btn-modern-primary px-3 py-1.5"
+                  onClick={() => setShowCollateralModal({ type: 'topup', isOpen: true })}
+                >
+                  <span className="mr-1">⬆️</span>
+                  Increase
+                </Button>
+                <Button 
+                  className="text-xs bg-green-600 hover:bg-green-700 px-3 py-1.5"
+                  onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
+                >
+                  <span className="mr-1">➕</span>
+                  Add
+                </Button>
+                {withdrawable > 0 && (
+                  <Button 
+                    className="text-xs bg-orange-600 hover:bg-orange-700 px-3 py-1.5"
+                    onClick={() => setShowWithdrawalModal(true)}
+                  >
+                    <span className="mr-1">⬇️</span>
+                    Extract
+                  </Button>
+                )}
               </div>
-              <div className="text-green-400 font-semibold">
-                Enhanced
+              
+              <div className={`px-3 py-1 rounded-full text-xs font-medium ${risk.bg} ${risk.color}`}>
+                Risk: {risk.level}
               </div>
             </div>
+          </div>
+        </div>
 
-            <div className="flex justify-between items-center p-3 bg-background rounded-lg">
-              <div>
-                <div className="text-white font-medium">Your SUI Balance</div>
-                <div className="text-sm text-gray-400">Available wallet balance</div>
+        {/* Business Intelligence Dashboard */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+          {/* Strategic Actions */}
+          <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-5">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+              <span className="mr-2">🎯</span>
+              Strategic Actions
+            </h3>
+            
+            <div className="space-y-4">
+              {/* Perk Management */}
+              <div className="bg-gray-900/50 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-300">Marketplace Presence</span>
+                    <span className="text-lg font-bold text-white">{totalPerks}</span>
+                    <span className="text-xs text-gray-400">Active Perks</span>
+                  </div>
+                </div>
+                <Link to="/partners/perks" className="block">
+                  <Button className="w-full text-xs">
+                    <span className="mr-2">🎁</span>
+                    Manage Perks
+                  </Button>
+                </Link>
               </div>
-              <div className="flex items-center space-x-3">
-                <div className="flex items-center text-primary font-semibold">
-                  {loading.suiBalance ? (
-                    <div className="w-6 h-6 bg-gray-700 rounded animate-pulse mr-2"></div>
-                  ) : (
-                    <>
-                      {formatSui(suiBalance)}
-                      <img src={suiLogo} alt="Sui Logo" className="w-5 h-5 rounded-full object-cover ml-2" />
-                    </>
-                  )}
+
+              {/* Analytics Access */}
+              <div className="bg-gray-900/50 rounded-lg p-3">
+                <div className="text-sm text-gray-300 mb-2">Performance Insights</div>
+                <div className="text-xs text-gray-400 mb-2">Deep dive into your metrics</div>
+                <Link to="/partners/analytics" className="block">
+                  <Button className="w-full text-xs btn-modern-secondary">
+                    <span className="mr-2">📈</span>
+                    View Analytics
+                  </Button>
+                </Link>
+              </div>
+
+              {/* System Actions */}
+              <div className="space-y-2">
+                <Button 
+                  className="w-full text-xs btn-modern-secondary"
+                  onClick={onRefresh}
+                >
+                  <span className="mr-2">🔄</span>
+                  Refresh Data
+                </Button>
+                <Link to="/partners/create" className="block">
+                  <Button className="w-full text-xs bg-green-700 hover:bg-green-600">
+                    <span className="mr-2">➕</span>
+                    New Partner Cap
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* Smart Recommendations */}
+          <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-5">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+              <span className="mr-2">🧠</span>
+              Smart Recommendations
+            </h3>
+            
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {/* Strategic Business Recommendations */}
+              {(() => {
+                const recommendations = [];
+                
+                // Capital Optimization Strategies
+                if (lifetimeUsedPercent > 80) {
+                  recommendations.push(
+                    <div key="capacity" className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-red-400 mb-1">⚠️ Scale Capital Infrastructure</div>
+                      <div className="text-xs text-red-300 mb-2">At {lifetimeUsedPercent.toFixed(1)}% capacity utilization - approaching operational limits.</div>
+                      <div className="text-xs text-red-200">💡 Strategy: Add ${Math.ceil(tvlBackingUsd * 0.5).toLocaleString()} collateral to unlock {Math.ceil(tvlBackingUsd * 500).toLocaleString()} more Alpha Points capacity.</div>
+                    </div>
+                  );
+                } else if (lifetimeUsedPercent > 60) {
+                  recommendations.push(
+                    <div key="growth-prep" className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-orange-400 mb-1">📈 Prepare for Growth</div>
+                      <div className="text-xs text-orange-300 mb-2">At {lifetimeUsedPercent.toFixed(1)}% capacity - good time to plan expansion.</div>
+                      <div className="text-xs text-orange-200">💡 Strategy: Consider adding collateral before hitting 80% to avoid service disruption during peak demand.</div>
+                    </div>
+                  );
+                }
+
+                // Revenue Optimization
+                if (totalPerks === 0) {
+                  recommendations.push(
+                    <div key="first-perk" className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-blue-400 mb-1">🚀 Launch Revenue Stream</div>
+                      <div className="text-xs text-blue-300 mb-2">You have ${tvlBackingUsd.toLocaleString()} in capital but no active perks.</div>
+                      <div className="text-xs text-blue-200">💡 Strategy: Start with 3-5 perks at different price points ($5-50) to test market demand and optimize pricing.</div>
+                    </div>
+                  );
+                } else if (totalPerks < 3) {
+                  recommendations.push(
+                    <div key="diversify" className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-cyan-400 mb-1">🎯 Diversify Offerings</div>
+                      <div className="text-xs text-cyan-300 mb-2">Only {totalPerks} active perk{totalPerks === 1 ? '' : 's'} - limited market coverage.</div>
+                      <div className="text-xs text-cyan-200">💡 Strategy: Add perks in different categories (Digital Assets, Access, Physical) to capture broader audience segments.</div>
+                    </div>
+                  );
+                }
+
+                // Efficiency & Performance Insights
+                if (capitalEfficiency < 30 && lifetimeMinted > 1000) {
+                  recommendations.push(
+                    <div key="efficiency" className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-purple-400 mb-1">⚡ Optimize Capital Efficiency</div>
+                      <div className="text-xs text-purple-300 mb-2">Current efficiency: {capitalEfficiency.toFixed(1)}% - room for improvement.</div>
+                      <div className="text-xs text-purple-200">💡 Strategy: Focus on higher-margin digital perks or increase perk pricing to maximize Alpha Points per dollar invested.</div>
+                    </div>
+                  );
+                }
+
+                // Market Timing & Demand
+                if (dailyUsedPercent < 10 && pointsMintedToday === 0 && totalPerks > 0) {
+                  recommendations.push(
+                    <div key="marketing" className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-yellow-400 mb-1">📢 Boost Market Presence</div>
+                      <div className="text-xs text-yellow-300 mb-2">Daily quota unused despite having {totalPerks} active perks.</div>
+                      <div className="text-xs text-yellow-200">💡 Strategy: Launch marketing campaign, partner with influencers, or create limited-time offers to drive demand.</div>
+                    </div>
+                  );
+                } else if (dailyUsedPercent > 70) {
+                  recommendations.push(
+                    <div key="demand" className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-green-400 mb-1">🔥 High Demand Detected</div>
+                      <div className="text-xs text-green-300 mb-2">Using {dailyUsedPercent.toFixed(1)}% of daily quota - strong market traction.</div>
+                      <div className="text-xs text-green-200">💡 Strategy: Consider premium pricing tiers or exclusive perks to capture additional value from high demand.</div>
+                    </div>
+                  );
+                }
+
+                // Financial Management
+                if (withdrawable > tvlBackingUsd * 0.3) {
+                  recommendations.push(
+                    <div key="capital-mgmt" className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-indigo-400 mb-1">💼 Capital Management</div>
+                      <div className="text-xs text-indigo-300 mb-2">${withdrawable.toFixed(0)} available for withdrawal ({((withdrawable/tvlBackingUsd)*100).toFixed(0)}% of capital).</div>
+                      <div className="text-xs text-indigo-200">💡 Strategy: Consider reinvesting excess capital into new perks or withdraw for other business opportunities.</div>
+                    </div>
+                  );
+                }
+
+                // Long-term Strategic Planning
+                if (projectedDaysToCapacity < 30 && projectedDaysToCapacity !== Infinity) {
+                  recommendations.push(
+                    <div key="runway" className="bg-pink-500/10 border border-pink-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-pink-400 mb-1">⏰ Capacity Planning</div>
+                      <div className="text-xs text-pink-300 mb-2">Only {projectedDaysToCapacity} days until capacity limit at current usage rate.</div>
+                      <div className="text-xs text-pink-200">💡 Strategy: Plan capital injection now or implement demand management (higher pricing, limited quantities).</div>
+                    </div>
+                  );
+                } else if (projectedDaysToCapacity > 365) {
+                  recommendations.push(
+                    <div key="expansion" className="bg-teal-500/10 border border-teal-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-teal-400 mb-1">🌟 Expansion Opportunity</div>
+                      <div className="text-xs text-teal-300 mb-2">Current capacity will last {projectedDaysToCapacity > 999 ? '999+' : projectedDaysToCapacity} days - excellent runway.</div>
+                      <div className="text-xs text-teal-200">💡 Strategy: Focus on aggressive growth - launch new perk categories, partner integrations, or geographic expansion.</div>
+                    </div>
+                  );
+                }
+
+                // Default recommendation if no specific conditions met
+                if (recommendations.length === 0) {
+                  recommendations.push(
+                    <div key="optimize" className="bg-gray-500/10 border border-gray-500/20 rounded-lg p-3">
+                      <div className="text-sm font-medium text-gray-400 mb-1">📊 Business Optimization</div>
+                      <div className="text-xs text-gray-300 mb-2">Your operations are stable. Focus on optimization and growth.</div>
+                      <div className="text-xs text-gray-200">💡 Strategy: Analyze perk performance data, A/B test pricing, and explore new market segments for expansion.</div>
+                    </div>
+                  );
+                }
+
+                return recommendations.slice(0, 4); // Show max 4 recommendations
+              })()}
+            </div>
+          </div>
+
+          {/* System Status */}
+          <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-5">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+              <span className="mr-2">⚙️</span>
+              System Status
+            </h3>
+            
+            <div className="space-y-3">
+              {/* Wallet Status */}
+              <div className="bg-gray-900/50 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-gray-300">SUI Balance</span>
+                  <div className="flex items-center">
+                    {loading.suiBalance ? (
+                      <div className="w-4 h-4 bg-gray-700 rounded animate-pulse mr-2"></div>
+                    ) : (
+                      <>
+                        <span className="text-sm font-medium text-white mr-1">{formatSui(suiBalance)}</span>
+                        <img src={suiLogo} alt="Sui Logo" className="w-4 h-4 rounded-full object-cover" />
+                      </>
+                    )}
+                  </div>
                 </div>
                 <a
                   href="https://faucet.testnet.sui.io/"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-cyan-500 hover:bg-cyan-600 text-white py-1.5 px-3 rounded-md transition-colors text-xs font-medium"
+                  className="block w-full text-center bg-cyan-500 hover:bg-cyan-600 text-white py-1 px-2 rounded text-xs font-medium transition-colors"
                 >
                   Get Testnet SUI
                 </a>
               </div>
-            </div>
-          </div>
-        </div>
-        
-        {/* Quick Actions Card */}
-        <div className="bg-background-card rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
-          <div className="space-y-3">
-            <Link to="/partners/perks" className="block">
-              <Button className="w-full">
-                Create & Manage Perks
-              </Button>
-            </Link>
-            <Link to="/partners/analytics" className="block">
-              <Button className="w-full btn-modern-secondary">
-                View Analytics
-              </Button>
-            </Link>
-            <Button 
-                              className="w-full btn-modern-secondary"
-              onClick={onRefresh}
-            >
-              Refresh Data
-            </Button>
-            
-            <div className="pt-2 border-t border-gray-700">
-              <p className="text-xs text-gray-400 mb-2">Need additional capabilities?</p>
-              <Link to="/partners/create" className="block">
-                <Button className="w-full bg-green-700 hover:bg-green-600 text-sm">
-                  Create Additional Partner Cap
-                </Button>
-              </Link>
+
+              {/* Enhanced Partner Analytics */}
+              <div className="bg-gray-900/50 rounded-lg p-3">
+                <div className="text-sm text-gray-300 mb-3 flex items-center">
+                  <span className="mr-2">📊</span>
+                  Performance Metrics
+                </div>
+                
+                {/* Key Performance Indicators */}
+                <div className="space-y-3">
+                  {/* Alpha Points Distribution */}
+                  <div className="bg-gray-800/50 rounded-md p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-blue-300 font-medium">Alpha Points</span>
+                      <span className="text-xs text-gray-400">Lifetime</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-bold text-white">{lifetimeMinted.toLocaleString()}</div>
+                      <div className="text-xs text-blue-400">+{pointsMintedToday.toLocaleString()} today</div>
+                    </div>
+                    <div className="mt-1 bg-gray-700 rounded-full h-1">
+                      <div 
+                        className="bg-gradient-to-r from-blue-500 to-cyan-400 h-1 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {/* Perk Performance */}
+                  <div className="bg-gray-800/50 rounded-md p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-green-300 font-medium">Perk Claims</span>
+                      <span className="text-xs text-gray-400">Total</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-bold text-white">{metrics.totalClaims.toLocaleString()}</div>
+                      <div className={`text-xs px-2 py-0.5 rounded-full ${
+                        metrics.totalClaims > 100 ? 'bg-green-500/20 text-green-400' :
+                        metrics.totalClaims > 10 ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-red-500/20 text-red-400'
+                      }`}>
+                        {metrics.totalClaims > 100 ? 'High' : metrics.totalClaims > 10 ? 'Active' : 'Starting'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Revenue Performance */}
+                  <div className="bg-gray-800/50 rounded-md p-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-purple-300 font-medium">Revenue</span>
+                      <span className="text-xs text-gray-400">Generated</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-bold text-white">{metrics.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} AP</div>
+                      <div className={`text-xs px-2 py-0.5 rounded-full ${
+                        metrics.totalRevenue > 1000 ? 'bg-green-500/20 text-green-400' :
+                        metrics.totalRevenue > 100 ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-red-500/20 text-red-400'
+                      }`}>
+                        {metrics.totalRevenue > 1000 ? 'Strong' : metrics.totalRevenue > 100 ? 'Growing' : 'Early'}
+                      </div>
+                    </div>
+                    <div className="text-center mt-1">
+                      <div className="text-xs text-gray-400">≈ ${(metrics.totalRevenue / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</div>
+                    </div>
+                  </div>
+
+                  {/* Quick Stats Grid */}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="text-center">
+                      <div className="text-xs text-gray-400">Active Perks</div>
+                      <div className="text-sm font-bold text-green-300">{metrics.activePerks.toLocaleString()}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-gray-400">Total Perks</div>
+                      <div className="text-sm font-bold text-cyan-300">{metrics.totalPerks.toLocaleString()}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderPerksTab = () => {
     const exampleSets = [
@@ -1864,6 +2158,19 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             <>
               <div className="w-2 h-2 rounded-full bg-red-500"></div>
               <span className="text-red-400">Tags: Contains disallowed tags</span>
+              <button
+                onClick={() => {
+                  if (currentTab !== 'settings') {
+                    // Navigate to settings tab if not already there
+                    window.location.hash = '#settings';
+                  }
+                  toast.info('💡 Go to Settings tab and click "Save Settings" to allow all tags', { autoClose: 5000 });
+                }}
+                className="ml-2 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                title="Update settings to allow all tags"
+              >
+                Fix
+              </button>
             </>
           );
         } else {
@@ -2110,7 +2417,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             <PortalTooltip show={showBlueTooltip} position={tooltipPosition}>
               <div className="text-blue-300 w-72 border-blue-700">
                 <strong>Ready for Implementation:</strong> Perk creation will integrate with the on-chain perk_manager contract. 
-                Revenue splits: {newPerkPartnerShare || 70}% revenue to you, {newPerkReinvestmentPercent}% reinvested in your TVL, 10% to platform.
+                Revenue splits: {calculatePartnerShare(newPerkReinvestmentPercent)}% revenue to you, {newPerkReinvestmentPercent}% reinvested in your TVL, 10% to platform.
               </div>
             </PortalTooltip>
             
@@ -2191,120 +2498,208 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 
                 {/* LEFT COLUMN: Input Fields Stack */}
                 <div className="space-y-3">
-                  <Input
-                    placeholder="Perk Name"
-                    value={newPerkName}
-                    onChange={(e) => setNewPerkName(e.target.value)}
-                    disabled={isCreatingPerk}
-                    className="w-full"
-                    title="Enter a catchy name for your perk (e.g., 'VIP Discord Access', 'Exclusive NFT')"
-                  />
-                  
-                  <select
-                    value={newPerkType}
-                    onChange={(e) => setNewPerkType(e.target.value)}
-                    disabled={isCreatingPerk}
-                    className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500"
-                    title="Select the primary type/category for this perk"
-                  >
-                    <option value="Access">Access</option>
-                    <option value="Service">Service</option>
-                    <option value="Digital Asset">Digital Asset</option>
-                    <option value="Physical">Physical</option>
-                    <option value="Event">Event</option>
-                    <option value="VIP">VIP</option>
-                    <option value="Premium">Premium</option>
-                    <option value="Exclusive">Exclusive</option>
-                    <option value="Limited">Limited</option>
-                    <option value="Beta">Beta</option>
-                  </select>
-                  
-                  <Input
-                    type="number"
-                    placeholder="USDC Price"
-                    value={newPerkUsdcPrice}
-                    onChange={(e) => setNewPerkUsdcPrice(e.target.value)}
-                    disabled={isCreatingPerk}
-                    step="0.01"
-                    min="0"
-                    className="w-full"
-                    title="Set the price in USDC (e.g., 10.00 for $10). This determines the Alpha Points cost."
-                  />
-                  
-                  {/* Streamlined Tag Selector */}
-                  <div className="relative tag-selector" title="Select up to 5 tags to categorize your perk and make it discoverable">
-                    <div 
-                      className="min-h-[40px] border border-gray-600 rounded-md bg-gray-900/50 px-3 py-2 cursor-pointer"
-                      onClick={() => setShowTagDropdown(!showTagDropdown)}
+                  {/* Row 1: Name + Type */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      placeholder="Perk Name"
+                      value={newPerkName}
+                      onChange={(e) => setNewPerkName(e.target.value)}
+                      disabled={isCreatingPerk}
+                      className="w-full"
+                      title="Enter a catchy name for your perk (e.g., 'VIP Discord Access', 'Exclusive NFT')"
+                    />
+                    
+                    <select
+                      value={newPerkType}
+                      onChange={(e) => setNewPerkType(e.target.value)}
+                      disabled={isCreatingPerk}
+                      className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500"
+                      title="Select the primary type/category for this perk"
                     >
-                      {newPerkTags.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {newPerkTags.map((tag, index) => (
-                            <span key={index} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-300 text-xs rounded border border-blue-600/30">
-                              {tag}
+                      <option value="Access">Access</option>
+                      <option value="Service">Service</option>
+                      <option value="Digital Asset">Digital Asset</option>
+                      <option value="Physical">Physical</option>
+                      <option value="Event">Event</option>
+                      <option value="VIP">VIP</option>
+                      <option value="Premium">Premium</option>
+                      <option value="Exclusive">Exclusive</option>
+                      <option value="Limited">Limited</option>
+                      <option value="Beta">Beta</option>
+                    </select>
+                  </div>
+                  
+                  {/* Row 2: USDC Price + Tags */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      type="number"
+                      placeholder="USDC Price"
+                      value={newPerkUsdcPrice}
+                      onChange={(e) => setNewPerkUsdcPrice(e.target.value)}
+                      disabled={isCreatingPerk}
+                      step="0.01"
+                      min="0"
+                      className="w-full"
+                      title="Set the price in USDC (e.g., 10.00 for $10). This determines the Alpha Points cost."
+                    />
+                    
+                    {/* Streamlined Tag Selector */}
+                    <div className="relative tag-selector" title="Select up to 5 tags to categorize your perk and make it discoverable">
+                      <div 
+                        className="min-h-[40px] border border-gray-600 rounded-md bg-gray-900/50 px-3 py-2 cursor-pointer"
+                        onClick={() => setShowTagDropdown(!showTagDropdown)}
+                      >
+                        {newPerkTags.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {newPerkTags.map((tag, index) => (
+                              <span key={index} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-300 text-xs rounded border border-blue-600/30">
+                                {tag}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeTag(tag);
+                                  }}
+                                  className="text-blue-400 hover:text-blue-200 text-xs"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">Select tags...</span>
+                        )}
+                      </div>
+                      
+                      {showTagDropdown && (
+                        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-gray-800/95 backdrop-blur-lg border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                          {/* Custom tag input */}
+                          <div className="p-2 border-b border-gray-600">
+                            <div className="flex gap-1">
+                              <input
+                                type="text"
+                                placeholder="Custom tag..."
+                                value={tagInput}
+                                onChange={(e) => setTagInput(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && handleCustomTag()}
+                                className="flex-1 px-2 py-1 text-xs bg-gray-900/50 border border-gray-600 rounded"
+                                maxLength={20}
+                              />
                               <button
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeTag(tag);
-                                }}
-                                className="text-blue-400 hover:text-blue-200 text-xs"
+                                onClick={handleCustomTag}
+                                disabled={!tagInput.trim() || newPerkTags.length >= 5}
+                                className="btn-modern-primary text-xs px-2 py-1"
                               >
-                                ×
+                                Add
                               </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">Select tags...</span>
-                      )}
-                    </div>
-                    
-                    {showTagDropdown && (
-                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-gray-800/95 backdrop-blur-lg border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                        {/* Custom tag input */}
-                        <div className="p-2 border-b border-gray-600">
-                          <div className="flex gap-1">
-                            <input
-                              type="text"
-                              placeholder="Custom tag..."
-                              value={tagInput}
-                              onChange={(e) => setTagInput(e.target.value)}
-                              onKeyPress={(e) => e.key === 'Enter' && handleCustomTag()}
-                              className="flex-1 px-2 py-1 text-xs bg-gray-900/50 border border-gray-600 rounded"
-                              maxLength={20}
-                            />
-                            <button
-                              type="button"
-                              onClick={handleCustomTag}
-                              disabled={!tagInput.trim() || newPerkTags.length >= 5}
-                              className="btn-modern-primary text-xs px-2 py-1"
-                            >
-                              Add
-                            </button>
+                            </div>
+                          </div>
+                          
+                          {/* Predefined tags */}
+                          <div className="p-1">
+                            {(tagInput ? filteredTags : availableTags.filter(tag => !newPerkTags.includes(tag))).map((tag) => (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => addTag(tag)}
+                                disabled={newPerkTags.length >= 5}
+                                className="w-full text-left px-2 py-1 text-xs hover:bg-gray-700 rounded disabled:opacity-50 disabled:hover:bg-transparent"
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                            {tagInput && filteredTags.length === 0 && (
+                              <div className="px-2 py-1 text-xs text-gray-400">No matching tags</div>
+                            )}
                           </div>
                         </div>
-                        
-                        {/* Predefined tags */}
-                        <div className="p-1">
-                          {(tagInput ? filteredTags : availableTags.filter(tag => !newPerkTags.includes(tag))).map((tag) => (
-                            <button
-                              key={tag}
-                              type="button"
-                              onClick={() => addTag(tag)}
-                              disabled={newPerkTags.length >= 5}
-                              className="w-full text-left px-2 py-1 text-xs hover:bg-gray-700 rounded disabled:opacity-50 disabled:hover:bg-transparent"
-                            >
-                              {tag}
-                            </button>
-                          ))}
-                          {tagInput && filteredTags.length === 0 && (
-                            <div className="px-2 py-1 text-xs text-gray-400">No matching tags</div>
-                          )}
-                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Row 3: Expiry Settings */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={newPerkExpiryType}
+                      onChange={(e) => setNewPerkExpiryType(e.target.value as 'none' | 'days' | 'date')}
+                      disabled={isCreatingPerk || !currentSettings.allowExpiringPerks}
+                      className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500 disabled:opacity-50"
+                      title={!currentSettings.allowExpiringPerks ? "Enable expiring perks in settings first" : "Set when this perk expires"}
+                    >
+                      <option value="none">No Expiry</option>
+                      <option value="days">Expires in X days</option>
+                      <option value="date">Expires on date</option>
+                    </select>
+                    
+                    {newPerkExpiryType === 'days' ? (
+                      <Input
+                        type="number"
+                        placeholder="Days until expiry"
+                        value={newPerkExpiryDays}
+                        onChange={(e) => setNewPerkExpiryDays(e.target.value)}
+                        disabled={isCreatingPerk}
+                        min="1"
+                        className="w-full"
+                        title="Number of days from now until this perk expires"
+                      />
+                    ) : newPerkExpiryType === 'date' ? (
+                      <Input
+                        type="date"
+                        value={newPerkExpiryDate}
+                        onChange={(e) => setNewPerkExpiryDate(e.target.value)}
+                        disabled={isCreatingPerk}
+                        min={new Date().toISOString().split('T')[0]}
+                        className="w-full"
+                        title="Select the exact date when this perk expires"
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center px-3 py-2 bg-gray-800/30 border border-gray-700 rounded text-xs text-gray-400">
+                        <span>⏰ Never expires</span>
                       </div>
                     )}
                   </div>
+                  
+                  {/* Row 4: Consumable Settings */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center space-x-2 px-3 py-2 bg-gray-900/50 border border-gray-600 rounded">
+                      <input
+                        type="checkbox"
+                        id="consumable-toggle-main"
+                        checked={newPerkIsConsumable}
+                        onChange={(e) => setNewPerkIsConsumable(e.target.checked)}
+                        disabled={isCreatingPerk || !currentSettings.allowConsumablePerks}
+                        className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                      />
+                      <label 
+                        htmlFor="consumable-toggle-main" 
+                        className={`text-sm ${!currentSettings.allowConsumablePerks ? 'text-gray-500' : 'text-white cursor-pointer'}`}
+                        title={!currentSettings.allowConsumablePerks ? "Enable consumable perks in settings first" : "Make this perk consumable with limited uses"}
+                      >
+                        Consumable
+                      </label>
+                    </div>
+                    
+                    {newPerkIsConsumable ? (
+                      <Input
+                        type="number"
+                        placeholder="Number of charges"
+                        value={newPerkCharges}
+                        onChange={(e) => setNewPerkCharges(e.target.value)}
+                        disabled={isCreatingPerk}
+                        min="1"
+                        className="w-full"
+                        title="How many times this perk can be used before it's consumed (e.g., 1 = single use, 12 = 12 uses)"
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center px-3 py-2 bg-gray-800/30 border border-gray-700 rounded text-xs text-gray-400">
+                        <span>♾️ Unlimited uses</span>
+                      </div>
+                    )}
+                  </div>
+                  
+
                 </div>
                 
                 {/* RIGHT COLUMN: Revenue Slider + Alpha Points + Compliance */}
@@ -4220,20 +4615,6 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   >
                     🔄
                   </Button>
-                  <Button 
-                    className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-2 py-1"
-                    onClick={() => debugPartnerStatsDetection(suiClient, selectedPartnerCapId)}
-                    title="Run debug diagnostics (check console)"
-                  >
-                    🐛
-                  </Button>
-                  <Button 
-                    className="bg-orange-600 hover:bg-orange-700 text-white text-sm px-2 py-1"
-                    onClick={checkForDuplicates}
-                    title="Check for duplicate stats objects (check console)"
-                  >
-                    🔍
-                  </Button>
                 </div>
               )}
               
@@ -4246,41 +4627,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   >
                     Check Stats
                   </Button>
-                  <Button 
-                    className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-2 py-1"
-                    onClick={() => debugPartnerStatsDetection(suiClient, selectedPartnerCapId)}
-                    title="Run debug diagnostics (check console)"
-                  >
-                    🐛
-                  </Button>
-                  <Button 
-                    className="bg-orange-600 hover:bg-orange-700 text-white text-sm px-2 py-1"
-                    onClick={checkForDuplicates}
-                    title="Check for duplicate stats objects (check console)"
-                  >
-                    🔍
-                  </Button>
                 </div>
               )}
               
-              {hasPartnerStats === true && (
-                <div className="flex items-center space-x-2">
-                  <Button 
-                    className="bg-purple-600 hover:bg-purple-700 text-white text-sm px-2 py-1"
-                    onClick={() => debugPartnerStatsDetection(suiClient, selectedPartnerCapId)}
-                    title="Debug detected stats object (check console)"
-                  >
-                    🐛 Debug Found
-                  </Button>
-                  <Button 
-                    className="bg-orange-600 hover:bg-orange-700 text-white text-sm px-2 py-1"
-                    onClick={checkForDuplicates}
-                    title="Check for duplicate stats objects (check console)"
-                  >
-                    🔍 Check Duplicates
-                  </Button>
-                </div>
-              )}
+
               
               {currentSettings && (
                 <Button 
@@ -4384,124 +4734,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   </label>
               </div>
             
-            <div className="space-y-3">
-              <div className="bg-gray-900/50 rounded-lg p-3">
-                <div className="flex justify-between items-center mb-2">
-                  <div>
-                    <div className="text-sm text-gray-300 font-medium">Metadata Schema</div>
-                    <div className="text-xs text-gray-500">Define what information your perks collect</div>
-                  </div>
-                  <Button 
-                    onClick={() => {
-                      setEditingMetadataField(null);
-                      setShowMetadataFieldModal(true);
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1"
-                  >
-                    Add Field
-                  </Button>
-                </div>
-                
-                {perkSettings.metadataSchema && perkSettings.metadataSchema.length > 0 ? (
-                  <div className="relative">
-                    {/* Navigation arrows for metadata fields */}
-                    {perkSettings.metadataSchema.length > 3 && (
-                      <>
-                        <button
-                          onClick={() => metadataSwiperInstance?.slidePrev()}
-                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-gray-700 hover:bg-gray-600 text-white p-1 rounded-full transition-colors"
-                          style={{ marginLeft: '-12px' }}
-                        >
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => metadataSwiperInstance?.slideNext()}
-                          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-gray-700 hover:bg-gray-600 text-white p-1 rounded-full transition-colors"
-                          style={{ marginRight: '-12px' }}
-                        >
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      </>
-                    )}
-                    
-                    <Swiper
-                      modules={[Navigation, A11y]}
-                      spaceBetween={12}
-                      slidesPerView={Math.min(3, perkSettings.metadataSchema.length)}
-                      slidesPerGroup={3}
-                      onSwiper={setMetadataSwiperInstance}
-                      onSlideChange={(swiper) => setMetadataActiveIndex(swiper.activeIndex)}
-                      className="metadata-schema-swiper"
-                    >
-                      {perkSettings.metadataSchema.map((field, index) => (
-                        <SwiperSlide key={field.key}>
-                          <div className="bg-gray-800 rounded p-3 h-24 flex flex-col justify-between">
-                            <div className="flex-1 min-h-0">
-                              <div className="text-sm text-white font-medium flex items-center gap-2 truncate">
-                                <span className="flex-shrink-0">{field.key}</span>
-                                {field.required && (
-                                  <span className="text-yellow-400 text-xs flex-shrink-0">Required</span>
-                                )}
-                                {field.description && (
-                                  <span className="text-gray-400 text-xs truncate">
-                                    - {field.description}
-                                  </span>
-                                )}
-                                {!field.description && (
-                                  <span className="text-gray-500 text-xs flex-shrink-0">No description</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex space-x-1 mt-2">
-                              <Button 
-                                onClick={() => {
-                                  setEditingMetadataField(field);
-                                  setShowMetadataFieldModal(true);
-                                }}
-                                className="bg-gray-600 hover:bg-gray-700 text-xs px-2 py-1 flex-1"
-                              >
-                                Edit
-                              </Button>
-                              <Button 
-                                onClick={() => removeMetadataField(field.key)}
-                                className="bg-red-600 hover:bg-red-700 text-xs px-2 py-1 flex-1"
-                              >
-                                Remove
-                              </Button>
-                            </div>
-                          </div>
-                        </SwiperSlide>
-                      ))}
-                    </Swiper>
-                    
-                    {/* Pagination dots for metadata fields */}
-                    {perkSettings.metadataSchema.length > 3 && (
-                      <div className="flex justify-center mt-3 space-x-1">
-                        {Array.from({ length: Math.ceil(perkSettings.metadataSchema.length / 3) }).map((_, pageIndex) => (
-                          <button
-                            key={pageIndex}
-                            onClick={() => metadataSwiperInstance?.slideTo(pageIndex * 3)}
-                            className={`w-2 h-2 rounded-full transition-colors ${
-                              Math.floor(metadataActiveIndex / 3) === pageIndex 
-                                ? 'bg-blue-500' 
-                                : 'bg-gray-600 hover:bg-gray-500'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-xs text-gray-500 text-center py-4">
-                    No metadata fields configured. Add fields to collect user information with your perks.
-                  </div>
-                )}
-              </div>
-            </div>
+
 
             {/* Save Button */}
             <div className="pt-4 border-t border-gray-700">
@@ -4548,6 +4781,13 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         setNewPerkIcon('🎁');
         setShowTagDropdown(false);
         setTagInput('');
+        // Reset expiry fields
+        setNewPerkExpiryType('none');
+        setNewPerkExpiryDays('30');
+        setNewPerkExpiryDate('');
+        // Reset consumable fields
+        setNewPerkIsConsumable(false);
+        setNewPerkCharges('1');
       }
       
       // Reset stats state and immediately check for the new partner cap
@@ -4579,6 +4819,179 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     setNftKioskId('');
     setNftCollectionType('');
     setNftFloorValue('');
+  };
+
+  // Calculate withdrawable amount (TVL - backing for already minted points)
+  const calculateWithdrawableAmount = () => {
+    const totalUsdValue = partnerCap.currentEffectiveUsdcValue || 0;
+    const pointsMinted = partnerCap.totalPointsMintedLifetime || 0;
+    // Each 1000 points requires $1 USD backing
+    const requiredBacking = pointsMinted / 1000;
+    const withdrawable = Math.max(0, totalUsdValue - requiredBacking);
+    return withdrawable;
+  };
+
+  // Get the vault ID for the selected partner cap
+  const getVaultIdForPartner = () => {
+    if (!selectedPartnerCapId || !partnerCaps) return null;
+    const partner = partnerCaps.find(cap => cap.id === selectedPartnerCapId);
+    return partner?.lockedSuiCoinId || null;
+  };
+
+  // Handle TVL withdrawal
+  const handleTvlWithdrawal = async () => {
+    if (!suiClient || !account?.address || !selectedPartnerCapId) {
+      toast.error('Unable to process withdrawal: Missing required data');
+      return;
+    }
+
+    const withdrawalAmountNum = parseFloat(withdrawalAmount);
+    if (isNaN(withdrawalAmountNum) || withdrawalAmountNum <= 0) {
+      toast.error('Please enter a valid withdrawal amount');
+      return;
+    }
+
+    const vaultId = getVaultIdForPartner();
+    if (!vaultId) {
+      toast.error('No SUI vault found for this partner');
+      return;
+    }
+
+    setIsProcessingWithdrawal(true);
+
+    try {
+      // Convert USD to SUI for withdrawal
+      // This is a simplified conversion - in reality, you'd want to use the oracle
+      const suiPrice = 2.0; // Placeholder - should get from oracle
+      const suiAmountToWithdraw = withdrawalAmountNum / suiPrice;
+      const suiAmountInMist = BigInt(Math.floor(suiAmountToWithdraw * 1e9));
+
+      const tx = buildWithdrawCollateralTransaction(
+        selectedPartnerCapId,
+        'SUI',
+        suiAmountInMist
+      );
+
+      const result = await signAndExecuteTransaction({
+        transaction: tx,
+        options: {
+          showObjectChanges: true,
+          showEvents: true,
+        },
+      });
+
+      if (result.effects?.status?.status === 'success') {
+        toast.success(`Successfully withdrew ${withdrawalAmountNum.toFixed(2)} USD worth of SUI`);
+        setShowWithdrawalModal(false);
+        setWithdrawalAmount('');
+        
+        // Refresh partner data
+        await checkPartnerStats(true);
+      } else {
+        const errorMsg = result.effects?.status?.error || 'Unknown error';
+        if (errorMsg.includes('E_POINTS_TOO_YOUNG')) {
+          toast.error('Your minted points are too young. Please wait a few more epochs before withdrawing.');
+        } else if (errorMsg.includes('E_WITHDRAWAL_EXCEEDS_EPOCH_LIMIT')) {
+          toast.error('Withdrawal exceeds your epoch limit. Try a smaller amount or wait until next epoch.');
+        } else if (errorMsg.includes('E_WITHDRAWAL_WOULD_UNDERBACK_POINTS')) {
+          toast.error('This withdrawal would leave insufficient backing for your minted points.');
+        } else if (errorMsg.includes('E_WITHDRAWAL_PAUSED')) {
+          toast.error('Withdrawals are currently paused for security reasons.');
+        } else {
+          toast.error(`Withdrawal failed: ${errorMsg}`);
+        }
+      }
+    } catch (error: any) {
+      console.error('TVL withdrawal error:', error);
+      let errorMessage = 'Failed to withdraw TVL';
+      
+      if (error.message?.includes('E_POINTS_TOO_YOUNG')) {
+        errorMessage = 'Your minted points are too young. Please wait a few more epochs before withdrawing.';
+      } else if (error.message?.includes('E_WITHDRAWAL_EXCEEDS_EPOCH_LIMIT')) {
+        errorMessage = 'Withdrawal exceeds your epoch limit. Try a smaller amount or wait until next epoch.';
+      } else if (error.message?.includes('E_WITHDRAWAL_WOULD_UNDERBACK_POINTS')) {
+        errorMessage = 'This withdrawal would leave insufficient backing for your minted points.';
+      } else if (error.message?.includes('E_WITHDRAWAL_PAUSED')) {
+        errorMessage = 'Withdrawals are currently paused for security reasons.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
+    } finally {
+      setIsProcessingWithdrawal(false);
+    }
+  };
+
+  // Handle TVL withdrawal
+  const handleWithdrawCapital = async () => {
+    if (!partnerCap.id || !withdrawalAmount || !suiClient) {
+      toast.error('Missing required information for withdrawal');
+      return;
+    }
+
+    const withdrawAmountUsd = parseFloat(withdrawalAmount);
+    if (isNaN(withdrawAmountUsd) || withdrawAmountUsd <= 0) {
+      toast.error('Please enter a valid withdrawal amount');
+      return;
+    }
+
+    const maxWithdrawable = calculateWithdrawableAmount();
+    if (withdrawAmountUsd > maxWithdrawable) {
+      toast.error(`Maximum withdrawable amount is $${maxWithdrawable.toFixed(2)}`);
+      return;
+    }
+
+    try {
+      setIsProcessingWithdrawal(true);
+
+      // Convert USD to SUI amount (this would need current SUI price)
+      // For now, using 1 SUI = $1 as placeholder
+      const suiAmountToWithdraw = withdrawAmountUsd; 
+      const suiAmountInMist = Math.floor(suiAmountToWithdraw * 1_000_000_000);
+
+      // Find the vault ID (assuming it's in the locked_sui_coin_id field)
+      const vaultId = partnerCap.lockedSuiVaultId;
+      if (!vaultId) {
+        toast.error('No vault found for this partner');
+        return;
+      }
+
+      const transaction = buildWithdrawCollateralTransaction(
+        partnerCap.id,
+        'SUI',
+        BigInt(suiAmountInMist)
+      );
+
+      signAndExecuteTransaction(
+        { transaction },
+        {
+          onSuccess: (result: any) => {
+            console.log('✅ Capital withdrawal successful:', result);
+            toast.success(`Successfully withdrew $${withdrawAmountUsd} worth of SUI`);
+            
+            // Clear form and close modal
+            setWithdrawalAmount('');
+            setShowWithdrawalModal(false);
+            
+            // Refresh partner data
+            setTimeout(() => {
+              onRefresh();
+            }, 2000);
+          },
+          onError: (error: any) => {
+            console.error('❌ Capital withdrawal failed:', error);
+            toast.error(`Withdrawal failed: ${error.message || 'Unknown error'}`);
+          }
+        }
+      );
+
+    } catch (error: any) {
+      console.error('Error in capital withdrawal:', error);
+      toast.error(`Error: ${error.message || 'Unknown error occurred'}`);
+    } finally {
+      setIsProcessingWithdrawal(false);
+    }
   };
   
   // Collateral transaction handlers
@@ -5031,23 +5444,118 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       
       {renderCollateralModal()}
       
+      {/* TVL Withdrawal Modal */}
+      {showWithdrawalModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-background-card rounded-lg p-6 w-full max-w-lg mx-4">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-white">Extract TVL Capital</h2>
+              <button
+                onClick={() => {
+                  setShowWithdrawalModal(false);
+                  setWithdrawalAmount('');
+                }}
+                className="text-gray-400 hover:text-white text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Current Status */}
+              <div className="p-4 bg-gray-900/50 border border-gray-700 rounded-lg">
+                <h3 className="text-gray-300 font-medium mb-3">Capital Status</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Total TVL:</span>
+                    <span className="text-blue-400">${(partnerCap.currentEffectiveUsdcValue || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Points Minted:</span>
+                    <span className="text-yellow-400">{(partnerCap.totalPointsMintedLifetime || 0).toLocaleString()} AP</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Required Backing:</span>
+                    <span className="text-red-400">${((partnerCap.totalPointsMintedLifetime || 0) / 1000).toFixed(2)}</span>
+                  </div>
+                  <hr className="border-gray-600" />
+                  <div className="flex justify-between font-medium">
+                    <span className="text-gray-300">Available to Withdraw:</span>
+                    <span className="text-green-400">${calculateWithdrawableAmount().toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Withdrawal Amount Input */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Withdrawal Amount (USD)
+                </label>
+                <Input
+                  type="number"
+                  placeholder={`Max: ${calculateWithdrawableAmount().toFixed(2)}`}
+                  step="0.01"
+                  min="0"
+                  max={calculateWithdrawableAmount()}
+                  value={withdrawalAmount}
+                  onChange={(e) => setWithdrawalAmount(e.target.value)}
+                  className="w-full text-base"
+                  disabled={isProcessingWithdrawal}
+                />
+                <p className="text-xs text-gray-400 mt-2">
+                  You can only withdraw capital that isn't backing already minted Alpha Points.
+                  Each 1000 AP requires $1 USD backing.
+                </p>
+              </div>
+
+              {/* Warning */}
+              <div className="p-3 bg-orange-900/20 border border-orange-700 rounded-lg">
+                <div className="flex items-start space-x-2">
+                  <span className="text-orange-400 text-sm">⚠️</span>
+                  <div className="text-xs text-orange-300">
+                    <strong>Important:</strong> Withdrawing capital will reduce your daily and lifetime 
+                    point minting quotas proportionally. Your ability to create new perks may be affected.
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  className="flex-1 bg-orange-600 hover:bg-orange-700"
+                  onClick={handleWithdrawCapital}
+                  disabled={
+                    isProcessingWithdrawal || 
+                    !withdrawalAmount || 
+                    parseFloat(withdrawalAmount || '0') <= 0 ||
+                    parseFloat(withdrawalAmount || '0') > calculateWithdrawableAmount()
+                  }
+                >
+                  {isProcessingWithdrawal ? (
+                    <div className="flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Withdrawing...
+                    </div>
+                  ) : 'Withdraw Capital'}
+                </Button>
+                <Button 
+                  className="px-6 bg-gray-600 hover:bg-gray-700"
+                  onClick={() => {
+                    setShowWithdrawalModal(false);
+                    setWithdrawalAmount('');
+                  }}
+                  disabled={isProcessingWithdrawal}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Metadata Field Modal */}
-      <MetadataFieldModal
-        isOpen={showMetadataFieldModal}
-        onClose={() => {
-          setShowMetadataFieldModal(false);
-          setEditingMetadataField(null);
-        }}
-        onSubmit={(field) => {
-          if (editingMetadataField) {
-            updateMetadataField(editingMetadataField.key, field);
-          } else {
-            addMetadataField(field);
-          }
-        }}
-        editingField={editingMetadataField}
-        existingKeys={perkSettings.metadataSchema?.map(f => f.key) || []}
-      />
+
 
       {/* Enhanced Salt Regeneration Modal */}
       {saltRegenerationFlow.showModal && (
