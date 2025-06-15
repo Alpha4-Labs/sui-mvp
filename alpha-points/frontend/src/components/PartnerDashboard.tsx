@@ -1556,6 +1556,85 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           </div>
         </div>
 
+        {/* Expanded Quota Progress Bar */}
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-8 flex-1">
+              {/* Daily Progress - Expanded */}
+              <div className="flex items-center space-x-4 flex-1">
+                <span className="text-sm text-blue-300 w-12 font-medium">Daily</span>
+                <div className="flex-1 bg-gray-700 rounded-full h-3 min-w-0 relative">
+                  <div 
+                    className="bg-gradient-to-r from-blue-500 to-blue-400 h-3 rounded-full transition-all duration-700 ease-out relative overflow-hidden"
+                    style={{ width: `${Math.min(dailyUsedPercent, 100)}%` }}
+                  >
+                    {/* Subtle animated shimmer */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pulse"></div>
+                  </div>
+                  {/* Usage indicator line */}
+                  {dailyUsedPercent > 5 && (
+                    <div className="absolute top-0 bottom-0 flex items-center text-xs font-medium text-white/90" style={{ left: `${Math.min(dailyUsedPercent, 95)}%`, transform: 'translateX(-50%)' }}>
+                      <span className="bg-blue-600/80 px-1 py-0.5 rounded text-xs">{dailyUsedPercent.toFixed(0)}%</span>
+                    </div>
+                  )}
+                </div>
+                <div className="text-right min-w-[80px]">
+                  <div className="text-sm font-semibold text-white">{pointsMintedToday.toLocaleString()}</div>
+                  <div className="text-xs text-gray-400">of {dailyQuota.toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="w-px h-8 bg-gray-600 mx-6"></div>
+            
+            <div className="flex items-center space-x-8 flex-1">
+              {/* Lifetime Progress - Expanded */}
+              <div className="flex items-center space-x-4 flex-1">
+                <span className="text-sm text-purple-300 w-16 font-medium">Lifetime</span>
+                <div className="flex-1 bg-gray-700 rounded-full h-3 min-w-0 relative">
+                  <div 
+                    className="bg-gradient-to-r from-purple-500 to-purple-400 h-3 rounded-full transition-all duration-700 ease-out relative overflow-hidden"
+                    style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
+                  >
+                    {/* Subtle animated shimmer */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pulse"></div>
+                  </div>
+                  {/* Usage indicator line */}
+                  {lifetimeUsedPercent > 5 && (
+                    <div className="absolute top-0 bottom-0 flex items-center text-xs font-medium text-white/90" style={{ left: `${Math.min(lifetimeUsedPercent, 95)}%`, transform: 'translateX(-50%)' }}>
+                      <span className="bg-purple-600/80 px-1 py-0.5 rounded text-xs">{lifetimeUsedPercent.toFixed(0)}%</span>
+                    </div>
+                  )}
+                </div>
+                <div className="text-right min-w-[100px]">
+                  <div className="text-sm font-semibold text-white">{lifetimeMinted.toLocaleString()}</div>
+                  <div className="text-xs text-gray-400">of {lifetimeQuota.toLocaleString()}</div>
+                </div>
+              </div>
+              
+              {/* Action Button */}
+              <div className="flex items-center space-x-3">
+                {(lifetimeUsedPercent >= 70 || dailyUsedPercent >= 80) && (
+                  <Button 
+                    className="text-sm btn-modern-primary px-4 py-2 whitespace-nowrap"
+                    onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
+                  >
+                    <span className="mr-2">⬆️</span>
+                    Scale Up
+                  </Button>
+                )}
+                <Button 
+                  className="text-sm bg-gray-600 hover:bg-gray-700 px-3 py-2 whitespace-nowrap"
+                  onClick={onRefresh}
+                >
+                  <span className="mr-1">🔄</span>
+                  Refresh
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Business Intelligence Dashboard */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
@@ -1783,24 +1862,6 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 
                 {/* Key Performance Indicators */}
                 <div className="space-y-3">
-                  {/* Alpha Points Distribution */}
-                  <div className="bg-gray-800/50 rounded-md p-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-blue-300 font-medium">Alpha Points</span>
-                      <span className="text-xs text-gray-400">Lifetime</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-bold text-white">{lifetimeMinted.toLocaleString()}</div>
-                      <div className="text-xs text-blue-400">+{pointsMintedToday.toLocaleString()} today</div>
-                    </div>
-                    <div className="mt-1 bg-gray-700 rounded-full h-1">
-                      <div 
-                        className="bg-gradient-to-r from-blue-500 to-cyan-400 h-1 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
                   {/* Perk Performance */}
                   <div className="bg-gray-800/50 rounded-md p-2">
                     <div className="flex items-center justify-between mb-1">
@@ -4831,11 +4892,36 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     return withdrawable;
   };
 
-  // Get the vault ID for the selected partner cap
-  const getVaultIdForPartner = () => {
-    if (!selectedPartnerCapId || !partnerCaps) return null;
-    const partner = partnerCaps.find(cap => cap.id === selectedPartnerCapId);
-    return partner?.lockedSuiCoinId || null;
+  // Get the vault ID for the selected partner cap by fetching fresh data
+  const getVaultIdForPartner = async () => {
+    if (!selectedPartnerCapId || !suiClient) return null;
+    
+    try {
+      // Fetch fresh partner cap data to get vault information
+      const freshPartnerCap = await suiClient.getObject({
+        id: selectedPartnerCapId,
+        options: { showContent: true, showType: true }
+      });
+      
+      // Extract vault ID from the locked_sui_coin_id field
+      const lockedSuiCoinId = (freshPartnerCap.data?.content as any)?.fields?.locked_sui_coin_id;
+      
+      if (!lockedSuiCoinId) return null;
+      
+      // Handle different Option<T> formats from Sui Move
+      if (typeof lockedSuiCoinId === 'string' && lockedSuiCoinId.length > 0) {
+        return lockedSuiCoinId; // Direct string value
+      } else if (Array.isArray(lockedSuiCoinId) && lockedSuiCoinId.length > 0) {
+        return lockedSuiCoinId[0]; // Array format
+      } else if (lockedSuiCoinId.vec && lockedSuiCoinId.vec.length > 0) {
+        return lockedSuiCoinId.vec[0]; // Object with vec format
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching vault ID:', error);
+      return null;
+    }
   };
 
   // Handle TVL withdrawal
@@ -4851,7 +4937,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       return;
     }
 
-    const vaultId = getVaultIdForPartner();
+    const vaultId = await getVaultIdForPartner();
     if (!vaultId) {
       toast.error('No SUI vault found for this partner');
       return;
@@ -4950,8 +5036,27 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       const suiAmountToWithdraw = withdrawAmountUsd; 
       const suiAmountInMist = Math.floor(suiAmountToWithdraw * 1_000_000_000);
 
-      // Find the vault ID (assuming it's in the locked_sui_coin_id field)
-      const vaultId = partnerCap.lockedSuiVaultId;
+      // Fetch fresh partner cap data to get vault information
+      const freshPartnerCap = await suiClient.getObject({
+        id: partnerCap.id,
+        options: { showContent: true, showType: true }
+      });
+      
+      // Extract vault ID from the locked_sui_coin_id field
+      const lockedSuiCoinId = (freshPartnerCap.data?.content as any)?.fields?.locked_sui_coin_id;
+      
+      let vaultId = null;
+      if (lockedSuiCoinId) {
+        // Handle different Option<T> formats from Sui Move
+        if (typeof lockedSuiCoinId === 'string' && lockedSuiCoinId.length > 0) {
+          vaultId = lockedSuiCoinId; // Direct string value
+        } else if (Array.isArray(lockedSuiCoinId) && lockedSuiCoinId.length > 0) {
+          vaultId = lockedSuiCoinId[0]; // Array format
+        } else if (lockedSuiCoinId.vec && lockedSuiCoinId.vec.length > 0) {
+          vaultId = lockedSuiCoinId.vec[0]; // Object with vec format
+        }
+      }
+      
       if (!vaultId) {
         toast.error('No vault found for this partner');
         return;

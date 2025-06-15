@@ -138,22 +138,7 @@ export const StakedPositionsList: React.FC = () => {
 
   // Old package stake checking removed - no longer needed
 
-  // Debug current stakes loading
-  React.useEffect(() => {
-    const currentPackageId = import.meta.env['VITE_PACKAGE_ID'];
-    console.log('📊 StakedPositionsList - Data state update:');
-    console.log(`   - Connected: ${alphaIsConnected}`);
-    console.log(`   - Address: ${alphaAddress}`);
-    console.log(`   - Current Package ID: ${currentPackageId}`);
-    console.log(`   - Current stakes: ${stakePositions.length}`);
-    console.log(`   - Orphaned stakes: ${orphanedStakes.length}`);
-    console.log(`   - Loading: ${JSON.stringify(loading)}`);
-    
-    if (alphaIsConnected && alphaAddress && stakePositions.length === 0 && !loading.positions) {
-      console.log('⚠️ User is connected but has no current stakes and not loading - this might indicate a data fetching issue');
-      console.log(`💡 Current package being queried for stakes: ${currentPackageId}`);
-    }
-  }, [alphaIsConnected, alphaAddress, stakePositions, orphanedStakes, loading]);
+
 
   // Load loans data when component mounts to help distinguish loan collateral from early unstake
   React.useEffect(() => {
@@ -512,27 +497,6 @@ export const StakedPositionsList: React.FC = () => {
     // Only compute if not loading to prevent premature renders
     if (isLoading) return [];
 
-    console.log('🔄 Combining stake data for display:');
-    console.log(`   - Current stakes (stakePositions): ${stakePositions.length}`);
-    console.log(`   - Orphaned stakes: ${orphanedStakes.length}`);
-    console.log(`   - Loading state: ${JSON.stringify(loading)}`);
-    
-    if (stakePositions.length > 0) {
-      console.log('📋 Current stakes details:', stakePositions.map(pos => ({
-        id: pos.id,
-        principal: pos.principal,
-        durationDays: pos.durationDays
-      })));
-    }
-    
-    if (orphanedStakes.length > 0) {
-      console.log('🏚️ Orphaned stakes details:', orphanedStakes.map(orphan => ({
-        stakedSuiObjectId: orphan.stakedSuiObjectId,
-        principalAmount: orphan.principalAmount,
-        durationDays: orphan.durationDays
-      })));
-    }
-
     const orphanedAsSwiperItems: SwiperOrphanedItem[] = orphanedStakes.map((orphan, index) => ({
       ...orphan,
       id: `orphaned-${orphan.stakedSuiObjectId || index}`, // Ensure unique ID
@@ -547,7 +511,6 @@ export const StakedPositionsList: React.FC = () => {
     }));
     
     const combined = [...orphanedAsSwiperItems, ...registeredAsSwiperItems];
-    console.log(`✅ Combined ${combined.length} total items for display`);
     
     return combined;
   }, [orphanedStakes, stakePositions, isLoading, loading]);
