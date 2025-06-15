@@ -1,0 +1,24 @@
+{
+  "name": "alpha-points-admin-scripts",
+  "version": "1.0.0",
+  "description": "Admin scripts for querying and batch unencumbering old package stakes",
+  "main": "query_old_stakes.js",
+  "scripts": {
+    "query-stakes": "node query_old_stakes.js",
+    "admin-unencumber": "node admin_unencumber_stakes.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.32.0"
+  },
+  "type": "module",
+  "keywords": [
+    "sui",
+    "move",
+    "blockchain",
+    "admin",
+    "migration"
+  ],
+  "author": "Alpha Points",
+  "license": "MIT"
+}

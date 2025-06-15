@@ -2473,3 +2473,63 @@ function validateSharedObjectIds(
   }
 }
 
+/**
+ * Builds a transaction for claiming mature capital from an early-unstaked position
+ * When a user early unstakes, they receive Alpha Points but the stake remains encumbered until maturity.
+ * Once mature, they can exchange the originally earned Alpha Points back to claim their SUI capital.
+ * 
+ * @param stakeId Object ID of the mature encumbered stake position
+ * @param alphaPointsToExchange Amount of Alpha Points to exchange back (should match original stake value)
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimMatureCapitalTransaction = (
+  stakeId: string,
+  alphaPointsToExchange: string
+) => {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::claim_mature_capital`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),   // Config
+      tx.object(SHARED_OBJECTS.ledger),   // Ledger for burning Alpha Points
+      tx.object(stakeId),                 // StakePosition to claim capital from
+      tx.pure.u64(BigInt(alphaPointsToExchange)), // Alpha Points to exchange back
+      tx.object(CLOCK_ID)                 // Clock for timestamp
+    ]
+  });
+  
+  return tx;
+};
+
+/**
+ * Build transaction for partial SUI collateral withdrawal from partner vault
+ * Allows partners to withdraw SUI capital that's not backing already minted points
+ * 
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param vaultId Object ID of the CollateralVault 
+ * @param suiAmountToWithdraw Amount of SUI to withdraw (in MIST)
+ * @param rateOracleId Object ID of the RateOracle for price conversion
+ * @returns Transaction object ready for execution
+ */
+export const buildPartialSuiWithdrawalTransaction = (
+  partnerCapId: string,
+  vaultId: string,
+  suiAmountToWithdraw: bigint,
+  rateOracleId: string = RATE_ORACLE_ID
+) => {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::withdraw_partial_sui_collateral`,
+    arguments: [
+      tx.object(partnerCapId),           // cap: &mut PartnerCapFlex
+      tx.object(vaultId),                // vault: &mut CollateralVault
+      tx.pure.u64(suiAmountToWithdraw),  // withdrawal_amount_sui: u64 (in MIST)
+      tx.object(rateOracleId),           // rate_oracle: &RateOracle
+    ]
+  });
+  
+  return tx;
+};
+

@@ -12,6 +12,7 @@ import alpha4Logo from '../assets/alpha4-logo.svg';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { toast } from 'react-toastify'; // Import toast
+import { WalletConnectionModal } from '../components/WalletConnectionModal';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -23,6 +24,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const alphaContext = useAlphaContext();
   const wallets = useWallets();
   const [isWalletDropdownOpen, setIsWalletDropdownOpen] = useState(false);
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const dropdownMenuRef = useRef<HTMLDivElement>(null);
 
@@ -155,27 +157,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 {/* Dropdown Menu - Moved outside of header to avoid stacking context issues */}
               </div>
             ) : (
-              // Custom button to navigate to WelcomePage if not connected
+              // Custom button to open wallet connection modal
               <button
-                onClick={() => {
-                  if (wallets.length === 0) {
-                    toast.info(
-                      "No SUI wallet extensions detected. Please install a SUI wallet (e.g., Sui Wallet, Suiet) to connect.", 
-                      {
-                        position: "top-center",
-                        autoClose: 7000,
-                        hideProgressBar: false,
-                        closeOnClick: true,
-                        pauseOnHover: true,
-                        draggable: true,
-                        theme: "dark",
-                      }
-                    );
-                  }
-                  if (location.pathname !== '/') {
-                    navigate('/');
-                  }
-                }}
+                onClick={() => setIsWalletModalOpen(true)}
                 className="btn-modern-primary"
               >
                 Connect Wallet
@@ -259,6 +243,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           </button>
         </div>
       )}
+
+      {/* Wallet Connection Modal */}
+      <WalletConnectionModal
+        isOpen={isWalletModalOpen}
+        onClose={() => setIsWalletModalOpen(false)}
+        onConnect={() => {
+          // Optional: Navigate to dashboard after successful connection
+          if (location.pathname === '/') {
+            navigate('/dashboard');
+          }
+        }}
+      />
 
       {/* Toast Container */}
       <ToastContainer 

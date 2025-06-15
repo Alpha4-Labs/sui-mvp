@@ -1523,4 +1523,544 @@ module alpha_points::partner_flex {
         // Share the vault as a shared object
         transfer::share_object(vault);
     }
+
+    // === SECURE WITHDRAWAL SYSTEM (Package Upgrade v2) ===
+    
+    /// Withdrawal control struct to track withdrawal history and prevent flash loan attacks
+    /// This is a Dynamic Field attached to PartnerCapFlex to avoid changing existing struct
+    public struct WithdrawalControl has store {
+        // Security: Track withdrawal history to prevent flash loan attacks
+        total_sui_withdrawn_lifetime: u64,
+        last_withdrawal_epoch: u64,
+        withdrawals_this_epoch: u64,
+        // Security: Time-based restrictions
+        first_mint_epoch: u64,           // When first Alpha Points were minted (prevents immediate withdrawal)
+        minimum_aging_epochs: u64,       // Minimum epochs points must "age" before withdrawal allowed
+        // Security: Economic protection
+        max_withdrawal_per_epoch: u64,   // Maximum SUI that can be withdrawn per epoch
+        emergency_pause: bool,           // Admin can pause withdrawals for security
+    }
+
+    /// Event for partial SUI withdrawal
+    public struct PartialSuiWithdrawn has copy, drop {
+        partner_cap_flex_id: object::ID,
+        vault_id: object::ID,
+        withdrawn_sui_amount: u64,
+        required_backing_points: u64,    // Points that required backing
+        points_backed_after_withdrawal: u64,
+        new_vault_balance: u64,
+        new_effective_usdc_value: u64,
+        withdrawal_epoch: u64
+    }
+
+    /// Event for withdrawal control initialization
+    public struct WithdrawalControlInitialized has copy, drop {
+        partner_cap_flex_id: object::ID,
+        current_epoch: u64,
+        minimum_aging_epochs: u64,
+        max_withdrawal_per_epoch: u64
+    }
+
+    // === Constants for Withdrawal Security ===
+    
+    /// Minimum epochs that minted points must age before allowing withdrawal (3 days assuming 24h epochs)
+    const MINIMUM_AGING_EPOCHS: u64 = 3;
+    
+    /// Maximum percentage of vault that can be withdrawn per epoch (10% = 1000 basis points)
+    const MAX_WITHDRAWAL_PER_EPOCH_BASIS_POINTS: u64 = 1000;
+    
+    /// Error codes for withdrawal system
+    const E_WITHDRAWAL_WOULD_UNDERBACK_POINTS: u64 = 300;
+    const E_INSUFFICIENT_AGED_POINTS: u64 = 301;
+    const E_WITHDRAWAL_EXCEEDS_EPOCH_LIMIT: u64 = 302;
+    const E_WITHDRAWAL_PAUSED: u64 = 303;
+    const E_NO_SUI_VAULT: u64 = 304;
+    const E_POINTS_TOO_YOUNG: u64 = 305;
+
+    /// Dynamic field key for withdrawal control
+    fun withdrawal_control_df_key(): vector<u8> {
+        b"withdrawal_control_v1"
+    }
+
+    /// Initialize withdrawal control for a PartnerCapFlex (called automatically on first withdrawal attempt)
+    fun init_withdrawal_control(cap: &mut PartnerCapFlex, ctx: &mut tx_context::TxContext) {
+        let df_key = withdrawal_control_df_key();
+        
+        // Only initialize if it doesn't exist
+        if (!df::exists_with_type<vector<u8>, WithdrawalControl>(&cap.id, df_key)) {
+            let current_epoch = tx_context::epoch(ctx);
+            
+            // Calculate max withdrawal per epoch based on current vault size
+            let max_withdrawal_per_epoch = if (option::is_some(&cap.locked_sui_coin_id)) {
+                // This would need to be calculated based on actual vault balance
+                // For now, using a conservative approach
+                1000000000u64 // 1 SUI maximum per epoch initially
+            } else {
+                0u64
+            };
+
+            let withdrawal_control = WithdrawalControl {
+                total_sui_withdrawn_lifetime: 0,
+                last_withdrawal_epoch: 0,
+                withdrawals_this_epoch: 0,
+                first_mint_epoch: current_epoch, // Conservative: assume they just started minting
+                minimum_aging_epochs: MINIMUM_AGING_EPOCHS,
+                max_withdrawal_per_epoch: max_withdrawal_per_epoch,
+                emergency_pause: false,
+            };
+
+            df::add(&mut cap.id, df_key, withdrawal_control);
+
+            event::emit(WithdrawalControlInitialized {
+                partner_cap_flex_id: object::uid_to_inner(&cap.id),
+                current_epoch: current_epoch,
+                minimum_aging_epochs: MINIMUM_AGING_EPOCHS,
+                max_withdrawal_per_epoch: max_withdrawal_per_epoch
+            });
+        }
+    }
+
+    /// Calculate maximum withdrawable SUI amount with security constraints
+    fun calculate_max_withdrawable_sui(
+        cap: &PartnerCapFlex,
+        vault: &CollateralVault,
+        withdrawal_control: &WithdrawalControl,
+        rate_oracle: &RateOracle,
+        current_epoch: u64
+    ): u64 {
+        // Security check: Ensure points have aged sufficiently
+        let epochs_since_first_mint = current_epoch - withdrawal_control.first_mint_epoch;
+        if (epochs_since_first_mint < withdrawal_control.minimum_aging_epochs) {
+            return 0u64 // No withdrawal allowed until points have aged
+        };
+
+        // Calculate backing requirement: points minted * $1 per 1000 points
+        let points_minted = cap.total_points_minted_lifetime;
+        let required_backing_usd = points_minted / 1000; // Each 1000 points requires $1 backing
+        
+        // Current vault value in USD
+        let vault_balance_sui = balance::value(&vault.locked_sui_balance);
+        let vault_value_usd = oracle::price_in_usdc(rate_oracle, vault_balance_sui);
+        
+        // Available for withdrawal (vault value - required backing)
+        let withdrawable_usd = if (vault_value_usd > required_backing_usd) {
+            vault_value_usd - required_backing_usd
+        } else {
+            0u64
+        };
+        
+        // Convert back to SUI
+        let withdrawable_sui = if (withdrawable_usd > 0) {
+            oracle::usdc_to_sui_amount(rate_oracle, withdrawable_usd)
+        } else {
+            0u64
+        };
+
+        // Apply epoch withdrawal limit
+        let epoch_limit_remaining = if (withdrawal_control.last_withdrawal_epoch == current_epoch) {
+            if (withdrawal_control.withdrawals_this_epoch >= withdrawal_control.max_withdrawal_per_epoch) {
+                0u64
+            } else {
+                withdrawal_control.max_withdrawal_per_epoch - withdrawal_control.withdrawals_this_epoch
+            }
+        } else {
+            withdrawal_control.max_withdrawal_per_epoch
+        };
+
+        // Return the minimum of economic limit and epoch limit
+        if (withdrawable_sui < epoch_limit_remaining) {
+            withdrawable_sui
+        } else {
+            epoch_limit_remaining
+        }
+    }
+
+    /// Withdraw partial SUI collateral with security protections
+    public entry fun withdraw_partial_sui_collateral(
+        cap: &mut PartnerCapFlex,
+        vault: &mut CollateralVault,
+        withdrawal_amount_sui: u64,
+        rate_oracle: &RateOracle,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        let current_epoch = tx_context::epoch(ctx);
+        
+        // Verify ownership and basic constraints
+        assert!(partner_address == cap.partner_address, E_NOT_OWNER);
+        assert!(withdrawal_amount_sui > 0, E_ZERO_COLLATERAL_AMOUNT);
+        assert!(option::is_some(&cap.locked_sui_coin_id), E_NO_SUI_VAULT);
+        assert!(vault.partner_cap_flex_id == object::uid_to_inner(&cap.id), E_MISMATCHED_VAULT);
+
+        // Initialize withdrawal control if needed
+        init_withdrawal_control(cap, ctx);
+        
+        // Get withdrawal control
+        let df_key = withdrawal_control_df_key();
+        let withdrawal_control = df::borrow_mut<vector<u8>, WithdrawalControl>(&mut cap.id, df_key);
+        
+        // Security check: Emergency pause
+        assert!(!withdrawal_control.emergency_pause, E_WITHDRAWAL_PAUSED);
+
+        // Calculate maximum allowed withdrawal with all security constraints
+        let max_withdrawable = calculate_max_withdrawable_sui(
+            cap, vault, withdrawal_control, rate_oracle, current_epoch
+        );
+        
+        assert!(withdrawal_amount_sui <= max_withdrawable, E_WITHDRAWAL_EXCEEDS_EPOCH_LIMIT);
+        assert!(max_withdrawable > 0, E_POINTS_TOO_YOUNG);
+
+        // Verify vault has sufficient balance
+        let vault_balance = balance::value(&vault.locked_sui_balance);
+        assert!(vault_balance >= withdrawal_amount_sui, E_INSUFFICIENT_COLLATERAL_FOR_WITHDRAWAL);
+
+        // Perform the withdrawal
+        let withdrawn_coin = coin::take(&mut vault.locked_sui_balance, withdrawal_amount_sui, ctx);
+        
+        // Update withdrawal tracking
+        withdrawal_control.total_sui_withdrawn_lifetime = withdrawal_control.total_sui_withdrawn_lifetime + withdrawal_amount_sui;
+        
+        if (withdrawal_control.last_withdrawal_epoch == current_epoch) {
+            withdrawal_control.withdrawals_this_epoch = withdrawal_control.withdrawals_this_epoch + withdrawal_amount_sui;
+        } else {
+            withdrawal_control.last_withdrawal_epoch = current_epoch;
+            withdrawal_control.withdrawals_this_epoch = withdrawal_amount_sui;
+        };
+
+        // Update PartnerCap effective value
+        let withdrawn_usd_value = oracle::price_in_usdc(rate_oracle, withdrawal_amount_sui);
+        cap.current_effective_usdc_value = cap.current_effective_usdc_value - withdrawn_usd_value;
+        
+        // Recalculate quotas
+        let (new_lifetime_quota, new_daily_throttle) = calculate_quota_and_throttle(cap.current_effective_usdc_value);
+        cap.total_lifetime_quota_points = new_lifetime_quota;
+        cap.daily_throttle_points = new_daily_throttle;
+
+        // Transfer SUI to partner
+        sui::transfer::public_transfer(withdrawn_coin, partner_address);
+
+        // Emit event
+        event::emit(PartialSuiWithdrawn {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            vault_id: object::uid_to_inner(&vault.id),
+            withdrawn_sui_amount: withdrawal_amount_sui,
+            required_backing_points: cap.total_points_minted_lifetime,
+            points_backed_after_withdrawal: cap.total_points_minted_lifetime, // Still same points, less backing
+            new_vault_balance: balance::value(&vault.locked_sui_balance),
+            new_effective_usdc_value: cap.current_effective_usdc_value,
+            withdrawal_epoch: current_epoch
+        });
+    }
+
+    /// Admin function to pause/unpause withdrawals in case of security concerns
+    public entry fun set_emergency_withdrawal_pause(
+        _admin_cap: &AdminCap,  // Only admin can call this
+        cap: &mut PartnerCapFlex,
+        pause_status: bool,
+        ctx: &mut tx_context::TxContext
+    ) {
+        // Initialize withdrawal control if needed
+        init_withdrawal_control(cap, ctx);
+        
+        let df_key = withdrawal_control_df_key();
+        let withdrawal_control = df::borrow_mut<vector<u8>, WithdrawalControl>(&mut cap.id, df_key);
+        
+        withdrawal_control.emergency_pause = pause_status;
+    }
+
+    /// View function to get withdrawal info for a partner
+    public fun get_withdrawal_info(
+        cap: &PartnerCapFlex,
+        vault: &CollateralVault,
+        rate_oracle: &RateOracle,
+        ctx: &tx_context::TxContext
+    ): (u64, u64, u64, bool) {
+        let current_epoch = tx_context::epoch(ctx);
+        let df_key = withdrawal_control_df_key();
+        
+        if (!df::exists_with_type<vector<u8>, WithdrawalControl>(&cap.id, df_key)) {
+            // No withdrawal control yet - return conservative values
+            return (0u64, 0u64, 0u64, false)
+        };
+
+        let withdrawal_control = df::borrow<vector<u8>, WithdrawalControl>(&cap.id, df_key);
+        let max_withdrawable = calculate_max_withdrawable_sui(cap, vault, withdrawal_control, rate_oracle, current_epoch);
+        
+        (
+            max_withdrawable,                                    // max withdrawable amount
+            withdrawal_control.total_sui_withdrawn_lifetime,     // total withdrawn lifetime
+            withdrawal_control.withdrawals_this_epoch,           // withdrawn this epoch
+            withdrawal_control.emergency_pause                   // is paused
+        )
+    }
+
+    // === SECURE WITHDRAWAL SYSTEM (Package Upgrade v2) ===
+    
+    /// Withdrawal control struct to track withdrawal history and prevent flash loan attacks
+    /// This is a Dynamic Field attached to PartnerCapFlex to avoid changing existing struct
+    public struct WithdrawalControl has store {
+        // Security: Track withdrawal history to prevent flash loan attacks
+        total_sui_withdrawn_lifetime: u64,
+        last_withdrawal_epoch: u64,
+        withdrawals_this_epoch: u64,
+        // Security: Time-based restrictions
+        first_mint_epoch: u64,           // When first Alpha Points were minted (prevents immediate withdrawal)
+        minimum_aging_epochs: u64,       // Minimum epochs points must "age" before withdrawal allowed
+        // Security: Economic protection
+        max_withdrawal_per_epoch: u64,   // Maximum SUI that can be withdrawn per epoch
+        emergency_pause: bool,           // Admin can pause withdrawals for security
+    }
+
+    /// Event for partial SUI withdrawal
+    public struct PartialSuiWithdrawn has copy, drop {
+        partner_cap_flex_id: object::ID,
+        vault_id: object::ID,
+        withdrawn_sui_amount: u64,
+        required_backing_points: u64,    // Points that required backing
+        points_backed_after_withdrawal: u64,
+        new_vault_balance: u64,
+        new_effective_usdc_value: u64,
+        withdrawal_epoch: u64
+    }
+
+    /// Event for withdrawal control initialization
+    public struct WithdrawalControlInitialized has copy, drop {
+        partner_cap_flex_id: object::ID,
+        current_epoch: u64,
+        minimum_aging_epochs: u64,
+        max_withdrawal_per_epoch: u64
+    }
+
+    // === Constants for Withdrawal Security ===
+    
+    /// Minimum epochs that minted points must age before allowing withdrawal (3 days assuming 24h epochs)
+    const MINIMUM_AGING_EPOCHS: u64 = 3;
+    
+    /// Maximum percentage of vault that can be withdrawn per epoch (10% = 1000 basis points)
+    const MAX_WITHDRAWAL_PER_EPOCH_BASIS_POINTS: u64 = 1000;
+    
+    /// Error codes for withdrawal system
+    const E_WITHDRAWAL_WOULD_UNDERBACK_POINTS: u64 = 300;
+    const E_INSUFFICIENT_AGED_POINTS: u64 = 301;
+    const E_WITHDRAWAL_EXCEEDS_EPOCH_LIMIT: u64 = 302;
+    const E_WITHDRAWAL_PAUSED: u64 = 303;
+    const E_NO_SUI_VAULT: u64 = 304;
+    const E_POINTS_TOO_YOUNG: u64 = 305;
+
+    /// Dynamic field key for withdrawal control
+    fun withdrawal_control_df_key(): vector<u8> {
+        b"withdrawal_control_v1"
+    }
+
+    /// Initialize withdrawal control for a PartnerCapFlex (called automatically on first withdrawal attempt)
+    fun init_withdrawal_control(cap: &mut PartnerCapFlex, ctx: &mut tx_context::TxContext) {
+        let df_key = withdrawal_control_df_key();
+        
+        // Only initialize if it doesn't exist
+        if (!df::exists_with_type<vector<u8>, WithdrawalControl>(&cap.id, df_key)) {
+            let current_epoch = tx_context::epoch(ctx);
+            
+            // Calculate max withdrawal per epoch based on current vault size
+            let max_withdrawal_per_epoch = if (option::is_some(&cap.locked_sui_coin_id)) {
+                // This would need to be calculated based on actual vault balance
+                // For now, using a conservative approach
+                1000000000u64 // 1 SUI maximum per epoch initially
+            } else {
+                0u64
+            };
+
+            let withdrawal_control = WithdrawalControl {
+                total_sui_withdrawn_lifetime: 0,
+                last_withdrawal_epoch: 0,
+                withdrawals_this_epoch: 0,
+                first_mint_epoch: current_epoch, // Conservative: assume they just started minting
+                minimum_aging_epochs: MINIMUM_AGING_EPOCHS,
+                max_withdrawal_per_epoch: max_withdrawal_per_epoch,
+                emergency_pause: false,
+            };
+
+            df::add(&mut cap.id, df_key, withdrawal_control);
+
+            event::emit(WithdrawalControlInitialized {
+                partner_cap_flex_id: object::uid_to_inner(&cap.id),
+                current_epoch: current_epoch,
+                minimum_aging_epochs: MINIMUM_AGING_EPOCHS,
+                max_withdrawal_per_epoch: max_withdrawal_per_epoch
+            });
+        }
+    }
+
+    /// Calculate maximum withdrawable SUI amount with security constraints
+    fun calculate_max_withdrawable_sui(
+        cap: &PartnerCapFlex,
+        vault: &CollateralVault,
+        withdrawal_control: &WithdrawalControl,
+        rate_oracle: &RateOracle,
+        current_epoch: u64
+    ): u64 {
+        // Security check: Ensure points have aged sufficiently
+        let epochs_since_first_mint = current_epoch - withdrawal_control.first_mint_epoch;
+        if (epochs_since_first_mint < withdrawal_control.minimum_aging_epochs) {
+            return 0u64 // No withdrawal allowed until points have aged
+        };
+
+        // Calculate backing requirement: points minted * $1 per 1000 points
+        let points_minted = cap.total_points_minted_lifetime;
+        let required_backing_usd = points_minted / 1000; // Each 1000 points requires $1 backing
+        
+        // Current vault value in USD
+        let vault_balance_sui = balance::value(&vault.locked_sui_balance);
+        let vault_value_usd = oracle::price_in_usdc(rate_oracle, vault_balance_sui);
+        
+        // Available for withdrawal (vault value - required backing)
+        let withdrawable_usd = if (vault_value_usd > required_backing_usd) {
+            vault_value_usd - required_backing_usd
+        } else {
+            0u64
+        };
+        
+        // Convert back to SUI
+        let withdrawable_sui = if (withdrawable_usd > 0) {
+            oracle::usdc_to_sui_amount(rate_oracle, withdrawable_usd)
+        } else {
+            0u64
+        };
+
+        // Apply epoch withdrawal limit
+        let epoch_limit_remaining = if (withdrawal_control.last_withdrawal_epoch == current_epoch) {
+            if (withdrawal_control.withdrawals_this_epoch >= withdrawal_control.max_withdrawal_per_epoch) {
+                0u64
+            } else {
+                withdrawal_control.max_withdrawal_per_epoch - withdrawal_control.withdrawals_this_epoch
+            }
+        } else {
+            withdrawal_control.max_withdrawal_per_epoch
+        };
+
+        // Return the minimum of economic limit and epoch limit
+        if (withdrawable_sui < epoch_limit_remaining) {
+            withdrawable_sui
+        } else {
+            epoch_limit_remaining
+        }
+    }
+
+    /// Withdraw partial SUI collateral with security protections
+    public entry fun withdraw_partial_sui_collateral(
+        cap: &mut PartnerCapFlex,
+        vault: &mut CollateralVault,
+        withdrawal_amount_sui: u64,
+        rate_oracle: &RateOracle,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let partner_address = tx_context::sender(ctx);
+        let current_epoch = tx_context::epoch(ctx);
+        
+        // Verify ownership and basic constraints
+        assert!(partner_address == cap.partner_address, E_NOT_OWNER);
+        assert!(withdrawal_amount_sui > 0, E_ZERO_COLLATERAL_AMOUNT);
+        assert!(option::is_some(&cap.locked_sui_coin_id), E_NO_SUI_VAULT);
+        assert!(vault.partner_cap_flex_id == object::uid_to_inner(&cap.id), E_MISMATCHED_VAULT);
+
+        // Initialize withdrawal control if needed
+        init_withdrawal_control(cap, ctx);
+        
+        // Get withdrawal control
+        let df_key = withdrawal_control_df_key();
+        let withdrawal_control = df::borrow_mut<vector<u8>, WithdrawalControl>(&mut cap.id, df_key);
+        
+        // Security check: Emergency pause
+        assert!(!withdrawal_control.emergency_pause, E_WITHDRAWAL_PAUSED);
+
+        // Calculate maximum allowed withdrawal with all security constraints
+        let max_withdrawable = calculate_max_withdrawable_sui(
+            cap, vault, withdrawal_control, rate_oracle, current_epoch
+        );
+        
+        assert!(withdrawal_amount_sui <= max_withdrawable, E_WITHDRAWAL_EXCEEDS_EPOCH_LIMIT);
+        assert!(max_withdrawable > 0, E_POINTS_TOO_YOUNG);
+
+        // Verify vault has sufficient balance
+        let vault_balance = balance::value(&vault.locked_sui_balance);
+        assert!(vault_balance >= withdrawal_amount_sui, E_INSUFFICIENT_COLLATERAL_FOR_WITHDRAWAL);
+
+        // Perform the withdrawal
+        let withdrawn_coin = coin::take(&mut vault.locked_sui_balance, withdrawal_amount_sui, ctx);
+        
+        // Update withdrawal tracking
+        withdrawal_control.total_sui_withdrawn_lifetime = withdrawal_control.total_sui_withdrawn_lifetime + withdrawal_amount_sui;
+        
+        if (withdrawal_control.last_withdrawal_epoch == current_epoch) {
+            withdrawal_control.withdrawals_this_epoch = withdrawal_control.withdrawals_this_epoch + withdrawal_amount_sui;
+        } else {
+            withdrawal_control.last_withdrawal_epoch = current_epoch;
+            withdrawal_control.withdrawals_this_epoch = withdrawal_amount_sui;
+        };
+
+        // Update PartnerCap effective value
+        let withdrawn_usd_value = oracle::price_in_usdc(rate_oracle, withdrawal_amount_sui);
+        cap.current_effective_usdc_value = cap.current_effective_usdc_value - withdrawn_usd_value;
+        
+        // Recalculate quotas
+        let (new_lifetime_quota, new_daily_throttle) = calculate_quota_and_throttle(cap.current_effective_usdc_value);
+        cap.total_lifetime_quota_points = new_lifetime_quota;
+        cap.daily_throttle_points = new_daily_throttle;
+
+        // Transfer SUI to partner
+        sui::transfer::public_transfer(withdrawn_coin, partner_address);
+
+        // Emit event
+        event::emit(PartialSuiWithdrawn {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            vault_id: object::uid_to_inner(&vault.id),
+            withdrawn_sui_amount: withdrawal_amount_sui,
+            required_backing_points: cap.total_points_minted_lifetime,
+            points_backed_after_withdrawal: cap.total_points_minted_lifetime, // Still same points, less backing
+            new_vault_balance: balance::value(&vault.locked_sui_balance),
+            new_effective_usdc_value: cap.current_effective_usdc_value,
+            withdrawal_epoch: current_epoch
+        });
+    }
+
+    /// Admin function to pause/unpause withdrawals in case of security concerns
+    public entry fun set_emergency_withdrawal_pause(
+        _admin_cap: &AdminCap,  // Only admin can call this
+        cap: &mut PartnerCapFlex,
+        pause_status: bool,
+        ctx: &mut tx_context::TxContext
+    ) {
+        // Initialize withdrawal control if needed
+        init_withdrawal_control(cap, ctx);
+        
+        let df_key = withdrawal_control_df_key();
+        let withdrawal_control = df::borrow_mut<vector<u8>, WithdrawalControl>(&mut cap.id, df_key);
+        
+        withdrawal_control.emergency_pause = pause_status;
+    }
+
+    /// View function to get withdrawal info for a partner
+    public fun get_withdrawal_info(
+        cap: &PartnerCapFlex,
+        vault: &CollateralVault,
+        rate_oracle: &RateOracle,
+        ctx: &tx_context::TxContext
+    ): (u64, u64, u64, bool) {
+        let current_epoch = tx_context::epoch(ctx);
+        let df_key = withdrawal_control_df_key();
+        
+        if (!df::exists_with_type<vector<u8>, WithdrawalControl>(&cap.id, df_key)) {
+            // No withdrawal control yet - return conservative values
+            return (0u64, 0u64, 0u64, false)
+        };
+
+        let withdrawal_control = df::borrow<vector<u8>, WithdrawalControl>(&cap.id, df_key);
+        let max_withdrawable = calculate_max_withdrawable_sui(cap, vault, withdrawal_control, rate_oracle, current_epoch);
+        
+        (
+            max_withdrawable,                                    // max withdrawable amount
+            withdrawal_control.total_sui_withdrawn_lifetime,     // total withdrawn lifetime
+            withdrawal_control.withdrawals_this_epoch,           // withdrawn this epoch
+            withdrawal_control.emergency_pause                   // is paused
+        )
+    }
 }
