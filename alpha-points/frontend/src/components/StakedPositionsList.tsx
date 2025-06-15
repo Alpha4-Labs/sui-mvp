@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { toast } from 'react-toastify';
 import { useAlphaContext, OrphanedStake } from '../context/AlphaContext';
-import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction } from '../utils/transaction';
+import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction, buildReclaimPrincipalTransaction } from '../utils/transaction';
 import {
   getTransactionErrorMessage,
   getTransactionResponseError,
@@ -96,6 +96,7 @@ export const StakedPositionsList: React.FC = () => {
   const [unstakeInProgress, setUnstakeInProgress] = useState<string | null>(null);
   const [earlyUnstakeInProgress, setEarlyUnstakeInProgress] = useState<string | null>(null);
   const [registrationInProgress, setRegistrationInProgress] = useState<string | null>(null);
+  const [reclaimPrincipalInProgress, setReclaimPrincipalInProgress] = useState<string | null>(null);
   // Migration-related state removed - no longer needed
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -144,7 +145,6 @@ export const StakedPositionsList: React.FC = () => {
     console.log(`   - Connected: ${alphaIsConnected}`);
     console.log(`   - Address: ${alphaAddress}`);
     console.log(`   - Current Package ID: ${currentPackageId}`);
-    console.log(`   - Old Package IDs: ${ALL_OLD_PACKAGE_IDS.map(id => id.substring(0, 10) + '...').join(', ')}`);
     console.log(`   - Current stakes: ${stakePositions.length}`);
     console.log(`   - Orphaned stakes: ${orphanedStakes.length}`);
     console.log(`   - Loading: ${JSON.stringify(loading)}`);
@@ -152,7 +152,6 @@ export const StakedPositionsList: React.FC = () => {
     if (alphaIsConnected && alphaAddress && stakePositions.length === 0 && !loading.positions) {
       console.log('⚠️ User is connected but has no current stakes and not loading - this might indicate a data fetching issue');
       console.log(`💡 Current package being queried for stakes: ${currentPackageId}`);
-      console.log(`💡 Verify this wallet has stakes in the current package, not the old ones`);
     }
   }, [alphaIsConnected, alphaAddress, stakePositions, orphanedStakes, loading]);
 
@@ -290,6 +289,67 @@ export const StakedPositionsList: React.FC = () => {
     } finally {
       setTransactionLoading(false);
       setEarlyUnstakeInProgress(null);
+    }
+  };
+
+  /**
+   * Handles reclaiming principal SUI from a matured early-withdrawn stake
+   * User returns the Alpha Points they received during early withdrawal to get their principal SUI back
+   * Exchange rate: 1 SUI = 3,280 Alpha Points (based on $3.28 SUI price and 1:1000 USD:AP ratio)
+   * @param stakeId The ID of the matured early-withdrawn stake position
+   * @param principal The principal amount of the stake (for calculating required Alpha Points)
+   */
+  const handleReclaimPrincipal = async (stakeId: string, principal: string) => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setReclaimPrincipalInProgress(stakeId);
+    setTransactionLoading(true);
+
+    try {
+      // Calculate the Alpha Points that were received during early withdrawal
+      // 1 SUI = 3,280 Alpha Points (based on $3.28 SUI price and 1:1000 USD:AP ratio)
+      const principalNum = parseInt(principal, 10);
+      const principalSui = principalNum / 1_000_000_000;
+      const alphaPointsReceived = Math.floor(principalSui * 3280 * 0.999); // 99.9% after 0.1% fee
+      const alphaPointsToReturn = alphaPointsReceived.toString();
+
+      const transaction = buildReclaimPrincipalTransaction(stakeId, alphaPointsToReturn);
+      const result = await signAndExecute({ transaction });
+      
+      if (!result || typeof result !== 'object' || !('digest' in result)) {
+        throw new Error('Transaction returned an unexpected response format');
+      }
+      
+      const txDigest = result.digest;
+      const responseError = getTransactionResponseError(result);
+      if (responseError) {
+        throw new Error(responseError);
+      }
+
+      // Prevent duplicate toasts
+      showToastOnce(`reclaim-${stakeId}-${txDigest}`, () => {
+        toast.success(
+          `Successfully reclaimed ${formatSui(principal)} SUI! ` +
+          `Returned ${alphaPointsReceived.toLocaleString()} Alpha Points. ` +
+          `Digest: ${txDigest.substring(0, 10)}...`
+        );
+      });
+      
+      setTimeout(() => {
+        refreshData();
+      }, 2000);
+
+    } catch (err: any) {
+      console.error('Error reclaiming principal:', err);
+      const friendlyErrorMessage = getTransactionErrorMessage(err);
+      
+      // Prevent duplicate error toasts
+      showToastOnce(`reclaim-error-${stakeId}`, () => {
+        toast.error(`Principal reclaim failed: ${friendlyErrorMessage}`);
+      });
+    } finally {
+      setTransactionLoading(false);
+      setReclaimPrincipalInProgress(null);
     }
   };
 
@@ -725,7 +785,11 @@ export const StakedPositionsList: React.FC = () => {
                 const isLoanCollateral = isEncumbered && hasAssociatedLoan(item.id);
                 const isEarlyWithdrawn = isEncumbered && !isLoanCollateral;
                 
+                // Check if early withdrawn stake has now matured (can reclaim principal)
+                const isEarlyWithdrawnAndMatured = isEarlyWithdrawn && isMature;
+                
                 const canUnstake = isMature && !isEncumbered;
+                const canReclaimPrincipal = isEarlyWithdrawnAndMatured;
 
                 const cardClass = isOrphaned 
                   ? "bg-red-900/20 backdrop-blur-lg border border-red-500/30 rounded-xl p-4 text-sm h-full flex flex-col justify-between hover:bg-red-900/30 hover:border-red-400/40 transition-all duration-300 cursor-pointer no-underline shadow-xl hover:shadow-red-500/10"
@@ -735,6 +799,8 @@ export const StakedPositionsList: React.FC = () => {
                   ? "status-indicator-warning"
                   : isLoanCollateral
                     ? "status-indicator-warning"
+                    : isEarlyWithdrawnAndMatured
+                      ? "status-indicator-active"
                     : isEarlyWithdrawn
                       ? "status-indicator-info" 
                       : isMature 
@@ -745,6 +811,8 @@ export const StakedPositionsList: React.FC = () => {
                   ? "Pending Registration"
                   : isLoanCollateral
                     ? "Collateral"
+                    : isEarlyWithdrawnAndMatured
+                      ? "Ready to Reclaim"
                     : isEarlyWithdrawn
                       ? "Withdrawn"
                       : isMature 
@@ -755,6 +823,8 @@ export const StakedPositionsList: React.FC = () => {
                   ? "bg-red-900/50 text-red-300 border border-red-700/50"
                   : isLoanCollateral
                     ? "bg-yellow-900/50 text-yellow-300 border border-yellow-700/50"
+                    : isEarlyWithdrawnAndMatured
+                      ? "bg-green-900/50 text-green-300 border border-green-700/50"
                     : isEarlyWithdrawn
                       ? "bg-blue-900/50 text-blue-300 border border-blue-700/50"
                       : isMature
@@ -898,6 +968,21 @@ export const StakedPositionsList: React.FC = () => {
                           <div className="p-2 bg-yellow-900/30 border border-yellow-700/50 rounded text-yellow-300 text-xs text-center backdrop-blur-sm">
                             This position is collateral. Repay loan to unstake.
                           </div>
+                        ) : canReclaimPrincipal ? (
+                          <button
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); handleReclaimPrincipal(extractOriginalId(item.id), item.principal); }}
+                            disabled={reclaimPrincipalInProgress === extractOriginalId(item.id) || loading.transaction}
+                            className="w-full btn-modern-primary relative z-[28]"
+                          >
+                            {reclaimPrincipalInProgress === extractOriginalId(item.id) ? (
+                              <span className="absolute inset-0 flex items-center justify-center">
+                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                              </span>
+                            ) : 'Reclaim Principal'}
+                          </button>
                         ) : isEarlyWithdrawn ? (
                           <div className="p-2 bg-blue-900/30 border border-blue-700/50 rounded text-blue-300 text-xs text-center backdrop-blur-sm">
                             Alpha Points received. Stake locked until {formattedUnlockDate}.

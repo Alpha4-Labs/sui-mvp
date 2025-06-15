@@ -175,6 +175,34 @@ export const buildRedeemPointsTransaction = (pointsToRedeem: string): Transactio
 };
 
 /**
+ * Builds a transaction for reclaiming principal SUI from a matured early-withdrawn stake
+ * User returns the Alpha Points they received during early withdrawal to get their principal SUI back
+ * Exchange rate: 1 SUI = 3,280 Alpha Points (based on $3.28 SUI price and 1:1000 USD:AP ratio)
+ * 
+ * @param stakeId Object ID of the matured early-withdrawn stake position
+ * @param alphaPointsToReturn Amount of Alpha Points to return (should match what was received during early withdrawal)
+ * @returns Transaction object ready for execution
+ */
+export const buildReclaimPrincipalTransaction = (
+  stakeId: string,
+  alphaPointsToReturn: string
+) => {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::reclaim_principal_from_matured_early_withdrawal`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(stakeId),
+      tx.object(SHARED_OBJECTS.oracle),
+      tx.pure.u64(BigInt(alphaPointsToReturn)),
+      tx.object(CLOCK_ID)
+    ]
+  });
+  return tx;
+};
+
+/**
  * Builds a transaction for creating a loan against a staked position
  * 
  * @param stakeId Object ID of the stake position to use as collateral
