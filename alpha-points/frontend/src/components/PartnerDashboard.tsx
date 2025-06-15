@@ -1830,24 +1830,6 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 
                 {/* Key Performance Indicators */}
                 <div className="space-y-3">
-                  {/* Alpha Points Distribution */}
-                  <div className="bg-gray-800/50 rounded-md p-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-blue-300 font-medium">Alpha Points</span>
-                      <span className="text-xs text-gray-400">Lifetime</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-bold text-white">{lifetimeMinted.toLocaleString()}</div>
-                      <div className="text-xs text-blue-400">+{pointsMintedToday.toLocaleString()} today</div>
-                    </div>
-                    <div className="mt-1 bg-gray-700 rounded-full h-1">
-                      <div 
-                        className="bg-gradient-to-r from-blue-500 to-cyan-400 h-1 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
-                      ></div>
-                    </div>
-                  </div>
-
                   {/* Perk Performance */}
                   <div className="bg-gray-800/50 rounded-md p-2">
                     <div className="flex items-center justify-between mb-1">
