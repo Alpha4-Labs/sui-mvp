@@ -1556,49 +1556,81 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           </div>
         </div>
 
-        {/* Concise Quota Progress Bar */}
+        {/* Expanded Quota Progress Bar */}
         <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-6 flex-1">
-              <span className="text-sm font-medium text-gray-300">📊 Quotas</span>
-              
-              {/* Daily Progress */}
-              <div className="flex items-center space-x-3 flex-1 max-w-xs">
-                <span className="text-xs text-blue-300 w-10">Daily</span>
-                <div className="flex-1 bg-gray-700 rounded-full h-2 min-w-0">
+            <div className="flex items-center space-x-8 flex-1">
+              {/* Daily Progress - Expanded */}
+              <div className="flex items-center space-x-4 flex-1">
+                <span className="text-sm text-blue-300 w-12 font-medium">Daily</span>
+                <div className="flex-1 bg-gray-700 rounded-full h-3 min-w-0 relative">
                   <div 
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                    className="bg-gradient-to-r from-blue-500 to-blue-400 h-3 rounded-full transition-all duration-700 ease-out relative overflow-hidden"
                     style={{ width: `${Math.min(dailyUsedPercent, 100)}%` }}
-                  ></div>
+                  >
+                    {/* Subtle animated shimmer */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pulse"></div>
+                  </div>
+                  {/* Usage indicator line */}
+                  {dailyUsedPercent > 5 && (
+                    <div className="absolute top-0 bottom-0 flex items-center text-xs font-medium text-white/90" style={{ left: `${Math.min(dailyUsedPercent, 95)}%`, transform: 'translateX(-50%)' }}>
+                      <span className="bg-blue-600/80 px-1 py-0.5 rounded text-xs">{dailyUsedPercent.toFixed(0)}%</span>
+                    </div>
+                  )}
                 </div>
-                <span className="text-xs text-gray-400 w-8 text-right">{dailyUsedPercent.toFixed(0)}%</span>
-              </div>
-              
-              {/* Lifetime Progress */}
-              <div className="flex items-center space-x-3 flex-1 max-w-xs">
-                <span className="text-xs text-purple-300 w-12">Lifetime</span>
-                <div className="flex-1 bg-gray-700 rounded-full h-2 min-w-0">
-                  <div 
-                    className="bg-purple-500 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
-                  ></div>
+                <div className="text-right min-w-[80px]">
+                  <div className="text-sm font-semibold text-white">{pointsMintedToday.toLocaleString()}</div>
+                  <div className="text-xs text-gray-400">of {dailyQuota.toLocaleString()}</div>
                 </div>
-                <span className="text-xs text-gray-400 w-8 text-right">{lifetimeUsedPercent.toFixed(0)}%</span>
               </div>
             </div>
             
-            <div className="flex items-center space-x-3 ml-6">
-              <span className="text-xs text-gray-400 whitespace-nowrap">
-                {availableDaily.toLocaleString()} daily • {remainingLifetime.toLocaleString()} lifetime remaining
-              </span>
-              {(lifetimeUsedPercent >= 70 || dailyUsedPercent >= 80) && (
+            <div className="w-px h-8 bg-gray-600 mx-6"></div>
+            
+            <div className="flex items-center space-x-8 flex-1">
+              {/* Lifetime Progress - Expanded */}
+              <div className="flex items-center space-x-4 flex-1">
+                <span className="text-sm text-purple-300 w-16 font-medium">Lifetime</span>
+                <div className="flex-1 bg-gray-700 rounded-full h-3 min-w-0 relative">
+                  <div 
+                    className="bg-gradient-to-r from-purple-500 to-purple-400 h-3 rounded-full transition-all duration-700 ease-out relative overflow-hidden"
+                    style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
+                  >
+                    {/* Subtle animated shimmer */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pulse"></div>
+                  </div>
+                  {/* Usage indicator line */}
+                  {lifetimeUsedPercent > 5 && (
+                    <div className="absolute top-0 bottom-0 flex items-center text-xs font-medium text-white/90" style={{ left: `${Math.min(lifetimeUsedPercent, 95)}%`, transform: 'translateX(-50%)' }}>
+                      <span className="bg-purple-600/80 px-1 py-0.5 rounded text-xs">{lifetimeUsedPercent.toFixed(0)}%</span>
+                    </div>
+                  )}
+                </div>
+                <div className="text-right min-w-[100px]">
+                  <div className="text-sm font-semibold text-white">{lifetimeMinted.toLocaleString()}</div>
+                  <div className="text-xs text-gray-400">of {lifetimeQuota.toLocaleString()}</div>
+                </div>
+              </div>
+              
+              {/* Action Button */}
+              <div className="flex items-center space-x-3">
+                {(lifetimeUsedPercent >= 70 || dailyUsedPercent >= 80) && (
+                  <Button 
+                    className="text-sm btn-modern-primary px-4 py-2 whitespace-nowrap"
+                    onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
+                  >
+                    <span className="mr-2">⬆️</span>
+                    Scale Up
+                  </Button>
+                )}
                 <Button 
-                  className="text-xs btn-modern-primary px-2 py-1 whitespace-nowrap"
-                  onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
+                  className="text-sm bg-gray-600 hover:bg-gray-700 px-3 py-2 whitespace-nowrap"
+                  onClick={onRefresh}
                 >
-                  Scale Up
+                  <span className="mr-1">🔄</span>
+                  Refresh
                 </Button>
-              )}
+              </div>
             </div>
           </div>
         </div>
