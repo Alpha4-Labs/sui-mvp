@@ -4831,11 +4831,36 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     return withdrawable;
   };
 
-  // Get the vault ID for the selected partner cap
-  const getVaultIdForPartner = () => {
-    if (!selectedPartnerCapId || !partnerCaps) return null;
-    const partner = partnerCaps.find(cap => cap.id === selectedPartnerCapId);
-    return partner?.lockedSuiCoinId || null;
+  // Get the vault ID for the selected partner cap by fetching fresh data
+  const getVaultIdForPartner = async () => {
+    if (!selectedPartnerCapId || !suiClient) return null;
+    
+    try {
+      // Fetch fresh partner cap data to get vault information
+      const freshPartnerCap = await suiClient.getObject({
+        id: selectedPartnerCapId,
+        options: { showContent: true, showType: true }
+      });
+      
+      // Extract vault ID from the locked_sui_coin_id field
+      const lockedSuiCoinId = (freshPartnerCap.data?.content as any)?.fields?.locked_sui_coin_id;
+      
+      if (!lockedSuiCoinId) return null;
+      
+      // Handle different Option<T> formats from Sui Move
+      if (typeof lockedSuiCoinId === 'string' && lockedSuiCoinId.length > 0) {
+        return lockedSuiCoinId; // Direct string value
+      } else if (Array.isArray(lockedSuiCoinId) && lockedSuiCoinId.length > 0) {
+        return lockedSuiCoinId[0]; // Array format
+      } else if (lockedSuiCoinId.vec && lockedSuiCoinId.vec.length > 0) {
+        return lockedSuiCoinId.vec[0]; // Object with vec format
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching vault ID:', error);
+      return null;
+    }
   };
 
   // Handle TVL withdrawal
@@ -4851,7 +4876,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       return;
     }
 
-    const vaultId = getVaultIdForPartner();
+    const vaultId = await getVaultIdForPartner();
     if (!vaultId) {
       toast.error('No SUI vault found for this partner');
       return;
@@ -4950,8 +4975,27 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       const suiAmountToWithdraw = withdrawAmountUsd; 
       const suiAmountInMist = Math.floor(suiAmountToWithdraw * 1_000_000_000);
 
-      // Find the vault ID (assuming it's in the locked_sui_coin_id field)
-      const vaultId = partnerCap.lockedSuiVaultId;
+      // Fetch fresh partner cap data to get vault information
+      const freshPartnerCap = await suiClient.getObject({
+        id: partnerCap.id,
+        options: { showContent: true, showType: true }
+      });
+      
+      // Extract vault ID from the locked_sui_coin_id field
+      const lockedSuiCoinId = (freshPartnerCap.data?.content as any)?.fields?.locked_sui_coin_id;
+      
+      let vaultId = null;
+      if (lockedSuiCoinId) {
+        // Handle different Option<T> formats from Sui Move
+        if (typeof lockedSuiCoinId === 'string' && lockedSuiCoinId.length > 0) {
+          vaultId = lockedSuiCoinId; // Direct string value
+        } else if (Array.isArray(lockedSuiCoinId) && lockedSuiCoinId.length > 0) {
+          vaultId = lockedSuiCoinId[0]; // Array format
+        } else if (lockedSuiCoinId.vec && lockedSuiCoinId.vec.length > 0) {
+          vaultId = lockedSuiCoinId.vec[0]; // Object with vec format
+        }
+      }
+      
       if (!vaultId) {
         toast.error('No vault found for this partner');
         return;
