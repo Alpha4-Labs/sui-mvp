@@ -1556,6 +1556,200 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           </div>
         </div>
 
+        {/* Quota Progress Dashboard */}
+        <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white flex items-center">
+              <span className="mr-2">📊</span>
+              Quota Utilization
+            </h3>
+            <div className="flex items-center space-x-4 text-xs">
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                <span className="text-gray-300">Daily</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
+                <span className="text-gray-300">Lifetime</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Daily Quota Progress */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-sm font-medium text-blue-300">Daily Quota</span>
+                <div className="px-2 py-1 bg-blue-500/20 rounded text-xs text-blue-300">
+                  Resets in {Math.ceil((24 - new Date().getHours()) % 24)}h
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold text-white">
+                  {pointsMintedToday.toLocaleString()} / {dailyQuota.toLocaleString()}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {availableDaily.toLocaleString()} remaining
+                </div>
+              </div>
+            </div>
+            
+            <div className="relative">
+              <div className="w-full bg-gray-700 rounded-full h-3">
+                <div 
+                  className="bg-gradient-to-r from-blue-500 to-blue-400 h-3 rounded-full transition-all duration-1000 ease-out relative overflow-hidden"
+                  style={{ width: `${Math.min(dailyUsedPercent, 100)}%` }}
+                >
+                  {/* Animated shimmer effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"></div>
+                </div>
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>0</span>
+                <span className="text-blue-300 font-medium">{dailyUsedPercent.toFixed(1)}%</span>
+                <span>{dailyQuota.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Daily Status Indicators */}
+            <div className="flex items-center justify-between mt-3">
+              <div className="flex items-center space-x-4">
+                {dailyUsedPercent >= 90 ? (
+                  <div className="flex items-center space-x-1 text-red-400">
+                    <span className="text-xs">🔴</span>
+                    <span className="text-xs font-medium">Critical</span>
+                  </div>
+                ) : dailyUsedPercent >= 70 ? (
+                  <div className="flex items-center space-x-1 text-yellow-400">
+                    <span className="text-xs">🟡</span>
+                    <span className="text-xs font-medium">High Usage</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-1 text-green-400">
+                    <span className="text-xs">🟢</span>
+                    <span className="text-xs font-medium">Healthy</span>
+                  </div>
+                )}
+                
+                <div className="text-xs text-gray-400">
+                  Burn Rate: {dailyBurnRate.toFixed(1)}%
+                </div>
+              </div>
+              
+              <div className="text-xs text-gray-400">
+                Est. depletion: {pointsMintedToday > 0 && availableDaily > 0 ? 
+                  `${Math.ceil(availableDaily / (pointsMintedToday / new Date().getHours() || 1))}h` : 
+                  'N/A'
+                }
+              </div>
+            </div>
+          </div>
+
+          {/* Lifetime Quota Progress */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-sm font-medium text-purple-300">Lifetime Quota</span>
+                <div className="px-2 py-1 bg-purple-500/20 rounded text-xs text-purple-300">
+                  Based on ${tvlBackingUsd.toLocaleString()} TVL
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold text-white">
+                  {lifetimeMinted.toLocaleString()} / {lifetimeQuota.toLocaleString()}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {remainingLifetime.toLocaleString()} remaining
+                </div>
+              </div>
+            </div>
+            
+            <div className="relative">
+              <div className="w-full bg-gray-700 rounded-full h-3">
+                <div 
+                  className="bg-gradient-to-r from-purple-500 to-purple-400 h-3 rounded-full transition-all duration-1000 ease-out relative overflow-hidden"
+                  style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
+                >
+                  {/* Animated shimmer effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"></div>
+                </div>
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>0</span>
+                <span className="text-purple-300 font-medium">{lifetimeUsedPercent.toFixed(1)}%</span>
+                <span>{lifetimeQuota.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Lifetime Status Indicators */}
+            <div className="flex items-center justify-between mt-3">
+              <div className="flex items-center space-x-4">
+                {lifetimeUsedPercent >= 90 ? (
+                  <div className="flex items-center space-x-1 text-red-400">
+                    <span className="text-xs">🔴</span>
+                    <span className="text-xs font-medium">Near Capacity</span>
+                  </div>
+                ) : lifetimeUsedPercent >= 70 ? (
+                  <div className="flex items-center space-x-1 text-yellow-400">
+                    <span className="text-xs">🟡</span>
+                    <span className="text-xs font-medium">Scaling Needed</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-1 text-green-400">
+                    <span className="text-xs">🟢</span>
+                    <span className="text-xs font-medium">Plenty of Room</span>
+                  </div>
+                )}
+                
+                <div className="text-xs text-gray-400">
+                  Efficiency: {capitalEfficiency.toFixed(1)}%
+                </div>
+              </div>
+              
+              <div className="text-xs text-gray-400">
+                Runway: {projectedDaysToCapacity === Infinity ? '∞' : 
+                  projectedDaysToCapacity > 999 ? '999+' : 
+                  `${projectedDaysToCapacity}d`
+                }
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-700/50">
+            <div className="flex items-center space-x-2 text-xs text-gray-400">
+              <span>💡</span>
+              <span>
+                {lifetimeUsedPercent >= 80 ? 
+                  'Consider adding collateral to increase capacity' :
+                  dailyUsedPercent >= 80 ?
+                  'Daily quota running low - monitor usage' :
+                  'Quotas healthy - ready for business growth'
+                }
+              </span>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              {(lifetimeUsedPercent >= 70 || dailyUsedPercent >= 80) && (
+                <Button 
+                  className="text-xs btn-modern-primary px-3 py-1.5"
+                  onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
+                >
+                  <span className="mr-1">⬆️</span>
+                  Scale Up
+                </Button>
+              )}
+              <Button 
+                className="text-xs bg-gray-600 hover:bg-gray-700 px-3 py-1.5"
+                onClick={onRefresh}
+              >
+                <span className="mr-1">🔄</span>
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {/* Business Intelligence Dashboard */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
