@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { calculateAlphaPointsPerDayPerSui } from '../utils/format';
 import { PerkFilterModal } from '../components/PerkFilterModal';
 import { StakeCard } from '../components/StakeCard';
-import { LoanPanel } from '../components/LoanPanel';
+import { LoanManagementCards } from '../components/LoanManagementCards';
 
 // Define a generation method interface
 interface GenerationMethod {
@@ -23,7 +23,7 @@ const ALL_POSSIBLE_GENERATION_TAGS = [
 ];
 
 export const GenerationPage: React.FC = () => {
-  const [expandedMethod, setExpandedMethod] = useState<string | null>('stake-sui');
+  const [expandedMethod, setExpandedMethod] = useState<Set<string>>(new Set(['stake-sui', 'collateral-loan']));
   
   // State for Filtering
   const [activeGenerationTags, setActiveGenerationTags] = useState<Set<string>>(new Set());
@@ -85,8 +85,41 @@ export const GenerationPage: React.FC = () => {
       status: 'active',
       tags: ['Financial', 'Staking', 'DeFi', 'Activity'],
       details: (
-        <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-1">
-          <LoanPanel />
+        <div className="space-y-6">
+          {/* Loan Creation Interface */}
+          <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-1">
+            <LoanManagementCards />
+          </div>
+          
+          {/* Loan Information */}
+          <div className="bg-background rounded-lg p-4">
+            <h3 className="text-lg font-medium text-white mb-3">Collateral Loan Details</h3>
+            <p className="text-gray-300 mb-3">
+              Borrow Alpha Points instantly using your staked SUI as collateral. Your stake remains earning rewards while you access liquidity.
+            </p>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="bg-background-card p-3 rounded-lg">
+                <div className="text-gray-400 mb-1">Max LTV</div>
+                <div className="text-white font-medium">70%</div>
+                <div className="text-blue-400 text-sm mt-1">Loan-to-Value Ratio</div>
+              </div>
+              <div className="bg-background-card p-3 rounded-lg">
+                <div className="text-gray-400 mb-1">Interest Rate</div>
+                <div className="text-white font-medium">5% APY</div>
+                <div className="text-orange-400 text-sm mt-1">Calculated daily</div>
+              </div>
+              <div className="bg-background-card p-3 rounded-lg">
+                <div className="text-gray-400 mb-1">Origination Fee</div>
+                <div className="text-white font-medium">0.1%</div>
+                <div className="text-purple-400 text-sm mt-1">One-time fee</div>
+              </div>
+              <div className="bg-background-card p-3 rounded-lg">
+                <div className="text-gray-400 mb-1">Instant Access</div>
+                <div className="text-white font-medium">Yes</div>
+                <div className="text-green-400 text-sm mt-1">Points added immediately</div>
+              </div>
+            </div>
+          </div>
         </div>
       ),
     },
@@ -385,7 +418,15 @@ export const GenerationPage: React.FC = () => {
           >
             <div 
               className="p-4 cursor-pointer transition-all duration-300 hover:bg-white/5"
-              onClick={() => setExpandedMethod(expandedMethod === method.id ? null : method.id)}
+              onClick={() => {
+                const newExpanded = new Set(expandedMethod);
+                if (newExpanded.has(method.id)) {
+                  newExpanded.delete(method.id);
+                } else {
+                  newExpanded.add(method.id);
+                }
+                setExpandedMethod(newExpanded);
+              }}
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center space-x-3">
@@ -414,13 +455,13 @@ export const GenerationPage: React.FC = () => {
                 </div>
                 <div className="flex-shrink-0">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 ${
-                    expandedMethod === method.id 
+                    expandedMethod.has(method.id) 
                       ? 'bg-purple-600 text-white' 
                       : 'bg-white/10 text-gray-400 hover:bg-white/20'
                   }`}>
                     <svg 
                       className={`w-4 h-4 transition-transform duration-300 ${
-                        expandedMethod === method.id ? 'rotate-180' : ''
+                        expandedMethod.has(method.id) ? 'rotate-180' : ''
                       }`} 
                       fill="none" 
                       stroke="currentColor" 
@@ -455,7 +496,7 @@ export const GenerationPage: React.FC = () => {
               )}
             </div>
             
-            {expandedMethod === method.id && (
+            {expandedMethod.has(method.id) && (
               <div className="border-t border-white/10 bg-black/20 animate-slide-up">
                 <div className="p-4">
                   {method.details}

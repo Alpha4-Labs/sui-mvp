@@ -2123,7 +2123,8 @@ export function buildVerifyOldPackageAdminAccessTransaction(
 
 /**
  * Build transaction for self-service migration of user's own old package stake (no admin required)
- * This can be used after admin has unencumbered stakes using admin_batch_unencumber_old_stakes
+ * Converts old wrapped withdrawal tickets to current package format with no data loss
+ * Requires the old packages to be upgraded with extraction functions first
  * 
  * @param oldStakeObjectId Object ID of the old package stake position to migrate
  * @param oldPackageId Address of the old package containing the stake
@@ -2133,28 +2134,47 @@ export function buildSelfServiceMigrateStakeTransaction(
   oldStakeObjectId: string,
   oldPackageId: string
 ) {
+  // Determine which specific migration function to use based on package ID
   const tx = new Transaction();
   
-  tx.moveCall({
-    target: `${PACKAGE_ID}::integration::self_service_migrate_stake`,
-    typeArguments: [
-      `${oldPackageId}::stake_position::StakePosition` // Old stake position type
-    ],
-    arguments: [
-      tx.object(SHARED_OBJECTS.config), // config
-      tx.object(SHARED_OBJECTS.ledger), // ledger
-      tx.object(oldStakeObjectId), // old_stake_position
-      tx.pure.address(oldPackageId), // old_package_id
-      tx.object(CLOCK_ID), // clock
-    ],
-  });
+  if (oldPackageId === '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf') {
+    tx.moveCall({
+      target: `${PACKAGE_ID}::integration::self_service_migrate_stake_db62a7c`,
+      arguments: [
+        tx.object(SHARED_OBJECTS.config), // config
+        tx.object(SHARED_OBJECTS.stakingManager), // manager
+        tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state
+        tx.object(SHARED_OBJECTS.ledger), // ledger
+        tx.object(oldStakeObjectId), // old_stake_position
+        tx.object(CLOCK_ID), // clock
+      ],
+    });
+  } else if (oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a') {
+    tx.moveCall({
+      target: `${PACKAGE_ID}::integration::self_service_migrate_stake_bae3eef`,
+      arguments: [
+        tx.object(SHARED_OBJECTS.config), // config
+        tx.object(SHARED_OBJECTS.stakingManager), // manager
+        tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state
+        tx.object(SHARED_OBJECTS.ledger), // ledger
+        tx.object(oldStakeObjectId), // old_stake_position
+        tx.object(CLOCK_ID), // clock
+      ],
+    });
+  } else {
+    throw new Error(
+      `Self-service migration not supported for package ${oldPackageId}. ` +
+      `Supported packages: 0xdb62a7c..., 0xbae3eef... ` +
+      `Note: This requires the old packages to be upgraded with extraction functions first.`
+    );
+  }
   
   return tx;
 }
 
 /**
  * Build transaction for self-service batch migration of multiple old package stakes (no admin required)
- * This can be used after admin has unencumbered stakes using admin_batch_unencumber_old_stakes
+ * Currently not implementable due to Move package upgrade constraints
  * 
  * @param oldStakeObjectIds Array of object IDs of old package stakes to migrate
  * @param oldPackageId Address of the old package containing the stakes
@@ -2169,19 +2189,38 @@ export function buildSelfServiceBatchMigrateStakesTransaction(
   // Convert object IDs to transaction objects
   const oldStakeObjects = oldStakeObjectIds.map(id => tx.object(id));
   
-  tx.moveCall({
-    target: `${PACKAGE_ID}::integration::self_service_batch_migrate_stakes`,
-    typeArguments: [
-      `${oldPackageId}::stake_position::StakePosition` // Old stake position type
-    ],
-    arguments: [
-      tx.object(SHARED_OBJECTS.config), // config
-      tx.object(SHARED_OBJECTS.ledger), // ledger
-      tx.makeMoveVec({ elements: oldStakeObjects }), // old_stake_positions vector
-      tx.pure.address(oldPackageId), // old_package_id
-      tx.object(CLOCK_ID), // clock
-    ],
-  });
+  if (oldPackageId === '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf') {
+    tx.moveCall({
+      target: `${PACKAGE_ID}::integration::self_service_batch_migrate_stakes_db62a7c`,
+      arguments: [
+        tx.object(SHARED_OBJECTS.config), // config
+        tx.object(SHARED_OBJECTS.stakingManager), // manager
+        tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state
+        tx.object(SHARED_OBJECTS.ledger), // ledger
+        tx.makeMoveVec({ elements: oldStakeObjects }), // old_stake_positions vector
+        tx.object(CLOCK_ID), // clock
+      ],
+    });
+  } else if (oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a') {
+    tx.moveCall({
+      target: `${PACKAGE_ID}::integration::self_service_batch_migrate_stakes_bae3eef`,
+      arguments: [
+        tx.object(SHARED_OBJECTS.config), // config
+        tx.object(SHARED_OBJECTS.stakingManager), // manager
+        tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state
+        tx.object(SHARED_OBJECTS.ledger), // ledger
+        tx.makeMoveVec({ elements: oldStakeObjects }), // old_stake_positions vector
+        tx.object(CLOCK_ID), // clock
+      ],
+    });
+  } else {
+    throw new Error(
+      `Self-service batch migration not supported for package ${oldPackageId}. ` +
+      `Supported packages: 0xdb62a7c..., 0xbae3eef... ` +
+      `Note: These functions are currently not implementable due to Move package upgrade constraints. ` +
+      `Users should use the old package's own unstaking functions instead.`
+    );
+  }
   
   return tx;
 }
@@ -2502,4 +2541,123 @@ function validateSharedObjectIds(
     validateObjectId(sharedObjects.ledger, 'ledger');
   }
 }
+
+/**
+ * Builds a 3-step transaction for claiming SUI from encumbered withdrawal tickets
+ * Step 1: Migrate old package StakePosition to current package
+ * Step 2: Extract StakedSui from the new StakePosition wrapper  
+ * Step 3: Call native Sui withdrawal to claim the SUI
+ * 
+ * @param withdrawalTicketId Object ID of the withdrawal ticket (encumbered StakePosition)
+ * @param oldPackageId Package ID that originally created this StakePosition
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimWithdrawalTicketTransaction = (
+  withdrawalTicketId: string,
+  oldPackageId?: string
+) => {
+  // Auto-detect package ID from common known packages if not provided
+  if (!oldPackageId) {
+    // For now, we'll need the package ID to be provided
+    // In the future, we could query the object to determine its type
+    throw new Error(
+      "Package ID required for migration. Please specify which old package created this withdrawal ticket:\n" +
+      "• 0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf (6-argument version)\n" +
+      "• 0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a (4-argument version)"
+    );
+  }
+
+  const tx = new Transaction();
+
+  // Step 1: Migrate the old StakePosition to current package format
+  // This will automatically unstake and give Alpha Points if the stake is mature
+  if (oldPackageId === '0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf') {
+    tx.moveCall({
+      target: `${PACKAGE_ID}::integration::self_service_migrate_stake_db62a7c`,
+      arguments: [
+        tx.object(SHARED_OBJECTS.config), // config
+        tx.object(SHARED_OBJECTS.stakingManager), // manager
+        tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state
+        tx.object(SHARED_OBJECTS.ledger), // ledger
+        tx.object(withdrawalTicketId), // old_stake_position
+        tx.object(CLOCK_ID), // clock
+      ],
+    });
+  } else if (oldPackageId === '0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a') {
+    tx.moveCall({
+      target: `${PACKAGE_ID}::integration::self_service_migrate_stake_bae3eef`,
+      arguments: [
+        tx.object(SHARED_OBJECTS.config), // config
+        tx.object(SHARED_OBJECTS.stakingManager), // manager
+        tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state
+        tx.object(SHARED_OBJECTS.ledger), // ledger
+        tx.object(withdrawalTicketId), // old_stake_position
+        tx.object(CLOCK_ID), // clock
+      ],
+    });
+  } else {
+    throw new Error(
+      `Unsupported package ID: ${oldPackageId}\n` +
+      `Supported packages:\n` +
+      `• 0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf\n` +
+      `• 0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a`
+    );
+  }
+
+  // Note: Steps 2 and 3 are handled automatically by the migration function
+  // If the stake is mature, it will:
+  // - Extract the StakedSui from the wrapper
+  // - Call native withdrawal 
+  // - Mint Alpha Points to the user
+  // - Destroy the temporary StakePosition
+  
+  return tx;
+};
+
+/**
+ * Builds a transaction to extract StakedSui from Alpha Points StakePosition wrapper
+ * This is needed when users have StakePosition<StakedSui> objects instead of raw StakedSui
+ * 
+ * @param stakePositionId Object ID of the StakePosition wrapper
+ * @returns Transaction object ready for execution
+ */
+export const buildExtractStakedSuiTransaction = (
+  stakePositionId: string
+) => {
+  const tx = new Transaction();
+  
+  // Call Alpha Points function to extract the StakedSui from StakePosition wrapper
+  tx.moveCall({
+    target: `${PACKAGE_ID}::stake_position::extract_staked_sui`,
+    arguments: [
+      tx.object(stakePositionId) // The StakePosition wrapper object
+    ]
+  });
+  
+  return tx;
+};
+
+export function buildEmergencyUnstakeTransaction(
+  stakePositionId: string,
+  adminCapId: string = "0x123" // You'll need to provide the actual AdminCap ID
+): Transaction {
+  const tx = new Transaction();
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::emergency_unstake_native_sui_v2`,
+    arguments: [
+      tx.object(adminCapId), // admin_cap: &AdminCap
+      tx.object(CONFIG_ID), // config: &Config  
+      tx.object(STAKING_MANAGER_ID), // manager: &mut StakingManager
+      tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state: &mut SuiSystemState
+      tx.object(stakePositionId), // stake_position: StakePosition<StakedSui>
+      tx.object(CLOCK_ID), // clock: &Clock
+      tx.object(LEDGER_ID), // ledger: &mut Ledger
+    ],
+  });
+
+  return tx;
+}
+
+
 
