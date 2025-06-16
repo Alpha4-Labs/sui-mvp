@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { calculateAlphaPointsPerDayPerSui } from '../utils/format';
 import { PerkFilterModal } from '../components/PerkFilterModal';
 import { StakeCard } from '../components/StakeCard';
-import { LoanManagementCards } from '../components/LoanManagementCards';
+import { LoanPanel } from '../components/LoanPanel';
 
 // Define a generation method interface
 interface GenerationMethod {
@@ -86,7 +86,7 @@ export const GenerationPage: React.FC = () => {
       tags: ['Financial', 'Staking', 'DeFi', 'Activity'],
       details: (
         <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-1">
-          <LoanManagementCards />
+          <LoanPanel />
         </div>
       ),
     },
