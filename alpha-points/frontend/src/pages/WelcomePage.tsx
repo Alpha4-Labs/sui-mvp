@@ -9,7 +9,7 @@ import { useAlphaContext } from '../context/AlphaContext';
 import { useNavigate } from 'react-router-dom';
 import alphaPointsLogo from '../assets/alpha4-logo.svg'; // Verify this path
 import neonLogoVideo from '../assets/Neon_Logo_01.mp4'; // Import the video
-import { toast, ToastContainer } from 'react-toastify';
+import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 export const WelcomePage: React.FC = () => {
@@ -86,8 +86,6 @@ export const WelcomePage: React.FC = () => {
       <div className="absolute top-40 right-20 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
       <div className="absolute -bottom-8 left-40 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
 
-      <ToastContainer />
-      
       <div className="w-full max-w-6xl flex flex-col items-center relative z-10 flex-1 justify-center -mt-16">
         <div className="text-center mb-6 animate-fade-in">
           {/* Logo Container */}

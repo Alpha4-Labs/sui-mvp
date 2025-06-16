@@ -24,7 +24,7 @@ import {
     ZkLoginPublicIdentifier,
 } from '@mysten/sui/zklogin'; 
 import { Buffer } from 'buffer/';
-import { ToastContainer, toast } from 'react-toastify';
+import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { useTransactionSuccess } from '../hooks/useTransactionSuccess';
 
@@ -87,6 +87,17 @@ interface EnokiZkpResponse {
 // Helper function for delay
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Helper function for consistent toast configuration
+const getToastConfig = (position: 'top-center' | 'top-right' = 'top-center') => ({
+  position,
+  autoClose: 5000,
+  hideProgressBar: false,
+  closeOnClick: true,
+  pauseOnHover: true,
+  draggable: true,
+  theme: "dark" as const,
+});
+
 export const StakeCard: React.FC = () => {
   const {
     refreshData,
@@ -106,8 +117,9 @@ export const StakeCard: React.FC = () => {
   const suiClient = useSuiClient();
 
   const [amount, setAmount] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  // Removed error and success state since we're using toasts only
+  // const [error, setError] = useState<string | null>(null);
+  // const [success, setSuccess] = useState<string | null>(null);
 
   // State for multi-stage staking process
   const [stakingStage, setStakingStage] = useState<StakingStage>('idle');
@@ -119,20 +131,27 @@ export const StakeCard: React.FC = () => {
   const [isDefaultDurationSet, setIsDefaultDurationSet] = useState(false);
 
     // Use transaction success hook for automatic refresh
-  const { registerRefreshCallback, signAndExecute } = useTransactionSuccess();
+  const transactionHook = useTransactionSuccess();
+  const { registerRefreshCallback, signAndExecute } = transactionHook || {};
+
+  // Fallback to the standard hook if transaction success hook is not available
+  const { mutateAsync: fallbackSignAndExecute } = useSignAndExecuteTransaction();
+  const actualSignAndExecute = signAndExecute || fallbackSignAndExecute;
 
   // Register refresh callback for this component
   useEffect(() => {
-    const cleanup = registerRefreshCallback(async () => {
-      // Refresh all data after successful staking transactions
-      await refreshData();
-    });
+    if (registerRefreshCallback) {
+      const cleanup = registerRefreshCallback(async () => {
+        // Refresh all data after successful staking transactions
+        await refreshData();
+      });
 
-    return cleanup; // Cleanup on unmount
+      return cleanup; // Cleanup on unmount
+    }
   }, [registerRefreshCallback, refreshData]);
 
   // Correctly find the index of the current selectedDuration - add null check
-  const selectedDurationIndex = selectedDuration ? durations.findIndex(d => d.days === selectedDuration.days) : -1;
+  const selectedDurationIndex = selectedDuration && durations ? durations.findIndex(d => d && typeof d === 'object' && d.days === selectedDuration.days) : -1;
 
   // --- Validation Functions ---
   const checkSufficientBalance = () => {
@@ -201,18 +220,12 @@ export const StakeCard: React.FC = () => {
 
   const handleDurationSliderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const sliderIndex = parseInt(event.target.value, 10);
-    if (durations[sliderIndex]) {
+    if (durations && durations[sliderIndex] && typeof durations[sliderIndex] === 'object') {
       setSelectedDuration(durations[sliderIndex]);
     }
   };
 
   // --- Effects ---
-  useEffect(() => {
-    if (alphaIsConnected) {
-      setError(null);
-    }
-  }, [alphaIsConnected]);
-
   useEffect(() => {
     // Update global loading state based on staking stage
     setTransactionLoading(stakingStage === 'requestingStake' || stakingStage === 'registeringStake' || stakingStage === 'fetchingProof');
@@ -221,10 +234,19 @@ export const StakeCard: React.FC = () => {
   // Effect to set the default duration to 30 days
   useEffect(() => {
     if (!isDefaultDurationSet && durations && durations.length > 0 && setSelectedDuration) {
-      const thirtyDayOption = durations.find(d => d.days === 30);
-      if (thirtyDayOption) {
-        setSelectedDuration(thirtyDayOption);
-        setIsDefaultDurationSet(true);
+      try {
+        const thirtyDayOption = durations.find(d => d && typeof d === 'object' && d.days === 30);
+        if (thirtyDayOption) {
+          setSelectedDuration(thirtyDayOption);
+          setIsDefaultDurationSet(true);
+        }
+      } catch (error) {
+        console.error('Error setting default duration:', error);
+        // Fallback to first duration if available
+        if (durations[0]) {
+          setSelectedDuration(durations[0]);
+          setIsDefaultDurationSet(true);
+        }
       }
     }
   }, [isDefaultDurationSet, durations, setSelectedDuration, selectedDuration]); // Added selectedDuration to ensure it runs if context provides a different initial value
@@ -261,19 +283,27 @@ export const StakeCard: React.FC = () => {
   // --- Primary Stake Function ---
 
   const handleStake = async () => {
-    setError(null);
-    setSuccess(null);
+    // Clear any previous states
     setStakedSuiId(null);
     setTxDigest1(null);
     setTxDigest2(null);
     setStakingStage('idle');
 
-    if (!alphaIsConnected || !alphaAddress) return setError("Please connect your wallet or sign in.");
+    if (!alphaIsConnected || !alphaAddress) {
+      toast.error("Please connect your wallet or sign in.", getToastConfig());
+      return;
+    }
     if (stakingStage !== 'idle' && stakingStage !== 'failed' && stakingStage !== 'success') return;
-    if (!selectedDuration) return setError("Please select a staking duration.");
+    if (!selectedDuration) {
+      toast.error("Please select a staking duration.", getToastConfig());
+      return;
+    }
 
     const amountFloat = parseFloat(amount);
-    if (isNaN(amountFloat) || amountFloat <= 0) return setError("Please enter a valid positive amount");
+    if (isNaN(amountFloat) || amountFloat <= 0) {
+      toast.error("Please enter a valid positive amount", getToastConfig());
+      return;
+    }
 
     const amountInMist = BigInt(Math.floor(amountFloat * 1_000_000_000));
     const availableInMist = BigInt(suiBalance);
@@ -281,28 +311,12 @@ export const StakeCard: React.FC = () => {
     const minStakeSuiSystem = BigInt(1_000_000_000); // 1 SUI for sui_system::request_add_stake
     
     if (amountInMist < minStakeSuiSystem) {
-      toast.error('Minimum stake amount is 1 SUI + 0.01 buffer for gas fees.', {
-        position: "top-center",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        theme: "dark",
-      });
+      toast.error('Minimum stake amount is 1 SUI + 0.01 buffer for gas fees.', getToastConfig());
       return;
     }
     
     if (amountInMist + gasBuffer > availableInMist) {
-      toast.error('Insufficient balance: You need at least 1 SUI + 0.01 buffer for gas fees.', {
-        position: "top-center",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        theme: "dark",
-      });
+      toast.error('Insufficient balance: You need at least 1 SUI + 0.01 buffer for gas fees.', getToastConfig());
       return;
     }
 
@@ -392,16 +406,32 @@ export const StakeCard: React.FC = () => {
 
         } catch (directZkpError: any) {
             console.error("Error during Direct ZKP Flow (Tx1):", directZkpError);
-            setError(`Failed during ZKP flow (Tx1): ${directZkpError.message || 'Unknown ZKP/execution error'}`);
+            toast.error(`Failed during ZKP flow: ${directZkpError.message || 'Unknown ZKP/execution error'}`, getToastConfig());
             setStakingStage('failed');
             return;
         }
 
       } else if (alphaProvider === 'dapp-kit') {
-        const signResult1 = await signAndExecute({ transaction: tx1.serialize() }); 
+        let signResult1;
+        if (signAndExecute) {
+          // Use the custom hook that handles refresh automatically
+          signResult1 = await signAndExecute(tx1);
+        } else {
+          // Use the fallback hook
+          signResult1 = await actualSignAndExecute({ transaction: tx1 });
+        }
 
         tx1Digest = signResult1.digest;
         setTxDigest1(tx1Digest);
+
+        // Manual refresh if transaction success hook is not available
+        if (!signAndExecute && signResult1.digest) {
+          try {
+            await refreshData();
+          } catch (refreshError) {
+            console.warn('Failed to refresh data after transaction:', refreshError);
+          }
+        }
 
         const delayMs = 3000;
         await sleep(delayMs); 
@@ -421,15 +451,7 @@ export const StakeCard: React.FC = () => {
 
       if (!newStakedSuiId) {
         console.error("Could not find StakedSui object ID in Tx1 results.");
-        toast.error("Stake request was cancelled or failed. Please ensure the first transaction is approved and try again.", {
-          position: "top-center",
-          autoClose: 7000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          theme: "dark",
-        });
+        toast.error("Stake request was cancelled or failed. Please ensure the first transaction is approved and try again.", getToastConfig());
         setStakingStage('failed');
         setTransactionLoading(false);
         return;
@@ -438,23 +460,23 @@ export const StakeCard: React.FC = () => {
 
     } catch (error: any) {
       console.error('Error during Tx1 preparation/execution:', error);
-      setError(getTransactionErrorMessage(error));
+      toast.error(`Transaction failed: ${getTransactionErrorMessage(error)}`, getToastConfig());
       setStakingStage('failed');
+    } finally {
+      setTransactionLoading(false);
     }
 
+    // Remove duplicate check - already handled in the try block above
+    // if (!newStakedSuiId) {
+    //     toast.error("Failed to obtain necessary stake information after the first step. Please try again.", getToastConfig());
+    //     setStakingStage('failed');
+    //     setTransactionLoading(false);
+    //   return;
+    // }
+
+    // Only proceed if we have a valid staked SUI ID
     if (!newStakedSuiId) {
-        toast.error("Failed to obtain necessary stake information after the first step. Please try again.", {
-            position: "top-center",
-            autoClose: 7000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-            theme: "dark",
-        });
-        setStakingStage('failed');
-        setTransactionLoading(false);
-      return;
+      return; // Error already handled above
     }
 
     setStakingStage('registeringStake');
@@ -503,7 +525,7 @@ export const StakeCard: React.FC = () => {
         const VITE_ENOKI_KEY_TX2 = import.meta.env['VITE_ENOKI_KEY'];
         if (!VITE_ENOKI_KEY_TX2) {
             console.error("VITE_ENOKI_KEY not found for Tx2.");
-            setError("Configuration error: Enoki API Key missing for Tx2.");
+            toast.error("Configuration error: Enoki API Key missing", getToastConfig());
             setStakingStage('failed');
             return;
         }
@@ -557,22 +579,38 @@ export const StakeCard: React.FC = () => {
 
         } catch (proofErrorTx2: any) {
             console.error("Error during Enoki ZK proof stage (Tx2):", proofErrorTx2);
-            setError(`Failed during ZK proof stage (Tx2): ${proofErrorTx2.message || 'Unknown proof error'}`);
+            toast.error(`Failed during ZK proof stage: ${proofErrorTx2.message || 'Unknown proof error'}`, getToastConfig());
             setStakingStage('failed');
             return;
         }
       } else if (alphaProvider === 'dapp-kit') {
-        const signResult2 = await signAndExecute({ transaction: tx2.serialize() }); 
+        let signResult2;
+        if (signAndExecute) {
+          // Use the custom hook that handles refresh automatically
+          signResult2 = await signAndExecute(tx2);
+        } else {
+          // Use the fallback hook
+          signResult2 = await actualSignAndExecute({ transaction: tx2 });
+        }
+        
         tx2Digest = signResult2.digest;
         setTxDigest2(tx2Digest);
+
+        // Manual refresh if transaction success hook is not available
+        if (!signAndExecute && signResult2.digest) {
+          try {
+            await refreshData();
+          } catch (refreshError) {
+            console.warn('Failed to refresh data after transaction:', refreshError);
+          }
+        }
       } else {
         throw new Error ("Cannot determine execution path for Tx2");
       }
       
       setStakingStage('success');
-      setSuccess(`Successfully staked ${formatSui(amountInMist.toString())} SUI!`);
       setAmount('');
-      // Show toast with digest links
+      // Show single toast with digest links
       toast.success(
         <div>
           <div>Successfully staked {formatSui(amountInMist.toString())} SUI!</div>
@@ -587,13 +625,13 @@ export const StakeCard: React.FC = () => {
             </div>
           )}
         </div>,
-        { position: 'top-right', autoClose: 7000, hideProgressBar: false, closeOnClick: true, pauseOnHover: true, draggable: true }
+        getToastConfig()
       );
       // Component will automatically refresh via transaction success hook
 
     } catch (error: any) {
       console.error('Error during Tx2:', error);
-      setError(getTransactionErrorMessage(error));
+      toast.error(`Transaction failed: ${getTransactionErrorMessage(error)}`, getToastConfig());
       setStakingStage('failed');
     } finally {
       setTransactionLoading(false);
@@ -615,6 +653,19 @@ export const StakeCard: React.FC = () => {
   };
 
   // --- JSX Rendering --- 
+  
+  // Don't render if durations are not loaded yet
+  if (!durations || durations.length === 0) {
+    return (
+      <div className="card-modern p-4 animate-fade-in">
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+          <span className="ml-3 text-gray-400">Loading staking options...</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="card-modern p-4 animate-fade-in">
       {/* Header */}
@@ -646,23 +697,6 @@ export const StakeCard: React.FC = () => {
           </p>
         </div>
       </div>
-
-      {/* Error Message */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-300 text-sm animate-fade-in">
-          {error}
-        </div>
-      )}
-
-      {/* Success Message */}
-      {success && (
-        <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-300 text-sm animate-fade-in">
-          {success}
-        </div>
-      )}
-
-      {/* Toast container for react-toastify */}
-      <ToastContainer />
 
       <div className="space-y-4">
         {/* Amount and Duration Section */}
@@ -697,15 +731,7 @@ export const StakeCard: React.FC = () => {
                       setAmount(maxPossible.toFixed(9).replace(/\.?0+$/, ''));
                     } else {
                       setAmount('');
-                      toast.error(`Insufficient balance. You need at least ${minStakeSui + gasBufferInSui} SUI.`, {
-                        position: "top-center",
-                        autoClose: 5000,
-                        hideProgressBar: false,
-                        closeOnClick: true,
-                        pauseOnHover: true,
-                        draggable: true,
-                        theme: "dark",
-                      });
+                      toast.error(`Insufficient balance. You need at least ${minStakeSui + gasBufferInSui} SUI.`, getToastConfig());
                     }
                   }
                 }}
@@ -773,15 +799,15 @@ export const StakeCard: React.FC = () => {
               <input
                 type="range"
                 min="0"
-                max={durations.length - 1}
+                max={Math.max(0, durations.length - 1)}
                 value={selectedDurationIndex > -1 ? selectedDurationIndex : 0}
                 onChange={handleDurationSliderChange}
                 className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500/20 disabled:opacity-50 
                 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-lg
                 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-purple-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-0"
-                disabled={!alphaIsConnected || contextLoading.transaction}
+                disabled={!alphaIsConnected || contextLoading.transaction || !durations || durations.length === 0}
                 style={{
-                  background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(selectedDurationIndex / (durations.length - 1)) * 100}%, #374151 ${(selectedDurationIndex / (durations.length - 1)) * 100}%, #374151 100%)`
+                  background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${durations.length > 1 ? (selectedDurationIndex / (durations.length - 1)) * 100 : 0}%, #374151 ${durations.length > 1 ? (selectedDurationIndex / (durations.length - 1)) * 100 : 0}%, #374151 100%)`
                 }}
               />
             </div>
@@ -791,7 +817,7 @@ export const StakeCard: React.FC = () => {
                 type="button"
                 className="hover:text-purple-400 transition-colors"
                 onClick={() => {
-                  if (durations && durations.length > 0 && durations[0]) {
+                  if (durations && durations.length > 0 && durations[0] && typeof durations[0] === 'object') {
                     setSelectedDuration(durations[0]);
                   }
                 }}
@@ -802,7 +828,7 @@ export const StakeCard: React.FC = () => {
                 type="button"
                 className="hover:text-purple-400 transition-colors"
                 onClick={() => {
-                  if (durations && durations.length > 0 && durations[durations.length - 1]) {
+                  if (durations && durations.length > 0 && durations[durations.length - 1] && typeof durations[durations.length - 1] === 'object') {
                     setSelectedDuration(durations[durations.length - 1]);
                   }
                 }}
