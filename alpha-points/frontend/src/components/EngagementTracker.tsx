@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { useAlphaContext } from '../context/AlphaContext';
 import { processUserEngagement, EngagementStats, getMilestoneRewardStatus, calculatePendingRewards, getNextMilestone, MilestoneRewardStatus, PartnerQuotaInfo } from '../utils/engagementProcessor';
 import { fetchAlpha4Quota, formatQuotaInfo, assessRewardSustainability } from '../utils/partnerQuotaMonitor';
+import { usePartnerDetection } from '../hooks/usePartnerDetection';
 
 interface EngagementData extends EngagementStats {
   recentMilestones: any[];
@@ -16,6 +17,7 @@ interface EngagementData extends EngagementStats {
 
 export const EngagementTracker: React.FC = () => {
   const { address, isConnected, suiClient } = useAlphaContext();
+  const { isPartner } = usePartnerDetection(); // Detect if user is a partner
   const [data, setData] = useState<EngagementData>({
     currentStreak: 0,
     longestStreak: 0,
@@ -49,8 +51,12 @@ export const EngagementTracker: React.FC = () => {
         limit: 200 // Get comprehensive history for accurate streaks
       });
       
-      // Fetch Alpha4 partner quota for dynamic rewards
-      const partnerQuota = await fetchAlpha4Quota(suiClient);
+      // Only fetch Alpha4 partner quota if user is actually a partner
+      // This prevents unnecessary console spam for regular users
+      let partnerQuota: PartnerQuotaInfo | null = null;
+      if (isPartner) {
+        partnerQuota = await fetchAlpha4Quota(suiClient, false); // No debug logs for user dashboard
+      }
       
       // TODO: Load rewardedMilestones from user's local storage or smart contract state
       const rewardedMilestones: number[] = JSON.parse(localStorage.getItem(`rewards-${address}`) || '[]');
@@ -68,7 +74,7 @@ export const EngagementTracker: React.FC = () => {
         partnerQuota || undefined
       );
       
-      // Assess sustainability for admin insights
+      // Assess sustainability for admin insights (only if partner quota available)
       const sustainabilityInfo = partnerQuota ? assessRewardSustainability(partnerQuota, 500) : null;
       
       setData({
@@ -86,7 +92,7 @@ export const EngagementTracker: React.FC = () => {
       console.error('Error processing user engagement:', error);
       setData(prev => ({ ...prev, isLoading: false }));
     }
-  }, [suiClient, address]);
+  }, [suiClient, address, isPartner]);
 
   // Function to claim milestone rewards
   const claimMilestoneReward = useCallback(async (milestoneDay: number) => {

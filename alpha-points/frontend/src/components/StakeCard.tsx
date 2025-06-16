@@ -26,6 +26,7 @@ import {
 import { Buffer } from 'buffer/';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { useTransactionSuccess } from '../hooks/useTransactionSuccess';
 
 // --- Validator List (Re-added for random selection) ---
 const validators = [
@@ -117,8 +118,18 @@ export const StakeCard: React.FC = () => {
   // State to track if the default duration has been set
   const [isDefaultDurationSet, setIsDefaultDurationSet] = useState(false);
 
-  // Revert to default useSignAndExecuteTransaction (no custom execute)
-  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction(); 
+    // Use transaction success hook for automatic refresh
+  const { registerRefreshCallback, signAndExecute } = useTransactionSuccess();
+
+  // Register refresh callback for this component
+  useEffect(() => {
+    const cleanup = registerRefreshCallback(async () => {
+      // Refresh all data after successful staking transactions
+      await refreshData();
+    });
+
+    return cleanup; // Cleanup on unmount
+  }, [registerRefreshCallback, refreshData]);
 
   // Correctly find the index of the current selectedDuration - add null check
   const selectedDurationIndex = selectedDuration ? durations.findIndex(d => d.days === selectedDuration.days) : -1;
@@ -578,7 +589,7 @@ export const StakeCard: React.FC = () => {
         </div>,
         { position: 'top-right', autoClose: 7000, hideProgressBar: false, closeOnClick: true, pauseOnHover: true, draggable: true }
       );
-      refreshData();
+      // Component will automatically refresh via transaction success hook
 
     } catch (error: any) {
       console.error('Error during Tx2:', error);

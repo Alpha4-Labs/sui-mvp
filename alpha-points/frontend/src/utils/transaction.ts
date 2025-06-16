@@ -125,7 +125,7 @@ export const buildUnstakeTransaction = (
 
 /**
  * Builds a transaction for early unstaking (before maturity) to receive Alpha Points
- * User gets 100% Alpha Points value (1 SUI = 3,280 αP) but stake remains encumbered until maturity
+ * User gets Alpha Points as a loan against their stake position
  * 
  * @param stakeId Object ID of the stake position
  * @returns Transaction object ready for execution
@@ -136,12 +136,15 @@ export const buildEarlyUnstakeTransaction = (
   const tx = new Transaction();
   
   tx.moveCall({
-    target: `${PACKAGE_ID}::integration::early_unstake_for_alpha_points`,
+    target: `${PACKAGE_ID}::integration::liquid_unstake_as_loan_native_sui_v2`,
     arguments: [
-      tx.object(SHARED_OBJECTS.config),   // Config
-      tx.object(SHARED_OBJECTS.ledger),   // Ledger for minting Alpha Points
-      tx.object(stakeId),                 // StakePosition to early unstake
-      tx.object(CLOCK_ID)                 // Clock for timestamp
+      tx.object(SHARED_OBJECTS.config),        // Config
+      tx.object(SHARED_OBJECTS.loanConfig),    // LoanConfig
+      tx.object(SHARED_OBJECTS.ledger),        // Ledger for minting Alpha Points
+      tx.object(stakeId),                      // StakePosition to early unstake
+      tx.object(CLOCK_ID),                     // Clock for timestamp
+      tx.object(SHARED_OBJECTS.stakingManager), // StakingManager
+      tx.object('0x5')                         // SuiSystemState
     ]
   });
   
@@ -177,7 +180,6 @@ export const buildRedeemPointsTransaction = (pointsToRedeem: string): Transactio
 /**
  * Builds a transaction for reclaiming principal SUI from a matured early-withdrawn stake
  * User returns the Alpha Points they received during early withdrawal to get their principal SUI back
- * Exchange rate: 1 SUI = 3,280 Alpha Points (based on $3.28 SUI price and 1:1000 USD:AP ratio)
  * 
  * @param stakeId Object ID of the matured early-withdrawn stake position
  * @param alphaPointsToReturn Amount of Alpha Points to return (should match what was received during early withdrawal)

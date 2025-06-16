@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { calculateAlphaPointsPerDayPerSui } from '../utils/format';
 import { PerkFilterModal } from '../components/PerkFilterModal';
+import { StakeCard } from '../components/StakeCard';
+import { LoanManagementCards } from '../components/LoanManagementCards';
 
 // Define a generation method interface
 interface GenerationMethod {
@@ -17,7 +19,7 @@ interface GenerationMethod {
 // Define a list of potential tags for generation methods
 const ALL_POSSIBLE_GENERATION_TAGS = [
   'Staking', 'Community', 'Engagement', 'Referral', 'Financial', 'Location', 
-  'Content', 'Education', 'Governance', 'Activity', 'Partner', 'Social', 'NFT', 'ProofOfX'
+  'Content', 'Education', 'Governance', 'Activity', 'Partner', 'Social', 'NFT', 'ProofOfX', 'DeFi'
 ];
 
 export const GenerationPage: React.FC = () => {
@@ -37,40 +39,54 @@ export const GenerationPage: React.FC = () => {
       status: 'active',
       tags: ['Staking', 'Financial', 'Activity'],
       details: (
-        <div className="p-4 bg-background rounded-lg">
-          <h3 className="text-lg font-medium text-white mb-3">SUI Staking Details</h3>
-          <p className="text-gray-300 mb-3">
-            Stake your SUI tokens to earn Alpha Points over time. The longer you stake, the better the rate.
-          </p>
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div className="bg-background-card p-3 rounded-lg">
-              <div className="text-gray-400 mb-1">7-Day Stake</div>
-              <div className="text-white font-medium">5% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(5).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
-            </div>
-            <div className="bg-background-card p-3 rounded-lg">
-              <div className="text-gray-400 mb-1">30-Day Stake</div>
-              <div className="text-white font-medium">10% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(10).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
-            </div>
-            <div className="bg-background-card p-3 rounded-lg">
-              <div className="text-gray-400 mb-1">90-Day Stake</div>
-              <div className="text-white font-medium">15% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(15).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
-            </div>
-            <div className="bg-background-card p-3 rounded-lg">
-              <div className="text-gray-400 mb-1">365-Day Stake</div>
-              <div className="text-white font-medium">25% APY</div>
-              <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(25).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+        <div className="space-y-6">
+          {/* Staking Interface */}
+          <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-1">
+            <StakeCard />
+          </div>
+          
+          {/* Staking Information */}
+          <div className="bg-background rounded-lg p-4">
+            <h3 className="text-lg font-medium text-white mb-3">SUI Staking Details</h3>
+            <p className="text-gray-300 mb-3">
+              Stake your SUI tokens to earn Alpha Points over time. The longer you stake, the better the rate.
+            </p>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="bg-background-card p-3 rounded-lg">
+                <div className="text-gray-400 mb-1">7-Day Stake</div>
+                <div className="text-white font-medium">5% APY</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(5).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+              </div>
+              <div className="bg-background-card p-3 rounded-lg">
+                <div className="text-gray-400 mb-1">30-Day Stake</div>
+                <div className="text-white font-medium">10% APY</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(10).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+              </div>
+              <div className="bg-background-card p-3 rounded-lg">
+                <div className="text-gray-400 mb-1">90-Day Stake</div>
+                <div className="text-white font-medium">15% APY</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(15).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+              </div>
+              <div className="bg-background-card p-3 rounded-lg">
+                <div className="text-gray-400 mb-1">365-Day Stake</div>
+                <div className="text-white font-medium">25% APY</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(25).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+              </div>
             </div>
           </div>
-          <div className="text-center">
-            <a href="/dashboard">
-              <button className="bg-primary hover:bg-primary-dark text-white py-2 px-6 rounded transition-colors">
-                Go to SUI Staking
-              </button>
-            </a>
-          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'collateral-loan',
+      name: 'Collateral Loan',
+      description: 'Borrow Alpha Points against your staked SUI as collateral.',
+      icon: '🏦',
+      status: 'active',
+      tags: ['Financial', 'Staking', 'DeFi', 'Activity'],
+      details: (
+        <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-1">
+          <LoanManagementCards />
         </div>
       ),
     },

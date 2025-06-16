@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PartnerCapInfo } from './usePartnerCap';
+import { ALPHA_POINTS_PER_USD } from '../utils/constants';
 
 export interface DailyAnalyticsData {
   date: string;
@@ -27,7 +28,7 @@ export function usePartnerAnalytics(partnerCap: PartnerCapInfo | null) {
     // Current real values
     const currentTvl = partnerCap.currentEffectiveUsdcValue || 9.84; // Use actual value or reasonable default
     const currentPointsMinted = partnerCap.totalPointsMintedLifetime || 165; // Use actual accumulated value
-    const currentLifetimeQuota = Math.floor(currentTvl * 1000);
+    const currentLifetimeQuota = Math.floor(currentTvl * ALPHA_POINTS_PER_USD);
     const currentDailyQuota = Math.floor(currentLifetimeQuota * 0.03);
     const todayPointsMinted = partnerCap.pointsMintedToday || 0;
     
@@ -53,7 +54,7 @@ export function usePartnerAnalytics(partnerCap: PartnerCapInfo | null) {
       const pointsForDay = i === 0 ? todayPointsMinted : Math.floor(avgDailyPoints * dailyVariation * growthCurve);
       
       // Calculate quota usage for this day
-      const lifetimeQuota = Math.floor(historicalTvl * 1000);
+      const lifetimeQuota = Math.floor(historicalTvl * ALPHA_POINTS_PER_USD);
       const dailyQuota = Math.floor(lifetimeQuota * 0.03);
       const quotaUsage = dailyQuota > 0 ? Math.min(100, (pointsForDay / dailyQuota) * 100) : 0;
       

@@ -3,7 +3,6 @@ import { useCurrentAccount, useSuiClient } from '@mysten/dapp-kit';
 import { useNavigate } from 'react-router-dom';
 import { useAlphaContext } from '../context/AlphaContext';
 import neonLogoVideo from '../assets/Neon_Logo_01.mp4'; // Import the video
-import { StakeCard } from '../components/StakeCard';
 import { StakedPositionsList } from '../components/StakedPositionsList';
 import { UserBalancesCard } from '../components/UserBalancesCard';
 import { PointsDisplay } from '../components/PointsDisplay';
@@ -149,9 +148,9 @@ export const DashboardPage: React.FC = () => {
           <PointsDisplay />
         </div>
         
-        {/* Column 2: Manage Stake */}
+        {/* Column 2: Performance Metrics - Replaces StakeCard */}
         <div className="animate-slide-up animation-delay-200 flex flex-col">
-          <StakeCard />
+          <PerformanceTodayCard />
         </div>
         
         {/* Column 3: Staked Positions */}
@@ -160,15 +159,12 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Key Performance Insights */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-slide-up animation-delay-600">
-        {/* Performance Metrics */}
-        <PerformanceTodayCard />
+      {/* Key Engagement Insights */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-slide-up animation-delay-600">
+        {/* Engagement Tracking - Stretched out more */}
+        <EngagementTracker />
 
-        {/* Engagement Tracking */}
-                        <EngagementTracker />
-
-        {/* Recent Activity & Opportunities */}
+        {/* Recent Activity */}
         <RecentActivityCard />
       </div>
     </div>

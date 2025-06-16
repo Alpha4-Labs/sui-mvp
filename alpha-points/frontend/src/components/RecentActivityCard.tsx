@@ -353,9 +353,9 @@ export const RecentActivityCard: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchRecentEvents]);
 
-  // Get the first 4 activities for display
-  const displayedActivities = activities.slice(0, 4);
-  const hasMoreActivities = activities.length > 4;
+  // Get the first 5 activities for display
+  const displayedActivities = activities.slice(0, 5);
+  const hasMoreActivities = activities.length > 5;
 
   return (
     <div className="card-modern p-3">
@@ -448,7 +448,7 @@ export const RecentActivityCard: React.FC = () => {
         )}
       </div>
       
-      {/* Show "View All" button if there are more than 4 activities */}
+      {/* Show "View All" button if there are more than 5 activities */}
       {hasMoreActivities && (
         <div className="mt-3 text-center">
           <button 

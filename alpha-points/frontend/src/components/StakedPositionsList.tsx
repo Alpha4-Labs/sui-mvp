@@ -9,6 +9,17 @@ import {
 } from '../utils/transaction-adapter';
 import { formatSui, formatAddress, formatDuration, formatTimestamp } from '../utils/format';
 import { StakePosition } from '../types';
+import { useTransactionSuccess } from '../hooks/useTransactionSuccess';
+import { 
+  convertMistToSui, 
+  convertSuiToAlphaPointsWithFee, 
+  calculateDailyAlphaPointsRewards, 
+  calculateTotalAlphaPointsRewards,
+  ALPHA_POINTS_PER_SUI,
+  DAYS_PER_YEAR,
+  EPOCHS_PER_DAY
+} from '../utils/constants';
+import { LoanPanel } from './LoanPanel';
 
 // Import Swiper React components
 import { Swiper, SwiperSlide } from 'swiper/react';
@@ -82,6 +93,7 @@ export const StakedPositionsList: React.FC = () => {
     loading, 
     refreshData, 
     refreshLoansData,
+    refreshStakePositions,
     setTransactionLoading,
     orphanedStakes = [], 
     removeOrphanedStake = (id: string) => {},
@@ -93,6 +105,7 @@ export const StakedPositionsList: React.FC = () => {
     version
   } = useAlphaContext();
 
+  const [activeTab, setActiveTab] = useState<'stakes' | 'loans'>('stakes');
   const [unstakeInProgress, setUnstakeInProgress] = useState<string | null>(null);
   const [earlyUnstakeInProgress, setEarlyUnstakeInProgress] = useState<string | null>(null);
   const [registrationInProgress, setRegistrationInProgress] = useState<string | null>(null);
@@ -101,12 +114,26 @@ export const StakedPositionsList: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [swiperInstance, setSwiperInstance] = useState<any>(null);
+  const [mainSwiperInstance, setMainSwiperInstance] = useState<any>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   
   // Prevent duplicate toasts from React StrictMode
   const [lastToastTime, setLastToastTime] = useState<Record<string, number>>({});
 
-  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const { registerRefreshCallback, signAndExecute } = useTransactionSuccess();
+
+  // Register refresh callback for this component
+  React.useEffect(() => {
+    const cleanup = registerRefreshCallback(async () => {
+      // Refresh stake positions and loans data after successful transactions
+      await refreshStakePositions();
+      await refreshLoansData();
+      // Also refresh general data to update points balance
+      await refreshData();
+    });
+
+    return cleanup; // Cleanup on unmount
+  }, [registerRefreshCallback, refreshStakePositions, refreshLoansData, refreshData]);
 
   // Helper function to prevent duplicate toasts (caused by React StrictMode)
   const showToastOnce = (key: string, toastFn: () => void, timeoutMs: number = 3000) => {
@@ -137,8 +164,6 @@ export const StakedPositionsList: React.FC = () => {
   };
 
   // Old package stake checking removed - no longer needed
-
-
 
   // Load loans data when component mounts to help distinguish loan collateral from early unstake
   React.useEffect(() => {
@@ -201,9 +226,7 @@ export const StakedPositionsList: React.FC = () => {
         toast.success(`Successfully unstaked ${formatSui(principal)} SUI! Digest: ${txDigest.substring(0, 10)}...`);
       });
       
-      setTimeout(() => {
-        refreshData();
-      }, 2000);
+      // Component will automatically refresh via transaction success hook
 
     } catch (err: any) {
       console.error('Error unstaking position:', err);
@@ -246,22 +269,20 @@ export const StakedPositionsList: React.FC = () => {
         throw new Error(responseError);
       }
 
-      // Calculate expected Alpha Points (1 SUI = 3,280 αP, minus 0.1% fee)
-      const principalNum = parseInt(principal, 10);
-      const principalSui = principalNum / 1_000_000_000;
-      const expectedAlphaPoints = Math.floor(principalSui * 3280 * 0.999); // 99.9% after 0.1% fee
+      // Calculate expected Alpha Points using centralized constants
+      const principalSui = convertMistToSui(principal);
+      const expectedAlphaPoints = convertSuiToAlphaPointsWithFee(principalSui);
 
       // Prevent duplicate toasts caused by React StrictMode
       showToastOnce(`early-unstake-${stakeId}-${txDigest}`, () => {
         toast.success(
           `Early unstake successful! Received ~${expectedAlphaPoints.toLocaleString()} Alpha Points. ` +
-          `Stake remains locked until maturity. Digest: ${txDigest.substring(0, 10)}...`
+          `⚠️ Note: You also received a SUI withdrawal ticket. Check your wallet for both assets. ` +
+          `Digest: ${txDigest.substring(0, 10)}...`
         );
       });
       
-      setTimeout(() => {
-        refreshData();
-      }, 2000);
+      // Component will automatically refresh via transaction success hook
 
     } catch (err: any) {
       console.error('Error early unstaking position:', err);
@@ -280,7 +301,6 @@ export const StakedPositionsList: React.FC = () => {
   /**
    * Handles reclaiming principal SUI from a matured early-withdrawn stake
    * User returns the Alpha Points they received during early withdrawal to get their principal SUI back
-   * Exchange rate: 1 SUI = 3,280 Alpha Points (based on $3.28 SUI price and 1:1000 USD:AP ratio)
    * @param stakeId The ID of the matured early-withdrawn stake position
    * @param principal The principal amount of the stake (for calculating required Alpha Points)
    */
@@ -292,10 +312,9 @@ export const StakedPositionsList: React.FC = () => {
 
     try {
       // Calculate the Alpha Points that were received during early withdrawal
-      // 1 SUI = 3,280 Alpha Points (based on $3.28 SUI price and 1:1000 USD:AP ratio)
-      const principalNum = parseInt(principal, 10);
-      const principalSui = principalNum / 1_000_000_000;
-      const alphaPointsReceived = Math.floor(principalSui * 3280 * 0.999); // 99.9% after 0.1% fee
+      // Using centralized constants to match the smart contract
+      const principalSui = convertMistToSui(principal);
+      const alphaPointsReceived = convertSuiToAlphaPointsWithFee(principalSui);
       const alphaPointsToReturn = alphaPointsReceived.toString();
 
       const transaction = buildReclaimPrincipalTransaction(stakeId, alphaPointsToReturn);
@@ -314,15 +333,14 @@ export const StakedPositionsList: React.FC = () => {
       // Prevent duplicate toasts
       showToastOnce(`reclaim-${stakeId}-${txDigest}`, () => {
         toast.success(
-          `Successfully reclaimed ${formatSui(principal)} SUI! ` +
+          `Alpha Points returned successfully! ` +
           `Returned ${alphaPointsReceived.toLocaleString()} Alpha Points. ` +
+          `⚠️ Note: Due to current system limitations, you may already have the SUI withdrawal ticket. ` +
           `Digest: ${txDigest.substring(0, 10)}...`
         );
       });
       
-      setTimeout(() => {
-        refreshData();
-      }, 2000);
+      // Component will automatically refresh via transaction success hook
 
     } catch (err: any) {
       console.error('Error reclaiming principal:', err);
@@ -339,26 +357,18 @@ export const StakedPositionsList: React.FC = () => {
   };
 
   // Helper for Estimated Rewards Calculation
-  // FIXED: Uses correct 1:1000 USD ratio for Alpha Points calculation
+  // Uses centralized constants for consistent Alpha Points calculations
   const calculateEstAlphaPointRewards = (principal?: string, durationDaysStr?: string, positionApy?: number): string => {
     if (!principal || !durationDaysStr || typeof positionApy === 'undefined') return '~0 αP (0 αP/epoch)';
     try {
-      const principalNum = parseInt(principal, 10); // This is MIST
       const durationDays = parseInt(durationDaysStr, 10);
-      const principalSui = principalNum / 1_000_000_000; // Convert MIST to SUI
+      const principalSui = convertMistToSui(principal);
 
       if (isNaN(principalSui) || isNaN(durationDays) || durationDays <= 0) return '~0 αP (0 αP/epoch)';
 
-      // FIXED: Use correct 1:1000 ratio (1 USD = 1000 Alpha Points)
-      const SUI_PRICE_USD = 3.28; // Current SUI price
-      const ALPHA_POINTS_PER_USD = 1000; // Fixed ratio
-      const ALPHA_POINTS_PER_SUI = SUI_PRICE_USD * ALPHA_POINTS_PER_USD; // 3,280 AP per SUI
-      const DAYS_PER_YEAR = 365;
-      const EPOCHS_PER_DAY = 1; // Sui Testnet epochs are 24 hours
-
-      // Calculate daily Alpha Points rewards based on APY
-      const dailyAlphaPointsRewards = (principalSui * ALPHA_POINTS_PER_SUI * (positionApy / 100)) / DAYS_PER_YEAR;
-      const totalAlphaPointsRewards = dailyAlphaPointsRewards * durationDays;
+      // Calculate rewards using centralized helper functions
+      const dailyAlphaPointsRewards = calculateDailyAlphaPointsRewards(principalSui, positionApy);
+      const totalAlphaPointsRewards = calculateTotalAlphaPointsRewards(principalSui, positionApy, durationDays);
 
       const formattedTotalAlphaPoints = totalAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
       const formattedAlphaPointsPerEpoch = dailyAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
@@ -478,7 +488,7 @@ export const StakedPositionsList: React.FC = () => {
       
       toast.success(`Successfully registered stake${principalDisplay ? ' for ' + formatSui(principalDisplay) : ''} SUI! Digest: ${txDigest?.substring(0, 10)}...`);
       removeOrphanedStake(stakedSuiObjectId); // Remove from context/local state
-      refreshData(); // Refresh all data, including stakePositions
+      // Component will automatically refresh via transaction success hook
 
     } catch (err: any) {
       console.error('Error completing stake registration:', err);
@@ -574,9 +584,10 @@ export const StakedPositionsList: React.FC = () => {
 
   // --- Full JSX ---
   return (
-    <div className="card-modern p-4 animate-fade-in relative z-[40]">
-      {/* Header - modernized */}
-              <div className="flex items-center justify-between mb-4 relative z-[41]">
+    <div className="relative">
+      <div className="card-modern p-4 animate-fade-in relative z-[40]">
+            {/* Header */}
+      <div className="flex items-center justify-between mb-4 relative z-[41] h-12">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-lg flex items-center justify-center shadow-lg">
             <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -584,24 +595,23 @@ export const StakedPositionsList: React.FC = () => {
             </svg>
           </div>
           <div>
-            <h2 className="text-base font-semibold text-white">Staked Positions</h2>
+            <h2 className="text-base font-semibold text-white">
+              {activeTab === 'stakes' ? 'Staked Positions' : 'Active Loans'}
+            </h2>
             <div className="flex items-center gap-2">
-              <p className="text-xs text-gray-400">Your active stakes</p>
+              <p className="text-xs text-gray-400">
+                {activeTab === 'stakes' ? 'Your active stakes' : 'Your loan positions'}
+              </p>
             </div>
           </div>
         </div>
-
-        {/* Controls Container - Migration functionality removed */}
-        <div className="flex items-center gap-3 relative z-[42]">
-          {/* Migration button removed - no longer needed */}
-        </div>
-
-        {/* Inline Navigation */}
-        {combinedListItems.length > 1 && (
-          <div className="flex items-center gap-1 relative z-[43]">
+        
+        {/* Individual Stakes Navigation - Only show if multiple stakes and on stakes tab */}
+        {activeTab === 'stakes' && combinedListItems.length > 1 && (
+          <div className="flex items-center gap-1">
             <button
-              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300 relative z-[44]"
-              aria-label="Previous slide"
+              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300"
+              aria-label="Previous stake"
               onClick={() => swiperInstance?.slidePrev()}
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
@@ -609,7 +619,7 @@ export const StakedPositionsList: React.FC = () => {
               </svg>
             </button>
             
-            <div className="flex gap-1 mx-1 relative z-[44]">
+            <div className="flex gap-1 mx-1">
               {(() => {
                 const totalPages = combinedListItems.length;
                 const maxVisible = 3;
@@ -619,7 +629,7 @@ export const StakedPositionsList: React.FC = () => {
                   return combinedListItems.map((_, idx) => (
                     <button
                       key={idx}
-                      className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300 relative z-[45]
+                      className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300
                         ${activeIndex === idx 
                           ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25' 
                           : 'bg-black/20 backdrop-blur-lg border border-white/10 text-gray-300 hover:bg-black/30 hover:border-white/20'
@@ -633,7 +643,7 @@ export const StakedPositionsList: React.FC = () => {
                           }
                         }
                       }}
-                      aria-label={`Go to slide ${idx + 1}`}
+                      aria-label={`Go to stake ${idx + 1}`}
                     >
                       {idx + 1}
                     </button>
@@ -643,13 +653,10 @@ export const StakedPositionsList: React.FC = () => {
                   const pages = [];
                   
                   if (activeIndex === 0) {
-                    // Show: [1] 2 3 ...
                     pages.push(0, 1, 2);
                   } else if (activeIndex === totalPages - 1) {
-                    // Show: ... n-2 n-1 [n]
                     pages.push(totalPages - 3, totalPages - 2, totalPages - 1);
                   } else {
-                    // Show: ... [current-1] current [current+1] ...
                     pages.push(activeIndex - 1, activeIndex, activeIndex + 1);
                   }
                   
@@ -661,7 +668,7 @@ export const StakedPositionsList: React.FC = () => {
                       {pages.map(idx => (
                         <button
                           key={idx}
-                          className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300 relative z-[45]
+                          className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300
                             ${activeIndex === idx 
                               ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25' 
                               : 'bg-black/20 backdrop-blur-lg border border-white/10 text-gray-300 hover:bg-black/30 hover:border-white/20'
@@ -675,7 +682,7 @@ export const StakedPositionsList: React.FC = () => {
                               }
                             }
                           }}
-                          aria-label={`Go to slide ${idx + 1}`}
+                          aria-label={`Go to stake ${idx + 1}`}
                         >
                           {idx + 1}
                         </button>
@@ -690,8 +697,8 @@ export const StakedPositionsList: React.FC = () => {
             </div>
             
             <button
-              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300 relative z-[44]"
-              aria-label="Next slide"
+              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300"
+              aria-label="Next stake"
               onClick={() => swiperInstance?.slideNext()}
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
@@ -702,23 +709,43 @@ export const StakedPositionsList: React.FC = () => {
         )}
       </div>
 
-      <div>
-        {/* Conditional Rendering: Empty State vs. List */}
-        {combinedListItems.length === 0 && !isLoading ? (
-          // --- Empty State ---
-          <div className="text-center py-8 bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl flex flex-col items-center justify-center">
-            <div className="w-12 h-12 bg-gradient-to-r from-gray-600 to-gray-700 rounded-xl flex items-center justify-center mb-3 shadow-lg">
-              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-              </svg>
-            </div>
-            <h3 className="text-base font-medium text-white mb-1">No Staked Positions</h3>
-            <p className="text-sm text-gray-400 mb-1">Ready to start earning?</p>
-            <p className="text-xs text-gray-500">Use the 'Manage Stake' section to create your first position</p>
-          </div>
-        ) : combinedListItems.length > 0 ? (
+      {/* Main Content Swiper */}
+      <div className="relative z-[30]">
+        <Swiper
+          modules={[Navigation, Pagination, A11y]}
+          spaceBetween={0}
+          slidesPerView={1}
+          loop={false}
+          onSwiper={setMainSwiperInstance}
+          onSlideChange={(swiper) => {
+            const newTab = swiper.activeIndex === 0 ? 'stakes' : 'loans';
+            setActiveTab(newTab);
+          }}
+          pagination={false} 
+          navigation={false} 
+          className="h-full min-h-0"
+        >
+          {/* Stakes Slide */}
+          <SwiperSlide className="bg-transparent rounded-lg self-stretch h-full min-h-0 relative z-[29]">
+            <div>
+              {/* Stakes Content */}
+              {combinedListItems.length === 0 && !isLoading ? (
+                // --- Empty State ---
+                <div className="text-center py-8 bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 bg-gradient-to-r from-gray-600 to-gray-700 rounded-xl flex items-center justify-center mb-3 shadow-lg">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                  </div>
+                  <h3 className="text-base font-medium text-white mb-1">No Staked Positions</h3>
+                  <p className="text-sm text-gray-400 mb-1">Ready to start earning?</p>
+                  <p className="text-xs text-gray-500">Go to Generation page to create your first stake</p>
+                </div>
+              ) : combinedListItems.length > 0 ? (
           // --- List of Combined Staked Positions (Swiper) ---
           <div className="relative z-[30]">
+                        
+            
             <Swiper
               modules={[Navigation, Pagination, A11y]}
               spaceBetween={20}
@@ -804,7 +831,7 @@ export const StakedPositionsList: React.FC = () => {
                       title={isOrphaned ? "View Native Stake on Suiscan" : "View Staked Position on Suiscan"}
                     >
                       <div>
-                        <div className="flex justify-between items-center mb-3">
+                        <div className="flex justify-between items-center mb-2">
                           <div className="flex items-center space-x-2">
                             <div className={statusDotClass}></div>
                             <div>
@@ -824,7 +851,7 @@ export const StakedPositionsList: React.FC = () => {
                                 onClick={e => { e.preventDefault(); e.stopPropagation(); handleEarlyUnstake(extractOriginalId(item.id), item.principal); }}
                                 disabled={earlyUnstakeInProgress === extractOriginalId(item.id) || loading.transaction}
                                 className="px-2 py-1 bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-500 hover:to-yellow-500 text-white text-xs font-medium rounded transition-all duration-300 disabled:opacity-50 relative z-[28]"
-                                title="Get Alpha Points immediately"
+                                title="⚠️ Get Alpha Points + SUI withdrawal ticket immediately (both assets)"
                               >
                                 {earlyUnstakeInProgress === extractOriginalId(item.id) ? (
                                   <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -843,7 +870,7 @@ export const StakedPositionsList: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="space-y-2 mb-3">
+                        <div className="space-y-1.5 mb-2">
                           <div className="flex items-center justify-between">
                             <span className="text-gray-400 text-sm">Principal</span>
                             <div className="text-right">
@@ -874,7 +901,7 @@ export const StakedPositionsList: React.FC = () => {
 
                         {/* Progress Bar */}
                         {isOrphaned ? null : !isMature && !isEncumbered ? (
-                          <div className="mb-3">
+                          <div className="mb-2">
                             <div className="flex justify-between text-xs text-gray-400 mb-1">
                               <span>Progress</span>
                               <span>{maturityPercentage.toFixed(1)}%</span>
@@ -890,7 +917,7 @@ export const StakedPositionsList: React.FC = () => {
                       </div> 
 
                       {/* Action Button / Status Info - positioned at the bottom */}
-                      <div className="mt-auto pt-3">
+                      <div className="mt-auto pt-2">
                         {isOrphaned ? (
                           <button
                             onClick={(e) => { 
@@ -948,7 +975,7 @@ export const StakedPositionsList: React.FC = () => {
                           </button>
                         ) : isEarlyWithdrawn ? (
                           <div className="p-2 bg-blue-900/30 border border-blue-700/50 rounded text-blue-300 text-xs text-center backdrop-blur-sm">
-                            Alpha Points received. Stake locked until {formattedUnlockDate}.
+                            Alpha Points received. You may also have a SUI withdrawal ticket.
                           </div>
                         ) : null}
                       </div>
@@ -961,7 +988,47 @@ export const StakedPositionsList: React.FC = () => {
 
           </div>
         ) : <></>}
+            </div>
+          </SwiperSlide>
+
+          {/* Loans Slide */}
+          <SwiperSlide className="bg-transparent rounded-lg self-stretch h-full min-h-0 relative z-[29]">
+            <div className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl overflow-hidden">
+              <LoanPanel />
+            </div>
+          </SwiperSlide>
+        </Swiper>
       </div>
     </div>
+
+    {/* Floating Swiper Arrow - Positioned at right edge of card */}
+    <button
+      className="absolute top-1/2 -translate-y-1/2 -right-1 w-10 h-10 bg-black/40 backdrop-blur-lg border border-white/30 hover:bg-black/60 hover:border-white/50 text-white rounded-full transition-all duration-300 shadow-lg hover:shadow-xl flex items-center justify-center z-[50] group"
+      aria-label={activeTab === 'stakes' ? 'View loans' : 'View stakes'}
+      title={activeTab === 'stakes' ? 'Switch to Loan Positions' : 'Switch to Stake Positions'}
+      onClick={() => {
+        if (activeTab === 'stakes') {
+          setActiveTab('loans');
+          mainSwiperInstance?.slideTo(1);
+        } else {
+          setActiveTab('stakes');
+          mainSwiperInstance?.slideTo(0);
+        }
+      }}
+    >
+      <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        fill="none" 
+        viewBox="0 0 24 24" 
+        strokeWidth={2} 
+        stroke="currentColor" 
+        className={`w-5 h-5 transition-transform duration-300 ${
+          activeTab === 'stakes' ? 'rotate-0' : 'rotate-180'
+        } group-hover:scale-110`}
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+      </svg>
+    </button>
+  </div>
   );
 };

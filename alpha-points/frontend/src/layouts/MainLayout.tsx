@@ -14,7 +14,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import { toast } from 'react-toastify'; // Import toast
 
 interface MainLayoutProps {
-  children: ReactNode;
+  children?: ReactNode; // Make children optional since we use Outlet
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
@@ -38,7 +38,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     { name: 'Marketplace', path: '/marketplace' },
     { name: 'Generation', path: '/generation' },
     { name: 'Analytics', path: '/analytics' },
-    { name: 'Loans', path: '/loans' },
   ];
   const partnerNavLinks = [
     { name: 'Overview', path: '/partners/overview' },
