@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAlphaContext } from '../context/AlphaContext';
 import { formatPoints } from '../utils/format';
-import { useSignAndExecuteTransaction, useSuiClient, useCurrentAccount } from '@mysten/dapp-kit';
+import { useSuiClient, useCurrentAccount } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { SuiSystemStateSummary } from '@mysten/sui/client';
 import { PACKAGE_ID, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contract';
 import { StakePosition } from '../types';
+import { useTransactionSuccess } from '../hooks/useTransactionSuccess';
 
 // Helper to format time remaining
 function formatTimeLeft(ms: number): string {
@@ -35,25 +36,23 @@ export const PointsDisplay: React.FC = () => {
   const [timeLeft, setTimeLeft] = useState<string>("Calculating...");
   const [debugInfo, setDebugInfo] = useState<string>("");
 
-  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const { registerRefreshCallback, signAndExecute } = useTransactionSuccess();
   const suiClient = useSuiClient();
   const currentAccount = useCurrentAccount();
 
-  const EPOCHS_PER_YEAR = 365;
-  const SUI_TO_MIST_CONVERSION = 1_000_000_000n;
-  const MS_PER_DAY = 86_400_000;
-  const SUI_PRICE_USD = 3.28;
-  const ALPHA_POINTS_PER_USD = 1000;
+  // Register refresh callback for this component
+  useEffect(() => {
+    const cleanup = registerRefreshCallback(async () => {
+      // Refresh both context data and local accrued points calculation
+      await refreshData();
+      // Re-fetch accrued points after context refresh
+      if (currentEpoch && stakePositions && currentAccount) {
+        fetchAccruedPoints();
+      }
+    });
 
-  function getApyBpsForDurationDays(durationDays: number): number {
-    if (durationDays === 7) return 500;
-    if (durationDays === 14) return 750;
-    if (durationDays === 30) return 1000;
-    if (durationDays === 90) return 1500;
-    if (durationDays === 180) return 2000;
-    if (durationDays === 365) return 2500;
-    return 0; 
-  }
+    return cleanup; // Cleanup on unmount
+  }, [registerRefreshCallback, refreshData, currentEpoch, stakePositions, currentAccount]);
 
   // Fetch system state for epoch info
   useEffect(() => {
@@ -102,9 +101,9 @@ export const PointsDisplay: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [nextEpochTime]);
 
-  // Calculate Claimable Points
-  useEffect(() => {
-    if (!currentEpoch || loading.positions || !stakePositions) { 
+  // Extract accrued points fetching into separate function for reuse
+  const fetchAccruedPoints = async () => {
+    if (!currentEpoch || !stakePositions || !currentAccount) {
       setTotalClaimablePoints(0n);
       setDebugInfo("Waiting for epoch or position data...");
       return;
@@ -117,49 +116,79 @@ export const PointsDisplay: React.FC = () => {
     }
     
     setLoadingClaimable(true);
-    let accumulatedPoints = 0n;
-    let positionsProcessed = 0;
-    let positionsWithClaimable = 0;
+    
+    try {
+      let accumulatedPoints = 0n;
+      let positionsProcessed = 0;
+      let positionsWithClaimable = 0;
+      let errors = 0;
 
-    stakePositions.forEach((pos: StakePosition, index: number) => {
-      if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined') {
-        return; 
-      }
+      // Query accrued points for each position using the chain's view function
+      const promises = stakePositions.map(async (pos: StakePosition) => {
+        if (!pos || typeof pos.lastClaimEpoch === 'undefined' || !pos.id) {
+          return { points: 0n, error: 'Invalid position data' };
+        }
+        
+        try {
+          const tx = new Transaction();
+          tx.moveCall({
+            target: `${PACKAGE_ID}::integration::view_accrued_points_for_stake`,
+            arguments: [
+              tx.object(pos.id),
+              tx.pure.u64(Number(currentEpoch))
+            ],
+            typeArguments: [pos.assetType || SUI_TYPE],
+          });
+
+          const devInspectResult = await suiClient.devInspectTransactionBlock({
+            sender: currentAccount.address,
+            transactionBlock: tx,
+          });
+
+          if (devInspectResult.results?.[0]?.returnValues?.[0]) {
+            const [returnValue] = devInspectResult.results[0].returnValues[0];
+            // Parse u64 from BCS bytes (little-endian)
+            const bytes = new Uint8Array(returnValue);
+            const dataView = new DataView(bytes.buffer);
+            const accruedPoints = dataView.getBigUint64(0, true); // true = little-endian
+            
+            return { points: accruedPoints, error: null };
+          } else {
+            return { points: 0n, error: 'No return value' };
+          }
+        } catch (error) {
+          console.error(`Error fetching accrued points for position ${pos.id}:`, error);
+          return { points: 0n, error: error.message };
+        }
+      });
+
+      const results = await Promise.all(promises);
       
-      positionsProcessed++;
-      const lastClaimEpochBigInt = BigInt(pos.lastClaimEpoch);
-      
-      if (currentEpoch <= lastClaimEpochBigInt) {
-        return; 
-      }
+      results.forEach((result, index) => {
+        positionsProcessed++;
+        if (result.error) {
+          errors++;
+        } else if (result.points > 0n) {
+          accumulatedPoints += result.points;
+          positionsWithClaimable++;
+        }
+      });
 
-      const principalMist = BigInt(pos.amount);
-      const durationMs = BigInt(pos.unlockTimeMs) - BigInt(pos.startTimeMs);
-      const durationDays = durationMs > 0n ? Number(durationMs / BigInt(MS_PER_DAY)) : 0;
-      const stakeApyBps = BigInt(getApyBpsForDurationDays(durationDays));
+      setTotalClaimablePoints(accumulatedPoints);
+      setDebugInfo(`${positionsProcessed} positions, ${positionsWithClaimable} with rewards${errors > 0 ? `, ${errors} errors` : ''}`);
+    } catch (error) {
+      console.error("[PointsDisplay] Error fetching accrued points:", error);
+      setDebugInfo(`Error fetching accrued points: ${error.message}`);
+      setTotalClaimablePoints(0n);
+    } finally {
+      setLoadingClaimable(false);
+    }
+  };
 
-      if (stakeApyBps === 0n) {
-        return;
-      }
-
-      // FIXED: Correct calculation using 1:1000 USD ratio
-      const principalSui = principalMist; // Keep in MIST for precision
-      const alphaPointsPerSui = BigInt(Math.floor(SUI_PRICE_USD * ALPHA_POINTS_PER_USD)); // 3,280 AP per SUI
-      const annualPoints = (principalSui * alphaPointsPerSui * stakeApyBps) / (SUI_TO_MIST_CONVERSION * 10000n); // 10000 = 100 * 100 (bps conversion)
-      const pointsPerEpoch = annualPoints / BigInt(EPOCHS_PER_YEAR);
-      const epochsPassed = currentEpoch - lastClaimEpochBigInt;
-      
-      if (epochsPassed > 0n && pointsPerEpoch > 0n) {
-        const pointsToAdd = pointsPerEpoch * epochsPassed;
-        accumulatedPoints += pointsToAdd;
-        positionsWithClaimable++;
-      }
-    });
-
-    setTotalClaimablePoints(accumulatedPoints);
-    setDebugInfo(`${positionsProcessed} positions, ${positionsWithClaimable} with rewards`);
-    setLoadingClaimable(false);
-  }, [currentEpoch, stakePositions, loading.positions]);
+  // Calculate Claimable Points using actual chain data
+  useEffect(() => {
+    fetchAccruedPoints();
+  }, [currentEpoch, stakePositions, loading.positions, currentAccount, suiClient]);
 
   const handleClaim = async () => {
     if (!currentAccount || !currentAccount.address || totalClaimablePoints === 0n || !stakePositions || stakePositions.length === 0) {
@@ -171,51 +200,78 @@ export const PointsDisplay: React.FC = () => {
       const tx = new Transaction();
       let claimsAdded = 0;
 
+      // Only add claims for positions that actually have claimable points
       for (const pos of stakePositions as StakePosition[]) {
-        if (!pos || typeof pos.lastClaimEpoch === 'undefined' || typeof pos.amount === 'undefined' || typeof pos.unlockTimeMs === 'undefined' || typeof pos.startTimeMs === 'undefined' || typeof pos.assetType === 'undefined') {
+        if (!pos || typeof pos.lastClaimEpoch === 'undefined' || !pos.id || typeof pos.assetType === 'undefined') {
           console.warn("Skipping position due to missing data:", pos);
           continue;
         }
         
         const lastClaimEpochBigInt = BigInt(pos.lastClaimEpoch);
         if (currentEpoch && currentEpoch > lastClaimEpochBigInt) {
-            const principalMist = BigInt(pos.amount);
-            const durationMs = BigInt(pos.unlockTimeMs) - BigInt(pos.startTimeMs);
-            const durationDays = durationMs > 0n ? Number(durationMs / BigInt(MS_PER_DAY)) : 0;
-            const stakeApyBps = BigInt(getApyBpsForDurationDays(durationDays));
+          // Check if this position actually has claimable points by querying the chain
+          try {
+            const checkTx = new Transaction();
+            checkTx.moveCall({
+              target: `${PACKAGE_ID}::integration::view_accrued_points_for_stake`,
+              arguments: [
+                checkTx.object(pos.id),
+                checkTx.pure.u64(Number(currentEpoch))
+              ],
+              typeArguments: [pos.assetType],
+            });
 
-            if (stakeApyBps > 0n && principalMist > 0n) {
-                // FIXED: Use same corrected calculation as above
-                const principalSui = principalMist; // Keep in MIST for precision
-                const alphaPointsPerSui = BigInt(Math.floor(SUI_PRICE_USD * ALPHA_POINTS_PER_USD)); // 3,280 AP per SUI
-                const annualPoints = (principalSui * alphaPointsPerSui * stakeApyBps) / (SUI_TO_MIST_CONVERSION * 10000n); // 10000 = 100 * 100 (bps conversion)
-                const pointsPerEpoch = annualPoints / BigInt(EPOCHS_PER_YEAR);
-                const epochsPassed = currentEpoch - lastClaimEpochBigInt;
-                if (pointsPerEpoch * epochsPassed > 0n) {
-                    tx.moveCall({
-                        target: `${PACKAGE_ID}::integration::claim_accrued_points`,
-                        typeArguments: [pos.assetType || SUI_TYPE],
-                        arguments: [
-                            tx.object(SHARED_OBJECTS.config), 
-                            tx.object(SHARED_OBJECTS.ledger), 
-                            tx.object(pos.id),                
-                            tx.object(CLOCK_ID) // clock argument itself             
-                        ],
-                    });
-                    claimsAdded++;
-                }
+            const devInspectResult = await suiClient.devInspectTransactionBlock({
+              sender: currentAccount.address,
+              transactionBlock: checkTx,
+            });
+
+            if (devInspectResult.results?.[0]?.returnValues?.[0]) {
+              const [returnValue] = devInspectResult.results[0].returnValues[0];
+              const bytes = new Uint8Array(returnValue);
+              const dataView = new DataView(bytes.buffer);
+              const accruedPoints = dataView.getBigUint64(0, true);
+              
+              if (accruedPoints > 0n) {
+                tx.moveCall({
+                  target: `${PACKAGE_ID}::integration::claim_accrued_points`,
+                  typeArguments: [pos.assetType],
+                  arguments: [
+                    tx.object(SHARED_OBJECTS.config), 
+                    tx.object(SHARED_OBJECTS.ledger), 
+                    tx.object(pos.id),                
+                    tx.object(CLOCK_ID)             
+                  ],
+                });
+                claimsAdded++;
+              }
             }
+          } catch (error) {
+            console.warn(`Error checking accrued points for position ${pos.id}:`, error);
+            // Still try to claim in case the check failed but points exist
+            tx.moveCall({
+              target: `${PACKAGE_ID}::integration::claim_accrued_points`,
+              typeArguments: [pos.assetType],
+              arguments: [
+                tx.object(SHARED_OBJECTS.config), 
+                tx.object(SHARED_OBJECTS.ledger), 
+                tx.object(pos.id),                
+                tx.object(CLOCK_ID)             
+              ],
+            });
+            claimsAdded++;
+          }
         }
       }
 
       if (claimsAdded === 0) {
-
+        console.log("No claimable positions found");
         setTransactionLoading(false);
         return;
       }
-      
 
-      await signAndExecute({ transaction: tx }, { onSuccess: () => refreshData() });
+      // Use the transaction success hook - this will automatically refresh the component
+      await signAndExecute(tx);
     } catch (error) {
       console.error('Error claiming points:', error);
     } finally {
@@ -326,6 +382,8 @@ export const PointsDisplay: React.FC = () => {
           </button>
         </div>
       </div>
+
+
 
       {/* Locked Points Display (if any) */}
       {points.locked > 0 && (

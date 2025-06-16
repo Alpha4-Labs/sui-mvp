@@ -8,6 +8,12 @@ import { buildCreateLoanTransaction, buildRepayLoanTransaction } from '../utils/
 import { getTransactionErrorMessage } from '../utils/transaction-adapter';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Navigation, Pagination, A11y } from 'swiper/modules';
+import { 
+  SUI_PRICE_USD, 
+  ALPHA_POINTS_PER_USD, 
+  ALPHA_POINTS_PER_SUI,
+  convertMistToSui
+} from '../utils/constants';
 
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -47,10 +53,7 @@ export const LoanPanel: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [slidesPerView, setSlidesPerView] = useState(1);
 
-  // FIXED: Use correct 1:1000 ratio (1 USD = 1000 Alpha Points)
-  const SUI_PRICE_USD_FOR_LOAN = 3.28;
-  const ALPHA_POINTS_PER_USD = 1000; // Fixed ratio: 1 USD = 1000 Alpha Points
-  const ALPHA_POINTS_PER_SUI_FOR_LOAN = SUI_PRICE_USD_FOR_LOAN * ALPHA_POINTS_PER_USD; // 3.28 * 1000 = 3,280 AP per SUI
+  // Use centralized constants for consistent Alpha Points calculations
 
   // Loan-to-Value ratio (70%)
   const LTV_RATIO = 0.7;
@@ -66,9 +69,9 @@ export const LoanPanel: React.FC = () => {
     if (selectedStakeId) {
       const selectedPosition = eligiblePositions.find(pos => pos.id === selectedStakeId);
       if (selectedPosition) {
-        const principalSuiValue = Number(selectedPosition.principal) / 1_000_000_000;
-        // Calculate the stake's value in Alpha Points using the new rate
-        const stakeValueInAlphaPoints = principalSuiValue * ALPHA_POINTS_PER_SUI_FOR_LOAN;
+        const principalSuiValue = convertMistToSui(selectedPosition.principal);
+        // Calculate the stake's value in Alpha Points using centralized constants
+        const stakeValueInAlphaPoints = principalSuiValue * ALPHA_POINTS_PER_SUI;
         
         const maxLoan = Math.floor(stakeValueInAlphaPoints * LTV_RATIO);
         setMaxLoanAmount(maxLoan);

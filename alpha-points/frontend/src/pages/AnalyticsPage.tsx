@@ -5,6 +5,7 @@ import ProjectionChart from '../components/ProjectionChart';
 import { formatPoints, formatSui, formatAddress, formatTimeAgo } from '../utils/format';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Pagination, Autoplay } from 'swiper/modules';
+import { ALPHA_POINTS_PER_SUI, convertMistToSui } from '../utils/constants';
 import 'swiper/css';
 import 'swiper/css/pagination';
 
@@ -26,12 +27,12 @@ export const AnalyticsPage: React.FC = () => {
     const stakePositions = Array.isArray(alphaContext.stakePositions) ? alphaContext.stakePositions : [];
     const loans = Array.isArray(alphaContext.loans) ? alphaContext.loans : [];
     
-    // Calculate total staked SUI and convert to Alpha Points equivalent
+    // Calculate total staked SUI and convert to Alpha Points equivalent using centralized constants
     const totalStakedSui = stakePositions.reduce((sum, position) => {
-      const principal = position?.principal ? parseFloat(position.principal) : 0;
-      return sum + (principal / 1_000_000_000);
+      const principal = position?.principal ? convertMistToSui(position.principal) : 0;
+      return sum + principal;
     }, 0);
-    const stakingPointsEquivalent = Math.floor(totalStakedSui * 3280) || 0; // SUI to αP conversion
+    const stakingPointsEquivalent = Math.floor(totalStakedSui * ALPHA_POINTS_PER_SUI) || 0; // SUI to αP conversion
     
     // Calculate staking duration
     const now = Date.now();
@@ -123,8 +124,8 @@ export const AnalyticsPage: React.FC = () => {
 
           stakingEvents.data?.forEach((event: any, index: number) => {
             if (event.parsedJson && event.parsedJson.staker === alphaContext.address) {
-              const amount = parseInt(event.parsedJson.amount_staked || '0') / 1_000_000_000;
-              const alphaPointsEarned = amount * 3280; // SUI to Alpha Points conversion
+              const amount = convertMistToSui(event.parsedJson.amount_staked || '0');
+              const alphaPointsEarned = amount * ALPHA_POINTS_PER_SUI; // SUI to Alpha Points conversion
               transactions.push({
                 id: `stake-${event.id || index}`,
                 type: 'staking',

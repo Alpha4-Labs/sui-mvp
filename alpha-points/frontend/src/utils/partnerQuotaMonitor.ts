@@ -24,7 +24,7 @@ export interface PartnerCapData {
  * Note: Daily Quota = 3% of Lifetime Quota
  * daily_quota_pts is in MIST format (1 Alpha Point = 1,000,000 MIST)
  */
-export async function fetchAlpha4Quota(suiClient: SuiClient): Promise<PartnerQuotaInfo | null> {
+export async function fetchAlpha4Quota(suiClient: SuiClient, enableDebugLogs: boolean = false): Promise<PartnerQuotaInfo | null> {
   try {
     const response = await suiClient.getObject({
       id: ALPHA4_PARTNER_CAP_ID,
@@ -32,7 +32,9 @@ export async function fetchAlpha4Quota(suiClient: SuiClient): Promise<PartnerQuo
     });
 
     if (!response.data?.content || response.data.content.dataType !== 'moveObject') {
-      console.error('Failed to fetch Alpha4 PartnerCap data');
+      if (enableDebugLogs) {
+        console.error('Failed to fetch Alpha4 PartnerCap data');
+      }
       return null;
     }
 
@@ -56,14 +58,17 @@ export async function fetchAlpha4Quota(suiClient: SuiClient): Promise<PartnerQuo
     const lifetimeUsed = lifetimeQuota - Math.floor(lifetimeQuota * (dailyReplenishmentRate / 100)) + (dailyQuota - remainingToday);
     const lifetimeRemainingPercentage = lifetimeQuota > 0 ? ((lifetimeQuota - lifetimeUsed) / lifetimeQuota) * 100 : 0;
 
-    console.log('Alpha4 Quota Debug:', {
-      dailyQuotaMist,
-      remainingTodayMist,
-      dailyQuota,
-      remainingToday,
-      lifetimeQuota,
-      collateralValueUsdc
-    });
+    // Only log debug info when explicitly requested (e.g., in partner dashboard)
+    if (enableDebugLogs) {
+      console.log('Alpha4 Quota Debug:', {
+        dailyQuotaMist,
+        remainingTodayMist,
+        dailyQuota,
+        remainingToday,
+        lifetimeQuota,
+        collateralValueUsdc
+      });
+    }
 
     return {
       dailyQuota,
@@ -75,7 +80,9 @@ export async function fetchAlpha4Quota(suiClient: SuiClient): Promise<PartnerQuo
       dailyReplenishmentRate
     };
   } catch (error) {
-    console.error('Error fetching Alpha4 quota:', error);
+    if (enableDebugLogs) {
+      console.error('Error fetching Alpha4 quota:', error);
+    }
     return null;
   }
 }
@@ -146,9 +153,11 @@ export class PartnerQuotaMonitor {
   private currentQuota: PartnerQuotaInfo | null = null;
   private listeners: ((quota: PartnerQuotaInfo | null) => void)[] = [];
   private pollInterval: NodeJS.Timeout | null = null;
+  private enableDebugLogs: boolean = false;
 
-  constructor(suiClient: SuiClient) {
+  constructor(suiClient: SuiClient, enableDebugLogs: boolean = false) {
     this.suiClient = suiClient;
+    this.enableDebugLogs = enableDebugLogs;
   }
 
   /**
@@ -158,7 +167,7 @@ export class PartnerQuotaMonitor {
     this.stopMonitoring(); // Clear any existing interval
 
     this.pollInterval = setInterval(async () => {
-      const newQuota = await fetchAlpha4Quota(this.suiClient);
+      const newQuota = await fetchAlpha4Quota(this.suiClient, this.enableDebugLogs);
       
       // Only notify if quota significantly changed
       if (this.hasSignificantChange(this.currentQuota, newQuota)) {
@@ -203,7 +212,7 @@ export class PartnerQuotaMonitor {
   }
 
   private async fetchAndNotify() {
-    const quota = await fetchAlpha4Quota(this.suiClient);
+    const quota = await fetchAlpha4Quota(this.suiClient, this.enableDebugLogs);
     this.currentQuota = quota;
     this.notifyListeners(quota);
   }

@@ -15,7 +15,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { MarketplacePage } from './pages/MarketplacePage';
 import { GenerationPage } from './pages/GenerationPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
-import { LoanPage } from './pages/LoanPage';
+
 import { AlphaProvider } from './context/AlphaContext';
 import { PartnerOnboardingPage } from './pages/PartnerOnboardingPage';
 import { PartnersPage } from './pages/PartnersPage';
@@ -40,20 +40,20 @@ function App() {
       <SuiClientProvider networks={networkConfig} defaultNetwork={NETWORK_TYPE}>
         <WalletProvider autoConnect={true}>
           <AlphaProvider>
-            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <BrowserRouter>
               <Routes>
-                <Route path="/" element={<MainLayout children={undefined} />} >
+                <Route path="/" element={<MainLayout />} >
                   <Route index element={<WelcomePage />} />
                   <Route path="callback" element={<ZkLoginCallback />} />
                 </Route>
 
                 <Route element={<ProtectedRoute />}>
-                  <Route element={<MainLayout children={undefined} />}>
+                  <Route element={<MainLayout />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/generation" element={<GenerationPage />} />
                     <Route path="/analytics" element={<AnalyticsPage />} />
-                    <Route path="/loans" element={<LoanPage />} />
+
                     <Route path="/partners" element={<PartnersPage />} />
                     <Route path="/partners/overview" element={<PartnersPage />} />
                     <Route path="/partners/perks" element={<PartnersPage />} />
