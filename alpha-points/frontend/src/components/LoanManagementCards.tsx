@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext';
 import { formatSui, formatPoints } from '../utils/format';
 import { SUI_PRICE_USD, ALPHA_POINTS_PER_USD } from '../utils/constants';
+import { buildCreateLoanTransaction } from '../utils/transaction';
 
 interface LoanManagementCardsProps {
   // Optional props for customization
@@ -9,24 +11,82 @@ interface LoanManagementCardsProps {
 }
 
 export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ className = '' }) => {
-  const { stakePositions, points, isConnected } = useAlphaContext();
+  const { stakePositions, points, isConnected, refreshStakePositions, loading, setTransactionLoading, refreshData, refreshLoansData } = useAlphaContext();
   const [selectedStakeId, setSelectedStakeId] = useState<string | null>(null);
   const [loanAmount, setLoanAmount] = useState('');
+  const { mutate: signAndExecute } = useSignAndExecuteTransaction();
 
-  // Calculate available collateral from stake positions
-  const availableCollateral = stakePositions.reduce((total, position) => {
-    if (!position.isEncumbered) {
-      const principal = parseFloat(position.principal || '0') / 1_000_000_000; // Convert MIST to SUI
-      return total + principal;
+  // Load stake positions when component mounts
+  useEffect(() => {
+    if (isConnected && stakePositions.length === 0 && !loading.positions) {
+      refreshStakePositions();
     }
-    return total;
+  }, [isConnected, stakePositions.length, loading.positions, refreshStakePositions]);
+
+  // Filter eligible positions (same logic as LoanPanel)
+  const eligiblePositions = stakePositions.filter((pos) => {
+    const isEncumbered = pos.encumbered === true;
+    const isMature = pos.maturityPercentage >= 100;
+    return !isEncumbered && !isMature;
+  });
+
+  // Calculate available collateral from eligible positions only
+  const availableCollateral = eligiblePositions.reduce((total, position) => {
+    const principal = parseFloat(position.principal || '0') / 1_000_000_000; // Convert MIST to SUI
+    return total + principal;
   }, 0);
 
   // Calculate max loan amount (70% LTV)
   const maxLoanAmount = availableCollateral * SUI_PRICE_USD * ALPHA_POINTS_PER_USD * 0.7;
 
-  // Get unencumbered positions for selection
-  const availablePositions = stakePositions.filter(pos => !pos.isEncumbered);
+  // Handle loan creation
+  const handleCreateLoan = async () => {
+    if (!selectedStakeId || !loanAmount || parseInt(loanAmount) <= 0) {
+      return;
+    }
+
+    try {
+      setTransactionLoading(true);
+      
+      const transaction = buildCreateLoanTransaction(
+        selectedStakeId,
+        parseInt(loanAmount)
+      );
+
+      await signAndExecute(
+        { transaction },
+        {
+          onSuccess: async (result) => {
+            console.log('Loan created successfully:', result);
+            
+            // Reset form
+            setSelectedStakeId(null);
+            setLoanAmount('');
+            
+            // Refresh all relevant data after successful loan creation
+            try {
+              // Refresh stake positions (to show encumbered status)
+              await refreshStakePositions();
+              // Refresh loans data (to show new loan)
+              await refreshLoansData();
+              // Refresh general data (points balance, etc.)
+              await refreshData();
+            } catch (refreshError) {
+              console.error('Error refreshing data after loan creation:', refreshError);
+            }
+          },
+          onError: (error) => {
+            console.error('Failed to create loan:', error);
+            // You could add a toast notification here
+          }
+        }
+      );
+    } catch (error) {
+      console.error('Error creating loan:', error);
+    } finally {
+      setTransactionLoading(false);
+    }
+  };
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -80,19 +140,29 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
           </div>
         </div>
 
-        {availablePositions.length === 0 ? (
+        {loading.positions ? (
+          <div className="text-center py-6">
+            <div className="w-12 h-12 bg-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-3 animate-spin">
+              <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
+            <p className="text-gray-400 text-sm">Loading stake positions...</p>
+            <p className="text-gray-500 text-xs mt-1">Please wait while we fetch your collateral</p>
+          </div>
+        ) : eligiblePositions.length === 0 ? (
           <div className="text-center py-6">
             <div className="w-12 h-12 bg-gray-600/20 rounded-full flex items-center justify-center mx-auto mb-3">
               <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
             </div>
-            <p className="text-gray-400 text-sm">No available stake positions for collateral</p>
-            <p className="text-gray-500 text-xs mt-1">Stake SUI first to use as loan collateral</p>
+            <p className="text-gray-400 text-sm">No eligible stake positions for collateral</p>
+            <p className="text-gray-500 text-xs mt-1">Need active, unencumbered stakes to borrow against</p>
           </div>
         ) : (
           <div className="space-y-2">
-            {availablePositions.map((position) => {
+            {eligiblePositions.map((position) => {
               const principal = parseFloat(position.principal || '0') / 1_000_000_000;
               const value = principal * SUI_PRICE_USD;
               const maxLoan = value * ALPHA_POINTS_PER_USD * 0.7;
@@ -117,9 +187,14 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <span className="text-xs text-gray-400">
-                        {position.duration} days
-                      </span>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-400">
+                          {position.durationDays} days
+                        </div>
+                        <div className="text-xs text-green-400">
+                          {position.maturityPercentage}% mature
+                        </div>
+                      </div>
                       <div className={`w-4 h-4 rounded-full border-2 ${
                         selectedStakeId === position.id
                           ? 'border-purple-500 bg-purple-500'
@@ -169,23 +244,47 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
             </span>
           </div>
 
+          {/* Quick Amount Buttons */}
+          {selectedStakeId && maxLoanAmount > 0 && (
+            <div className="grid grid-cols-4 gap-2">
+              <button 
+                onClick={() => setLoanAmount(Math.floor(maxLoanAmount * 0.1).toString())}
+                className="bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-sm font-medium py-2 px-3 rounded-lg transition-all duration-200"
+              >
+                10%
+              </button>
+              <button 
+                onClick={() => setLoanAmount(Math.floor(maxLoanAmount * 0.25).toString())}
+                className="bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-sm font-medium py-2 px-3 rounded-lg transition-all duration-200"
+              >
+                25%
+              </button>
+              <button 
+                onClick={() => setLoanAmount(Math.floor(maxLoanAmount * 0.5).toString())}
+                className="bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-sm font-medium py-2 px-3 rounded-lg transition-all duration-200"
+              >
+                50%
+              </button>
+              <button 
+                onClick={() => setLoanAmount(Math.floor(maxLoanAmount).toString())}
+                className="bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-sm font-medium py-2 px-3 rounded-lg transition-all duration-200"
+              >
+                MAX
+              </button>
+            </div>
+          )}
+
           {loanAmount && selectedStakeId && (
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Loan Amount:</span>
-                <span className="text-white">{formatPoints(loanAmount)} αP</span>
+                <span className="text-gray-400">You'll receive:</span>
+                <span className="text-white font-semibold">{formatPoints(loanAmount)} αP</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-400">USD Value:</span>
-                <span className="text-white">${(parseInt(loanAmount || '0') / ALPHA_POINTS_PER_USD).toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Interest Rate:</span>
-                <span className="text-white">5% APY</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Origination Fee:</span>
-                <span className="text-white">0.1%</span>
+                <span className="text-gray-400">Est. repayment:</span>
+                <span className="text-orange-400">
+                  {formatPoints((parseInt(loanAmount || '0') * 1.051).toString(), 0)} αP
+                </span>
               </div>
             </div>
           )}
@@ -195,17 +294,27 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
       {/* Action Card */}
       <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-xl p-4">
         <button
-          disabled={!isConnected || !selectedStakeId || !loanAmount || parseInt(loanAmount) <= 0}
-          className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50"
+          onClick={handleCreateLoan}
+          disabled={!isConnected || !selectedStakeId || !loanAmount || parseInt(loanAmount) <= 0 || loading.transaction}
+          className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center justify-center"
         >
-          {!isConnected 
-            ? 'Connect Wallet' 
-            : !selectedStakeId 
-            ? 'Select Collateral' 
-            : !loanAmount || parseInt(loanAmount) <= 0
-            ? 'Enter Loan Amount'
-            : `Borrow ${formatPoints(loanAmount)} αP`
-          }
+          {loading.transaction ? (
+            <>
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Creating Loan...
+            </>
+          ) : !isConnected ? (
+            'Connect Wallet'
+          ) : !selectedStakeId ? (
+            'Select Collateral'
+          ) : !loanAmount || parseInt(loanAmount) <= 0 ? (
+            'Enter Loan Amount'
+          ) : (
+            `Borrow ${formatPoints(loanAmount)} αP`
+          )}
         </button>
 
         {isConnected && (
@@ -220,26 +329,7 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
         )}
       </div>
 
-      {/* Information Card */}
-      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4">
-        <div className="flex items-start space-x-3">
-          <div className="w-6 h-6 bg-amber-500/20 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
-            <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <h4 className="text-sm font-medium text-amber-300 mb-2">Important Information</h4>
-            <ul className="text-xs text-amber-200/80 space-y-1">
-              <li>• Maximum loan-to-value ratio: 70%</li>
-              <li>• Interest rate: 5% APY (calculated daily)</li>
-              <li>• Origination fee: 0.1% of loan amount</li>
-              <li>• Your staked SUI will be locked as collateral</li>
-              <li>• Repay the loan to unlock your collateral</li>
-            </ul>
-          </div>
-        </div>
-      </div>
+
     </div>
   );
 }; 

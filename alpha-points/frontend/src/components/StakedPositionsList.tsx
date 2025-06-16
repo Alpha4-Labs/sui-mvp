@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { toast } from 'react-toastify';
 import { useAlphaContext, OrphanedStake } from '../context/AlphaContext';
-import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction, buildReclaimPrincipalTransaction } from '../utils/transaction';
+import { buildUnstakeTransaction, buildRegisterStakeTransaction, buildEarlyUnstakeTransaction, buildReclaimPrincipalTransaction, buildClaimWithdrawalTicketTransaction } from '../utils/transaction';
+import { PACKAGE_ID } from '../config/contract';
 import {
   getTransactionErrorMessage,
   getTransactionResponseError,
@@ -51,39 +52,25 @@ const ChevronRightIcon = () => (
   </svg>
 );
 
-// --- New imports needed for ZK Login flow in the new handler ---
-import { Transaction } from '@mysten/sui/transactions';
-import { Ed25519Keypair, Ed25519PublicKey } from '@mysten/sui/keypairs/ed25519';
-import { 
-    getZkLoginSignature, 
-    ZkLoginSignatureInputs as ActualZkLoginSignatureInputs,
-} from '@mysten/sui/zklogin'; 
-import { SuiTransactionBlockResponse } from '@mysten/sui/client'; 
-// Assuming EnokiZkpResponse and related types are defined as in StakeCard.tsx or a shared util
-interface ZkProofPoints { a: string[]; b: string[][]; c: string[]; }
-interface IssBase64DetailsClaim { value: string; indexMod4: number; }
-interface EnokiZkpData { proofPoints: ZkProofPoints; issBase64Details: IssBase64DetailsClaim; headerBase64: string; addressSeed: string; }
-interface EnokiZkpResponse { data: EnokiZkpData; }
-// --- End of new imports ---
-
-// --- Define a combined type for Swiper items ---
-interface SwiperStakeItem extends Omit<StakePosition, 'id'> { 
-  id: string; 
+// --- Combined type for Swiper items ---
+interface SwiperStakeItem {
+  id: string;
+  principal: string;
+  durationDays?: string;
+  maturityPercentage?: number;
+  encumbered?: boolean;
   isOrphaned: false;
 }
 
-interface SwiperOrphanedItem extends OrphanedStake {
-  id: string; // Use stakedSuiObjectId as id for keying
+interface SwiperOrphanedItem {
+  id: string;
+  principal: string;
+  durationDays: number;
   isOrphaned: true;
-  principal: string; // Derived from OrphanedStake.principalAmount for consistency
-  // durationDays is already number in OrphanedStake
-  // calculatedUnlockDate?: string; // Will be N/A or calculated differently if needed
-  // maturityPercentage?: number; // N/A for orphaned
-  // encumbered?: boolean; // Always false for orphaned in this context
-  // apy?: number; // N/A for orphaned from protocol POV
 }
 
-type CombinedStakeListItem = SwiperStakeItem | SwiperOrphanedItem;
+type SwiperItem = SwiperStakeItem | SwiperOrphanedItem;
+
 // --- End of combined type ---
 
 export const StakedPositionsList: React.FC = () => {
@@ -110,6 +97,9 @@ export const StakedPositionsList: React.FC = () => {
   const [earlyUnstakeInProgress, setEarlyUnstakeInProgress] = useState<string | null>(null);
   const [registrationInProgress, setRegistrationInProgress] = useState<string | null>(null);
   const [reclaimPrincipalInProgress, setReclaimPrincipalInProgress] = useState<string | null>(null);
+  const [claimWithdrawalInProgress, setClaimWithdrawalInProgress] = useState<string | null>(null);
+  const [nativeWithdrawInProgress, setNativeWithdrawInProgress] = useState<string | null>(null);
+  const [showWithdrawalGuide, setShowWithdrawalGuide] = useState(false);
   // Migration-related state removed - no longer needed
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -121,6 +111,7 @@ export const StakedPositionsList: React.FC = () => {
   const [lastToastTime, setLastToastTime] = useState<Record<string, number>>({});
 
   const { registerRefreshCallback, signAndExecute } = useTransactionSuccess();
+  const { mutateAsync: rawSignAndExecute } = useSignAndExecuteTransaction();
 
   // Register refresh callback for this component
   React.useEffect(() => {
@@ -276,9 +267,15 @@ export const StakedPositionsList: React.FC = () => {
       // Prevent duplicate toasts caused by React StrictMode
       showToastOnce(`early-unstake-${stakeId}-${txDigest}`, () => {
         toast.success(
-          `Early unstake successful! Received ~${expectedAlphaPoints.toLocaleString()} Alpha Points. ` +
-          `⚠️ Note: You also received a SUI withdrawal ticket. Check your wallet for both assets. ` +
-          `Digest: ${txDigest.substring(0, 10)}...`
+          `🎉 Early unstake successful! You received ~${expectedAlphaPoints.toLocaleString()} Alpha Points ` +
+          `⚠️ IMPORTANT: You also received a SUI withdrawal ticket worth 100% of your stake! ` +
+          `Check your wallet for both: Alpha Points (spendable now) + SUI withdrawal ticket (claimable after 2-3 epochs). ` +
+          `This is a known double-spend issue. ` +
+          `Digest: ${txDigest.substring(0, 10)}...`,
+          {
+            autoClose: 8000, // Longer duration for important message
+            position: "top-center",
+          }
         );
       });
       
@@ -353,6 +350,115 @@ export const StakedPositionsList: React.FC = () => {
     } finally {
       setTransactionLoading(false);
       setReclaimPrincipalInProgress(null);
+    }
+  };
+
+  /**
+   * Handles claiming SUI from a withdrawal ticket after the cooldown period
+   * Users can claim their full SUI principal + staking rewards using this function
+   * @param withdrawalTicketId The ID of the withdrawal ticket (StakedSui in cooldown)
+   * @param principal The principal amount for display purposes
+   */
+  const handleClaimWithdrawalTicket = async (withdrawalTicketId: string, principal: string) => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setClaimWithdrawalInProgress(withdrawalTicketId);
+    setTransactionLoading(true);
+
+    try {
+      const transaction = buildClaimWithdrawalTicketTransaction(withdrawalTicketId);
+      const result = await signAndExecute({ transaction });
+      
+      if (!result || typeof result !== 'object' || !('digest' in result)) {
+        throw new Error('Transaction returned an unexpected response format');
+      }
+      
+      const txDigest = result.digest;
+      const responseError = getTransactionResponseError(result);
+      if (responseError) {
+        throw new Error(responseError);
+      }
+
+      // Prevent duplicate toasts
+      showToastOnce(`claim-withdrawal-${withdrawalTicketId}-${txDigest}`, () => {
+        toast.success(
+          `Successfully claimed SUI from withdrawal ticket! ` +
+          `Received ${formatSui(principal)} SUI + rewards. ` +
+          `Digest: ${txDigest.substring(0, 10)}...`
+        );
+      });
+      
+      // Component will automatically refresh via transaction success hook
+
+    } catch (err: any) {
+      console.error('Error claiming withdrawal ticket:', err);
+      const friendlyErrorMessage = getTransactionErrorMessage(err);
+      
+      // Prevent duplicate error toasts
+      showToastOnce(`claim-withdrawal-error-${withdrawalTicketId}`, () => {
+        toast.error(`Withdrawal claim failed: ${friendlyErrorMessage}`);
+      });
+    } finally {
+      setTransactionLoading(false);
+      setClaimWithdrawalInProgress(null);
+    }
+  };
+
+  /**
+   * Handles claiming SUI from withdrawal tickets using native Sui staking
+   * This bypasses any encumbrance checks from our package by calling the native system directly
+   * @param withdrawalTicketId The ID of the withdrawal ticket (StakedSui in cooldown)
+   * @param principal The principal amount for display purposes
+   */
+  const handleNativeWithdrawStake = async (withdrawalTicketId: string, principal: string) => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setNativeWithdrawInProgress(withdrawalTicketId);
+    setTransactionLoading(true);
+
+    try {
+      const transaction = buildClaimWithdrawalTicketTransaction(withdrawalTicketId);
+      const result = await rawSignAndExecute({ transaction });
+      
+      if (!result || typeof result !== 'object' || !('digest' in result)) {
+        throw new Error('Transaction returned an unexpected response format');
+      }
+      
+      const txDigest = result.digest;
+      const responseError = getTransactionResponseError(result);
+      if (responseError) {
+        throw new Error(responseError);
+      }
+
+      // Prevent duplicate toasts
+      showToastOnce(`native-withdraw-${withdrawalTicketId}-${txDigest}`, () => {
+        toast.success(
+          `🎉 Successfully claimed ${formatSui(principal)} SUI from withdrawal ticket! ` +
+          `Your SUI has been returned to your wallet. ` +
+          `Digest: ${txDigest.substring(0, 10)}...`
+        );
+      });
+      
+      // Manual refresh since we're using raw hook
+      try {
+        await refreshStakePositions();
+        await refreshLoansData();
+        await refreshData();
+      } catch (refreshError) {
+        console.warn('Failed to refresh data after transaction:', refreshError);
+      }
+
+    } catch (err: any) {
+      console.error('Error claiming SUI from withdrawal ticket:', err);
+      const friendlyErrorMessage = getTransactionErrorMessage(err);
+      
+      // Prevent duplicate error toasts
+      showToastOnce(`native-withdraw-error-${withdrawalTicketId}`, () => {
+        toast.error(`SUI claim failed: ${friendlyErrorMessage}`);
+      });
+    } finally {
+      setTransactionLoading(false);
+      setNativeWithdrawInProgress(null);
     }
   };
 
@@ -503,7 +609,7 @@ export const StakedPositionsList: React.FC = () => {
   // --- End of New Handler ---
 
   // --- Prepare combined data for Swiper with better memoization ---
-  const combinedListItems = React.useMemo((): CombinedStakeListItem[] => {
+  const combinedListItems = React.useMemo((): SwiperItem[] => {
     // Only compute if not loading to prevent premature renders
     if (isLoading) return [];
 
@@ -606,107 +712,7 @@ export const StakedPositionsList: React.FC = () => {
           </div>
         </div>
         
-        {/* Individual Stakes Navigation - Only show if multiple stakes and on stakes tab */}
-        {activeTab === 'stakes' && combinedListItems.length > 1 && (
-          <div className="flex items-center gap-1">
-            <button
-              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300"
-              aria-label="Previous stake"
-              onClick={() => swiperInstance?.slidePrev()}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-              </svg>
-            </button>
-            
-            <div className="flex gap-1 mx-1">
-              {(() => {
-                const totalPages = combinedListItems.length;
-                const maxVisible = 3;
-                
-                if (totalPages <= maxVisible) {
-                  // Show all pages if 3 or fewer
-                  return combinedListItems.map((_, idx) => (
-                    <button
-                      key={idx}
-                      className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300
-                        ${activeIndex === idx 
-                          ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25' 
-                          : 'bg-black/20 backdrop-blur-lg border border-white/10 text-gray-300 hover:bg-black/30 hover:border-white/20'
-                        }`}
-                      onClick={() => {
-                        if (swiperInstance) {
-                          if (combinedListItems.length >= 3) {
-                            swiperInstance.slideToLoop(idx);
-                          } else {
-                            swiperInstance.slideTo(idx);
-                          }
-                        }
-                      }}
-                      aria-label={`Go to stake ${idx + 1}`}
-                    >
-                      {idx + 1}
-                    </button>
-                  ));
-                } else {
-                  // Show truncated pagination for more than 3 pages
-                  const pages = [];
-                  
-                  if (activeIndex === 0) {
-                    pages.push(0, 1, 2);
-                  } else if (activeIndex === totalPages - 1) {
-                    pages.push(totalPages - 3, totalPages - 2, totalPages - 1);
-                  } else {
-                    pages.push(activeIndex - 1, activeIndex, activeIndex + 1);
-                  }
-                  
-                  return (
-                    <>
-                      {activeIndex > 1 && (
-                        <span className="text-xs text-gray-400 px-1">...</span>
-                      )}
-                      {pages.map(idx => (
-                        <button
-                          key={idx}
-                          className={`w-6 h-6 flex items-center justify-center rounded text-xs font-semibold transition-all duration-300
-                            ${activeIndex === idx 
-                              ? 'bg-gradient-to-r from-purple-500 to-blue-500 text-white shadow-lg shadow-purple-500/25' 
-                              : 'bg-black/20 backdrop-blur-lg border border-white/10 text-gray-300 hover:bg-black/30 hover:border-white/20'
-                            }`}
-                          onClick={() => {
-                            if (swiperInstance) {
-                              if (combinedListItems.length >= 3) {
-                                swiperInstance.slideToLoop(idx);
-                              } else {
-                                swiperInstance.slideTo(idx);
-                              }
-                            }
-                          }}
-                          aria-label={`Go to stake ${idx + 1}`}
-                        >
-                          {idx + 1}
-                        </button>
-                      ))}
-                      {activeIndex < totalPages - 2 && (
-                        <span className="text-xs text-gray-400 px-1">...</span>
-                      )}
-                    </>
-                  );
-                }
-              })()}
-            </div>
-            
-            <button
-              className="p-1.5 rounded-lg bg-black/20 backdrop-blur-lg border border-white/10 hover:bg-black/30 hover:border-white/20 text-white transition-all duration-300"
-              aria-label="Next stake"
-              onClick={() => swiperInstance?.slideNext()}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-              </svg>
-            </button>
-          </div>
-        )}
+
       </div>
 
       {/* Main Content Swiper */}
@@ -863,6 +869,8 @@ export const StakedPositionsList: React.FC = () => {
                                 )}
                               </button>
                             )}
+
+
                             
                             <div className={`px-2 py-1 rounded text-xs font-medium ${statusChipClass}`}>
                               {statusText}
@@ -917,7 +925,7 @@ export const StakedPositionsList: React.FC = () => {
                       </div> 
 
                       {/* Action Button / Status Info - positioned at the bottom */}
-                      <div className="mt-auto pt-2">
+                      <div className="mt-auto pt-1">
                         {isOrphaned ? (
                           <button
                             onClick={(e) => { 
@@ -974,9 +982,27 @@ export const StakedPositionsList: React.FC = () => {
                             ) : 'Reclaim Principal'}
                           </button>
                         ) : isEarlyWithdrawn ? (
-                          <div className="p-2 bg-blue-900/30 border border-blue-700/50 rounded text-blue-300 text-xs text-center backdrop-blur-sm">
-                            Alpha Points received. You may also have a SUI withdrawal ticket.
-                          </div>
+                          <button
+                            onClick={e => { 
+                              e.preventDefault(); 
+                              e.stopPropagation(); 
+                              handleNativeWithdrawStake(extractOriginalId(item.id), item.principal);
+                            }}
+                            disabled={nativeWithdrawInProgress === extractOriginalId(item.id) || loading.transaction}
+                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-medium py-3 rounded-lg transition-all duration-300 relative z-[28] disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Claim SUI from withdrawal ticket using native Sui staking (bypasses encumbrance)"
+                          >
+                            {nativeWithdrawInProgress === extractOriginalId(item.id) ? (
+                              <span className="absolute inset-0 flex items-center justify-center">
+                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                              </span>
+                            ) : (
+                              '💰 Claim SUI'
+                            )}
+                          </button>
                         ) : null}
                       </div>
                     </a>
@@ -1029,6 +1055,107 @@ export const StakedPositionsList: React.FC = () => {
         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
       </svg>
     </button>
+
+    {/* Withdrawal Guide Modal */}
+    {showWithdrawalGuide && (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            🎯 Claim Your SUI Withdrawal Ticket
+          </h3>
+          <button
+            onClick={() => setShowWithdrawalGuide(false)}
+            className="text-slate-400 hover:text-white transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Warning Box */}
+        <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3 mb-4">
+          <div className="flex items-start gap-2">
+            <span className="text-amber-400 text-lg">⚠️</span>
+            <div className="text-amber-200 text-sm">
+              <strong>Double Spend Issue:</strong> You received both Alpha Points AND a SUI withdrawal ticket worth 100% of your original stake!
+            </div>
+          </div>
+        </div>
+
+        {/* Steps */}
+        <div className="space-y-3 mb-4">
+          <h4 className="text-white font-semibold mb-2">How to claim your SUI:</h4>
+          
+          <div className="space-y-2">
+            <div className="flex items-start gap-3 p-2 bg-green-800/50 rounded border border-green-700/50">
+              <span className="bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✓</span>
+              <div className="text-green-200 text-sm">
+                <strong>NEW:</strong> Click the <span className="bg-purple-600 px-1 rounded text-white">💰 Claim SUI</span> button above! 
+                This bypasses encumbrance and claims your SUI directly.
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-2 bg-slate-800/50 rounded">
+              <span className="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">1</span>
+              <div className="text-slate-300 text-sm">
+                <strong>Alternative:</strong> Look for <code className="bg-slate-700 px-1 rounded text-blue-300">StakePosition&lt;StakedSui&gt;</code> objects in your wallet
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-2 bg-slate-800/50 rounded">
+              <span className="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">2</span>
+              <div className="text-slate-300 text-sm">
+                These are <strong>wrapped withdrawal tickets</strong> - you need to extract the StakedSui first
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-2 bg-slate-800/50 rounded">
+              <span className="bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">3</span>
+              <div className="text-slate-300 text-sm">
+                Wait 2-3 epochs for cooldown, then use Sui Wallet or Suiscan to claim your SUI
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Technical Info */}
+        <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-4">
+          <div className="text-blue-200 text-sm">
+            <strong>Technical Note:</strong> The "💰 Claim SUI" button calls the native Sui staking system directly, 
+            bypassing our package's encumbrance checks. This is the easiest way to claim your SUI!
+          </div>
+        </div>
+
+        {/* Reward Info */}
+        <div className="bg-green-900/30 border border-green-700/50 rounded-lg p-3 mb-4">
+          <div className="flex items-center gap-2 text-green-200 text-sm">
+            <span className="text-green-400">💰</span>
+            <strong>You'll receive:</strong> 100% SUI value + any staking rewards earned!
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              window.open(`https://suiscan.xyz/testnet/account/${alphaAddress}?module=objects&type=${PACKAGE_ID}::stake_position::StakePosition`, '_blank');
+              setShowWithdrawalGuide(false);
+            }}
+            className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-sm font-medium rounded-lg transition-all duration-300"
+          >
+            🔍 Find My Tickets
+          </button>
+          <button
+            onClick={() => setShowWithdrawalGuide(false)}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-medium rounded-lg transition-all duration-300"
+          >
+            Got it
+          </button>
+        </div>
+              </div>
+      </div>
+    )}
   </div>
   );
 };

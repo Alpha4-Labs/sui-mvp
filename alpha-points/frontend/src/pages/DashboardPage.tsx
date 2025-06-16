@@ -153,7 +153,7 @@ export const DashboardPage: React.FC = () => {
           <PerformanceTodayCard />
         </div>
         
-        {/* Column 3: Staked Positions */}
+        {/* Column 3: Staked Positions & Loans (Swipable) */}
         <div className="animate-slide-up animation-delay-400 flex flex-col">
           <StakedPositionsList />
         </div>
