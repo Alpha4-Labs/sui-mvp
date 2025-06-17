@@ -38,7 +38,7 @@ export const UserBalancesCard: React.FC = () => {
                   <span className="text-base text-blue-400 font-medium">SUI</span>
                 </div>
                 <div className="text-xs text-gray-400">
-                  ≈ ${(parseFloat(formatSuiBalance()) * 3.28).toFixed(2)} USD
+                  ??? ${(parseFloat(formatSuiBalance()) * 3.28).toFixed(2)} USD
                 </div>
               </div>
             )}
