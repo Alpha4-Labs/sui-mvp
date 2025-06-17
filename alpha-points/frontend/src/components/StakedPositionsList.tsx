@@ -267,8 +267,8 @@ export const StakedPositionsList: React.FC = () => {
       // Prevent duplicate toasts caused by React StrictMode
       showToastOnce(`early-unstake-${stakeId}-${txDigest}`, () => {
         toast.success(
-          `???? Early unstake successful! You received ~${expectedAlphaPoints.toLocaleString()} Alpha Points ` +
-          `?????? IMPORTANT: You also received a SUI withdrawal ticket worth 100% of your stake! ` +
+                  `🎉 Early unstake successful! You received ~${expectedAlphaPoints.toLocaleString()} Alpha Points ` +
+        `⚠️ IMPORTANT: You also received a SUI withdrawal ticket worth 100% of your stake! ` +
           `Check your wallet for both: Alpha Points (spendable now) + SUI withdrawal ticket (claimable after 2-3 epochs). ` +
           `This is a known double-spend issue. ` +
           `Digest: ${txDigest.substring(0, 10)}...`,
@@ -332,7 +332,7 @@ export const StakedPositionsList: React.FC = () => {
         toast.success(
           `Alpha Points returned successfully! ` +
           `Returned ${alphaPointsReceived.toLocaleString()} Alpha Points. ` +
-          `?????? Note: Due to current system limitations, you may already have the SUI withdrawal ticket. ` +
+          `⚠️ Note: Due to current system limitations, you may already have the SUI withdrawal ticket. ` +
           `Digest: ${txDigest.substring(0, 10)}...`
         );
       });
@@ -433,7 +433,7 @@ export const StakedPositionsList: React.FC = () => {
       // Prevent duplicate toasts
       showToastOnce(`native-withdraw-${withdrawalTicketId}-${txDigest}`, () => {
         toast.success(
-          `???? Successfully claimed ${formatSui(principal)} SUI from withdrawal ticket! ` +
+          `🎉 Successfully claimed ${formatSui(principal)} SUI from withdrawal ticket! ` +
           `Your SUI has been returned to your wallet. ` +
           `Digest: ${txDigest.substring(0, 10)}...`
         );
@@ -857,7 +857,7 @@ export const StakedPositionsList: React.FC = () => {
                                 onClick={e => { e.preventDefault(); e.stopPropagation(); handleEarlyUnstake(extractOriginalId(item.id), item.principal); }}
                                 disabled={earlyUnstakeInProgress === extractOriginalId(item.id) || loading.transaction}
                                 className="px-2 py-1 bg-gradient-to-r from-orange-600 to-yellow-600 hover:from-orange-500 hover:to-yellow-500 text-white text-xs font-medium rounded transition-all duration-300 disabled:opacity-50 relative z-[28]"
-                                title="?????? Get Alpha Points + SUI withdrawal ticket immediately (both assets)"
+                                title="⚠️ Get Alpha Points + SUI withdrawal ticket immediately (both assets)"
                               >
                                 {earlyUnstakeInProgress === extractOriginalId(item.id) ? (
                                   <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -1000,7 +1000,7 @@ export const StakedPositionsList: React.FC = () => {
                                 </svg>
                               </span>
                             ) : (
-                              '???? Claim SUI'
+                                                              '🎯 Claim SUI'
                             )}
                           </button>
                         ) : null}
@@ -1063,7 +1063,7 @@ export const StakedPositionsList: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            ???? Claim Your SUI Withdrawal Ticket
+                                      🎯 Claim Your SUI Withdrawal Ticket
           </h3>
           <button
             onClick={() => setShowWithdrawalGuide(false)}
