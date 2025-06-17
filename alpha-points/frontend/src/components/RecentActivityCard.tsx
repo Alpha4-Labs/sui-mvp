@@ -162,7 +162,7 @@ export const RecentActivityCard: React.FC = () => {
     // For activities with values (points), ensure they're not "0 ??P" or similar invalid values
     if (activity.value) {
       // Check for "0 ??P", "+0 ??P", "-0 ??P" patterns
-      if (activity.value.match(/^[+-]?0(\.\d+)?\s*??P$/)) {
+      if (activity.value.match(/^[+-]?0(\.\d+)?\s*\?\?P$/)) {
         return false;
       }
     }
