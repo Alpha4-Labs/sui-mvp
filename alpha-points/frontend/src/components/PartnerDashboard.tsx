@@ -1183,36 +1183,36 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           <h3 className="text-lg font-semibold text-white mb-2">TVL Backing</h3>
           <div className="text-3xl font-bold text-blue-400 mb-1">
             ${tvlBackingUsd.toLocaleString()}
-          </div>
+              </div>
           <div className="text-sm text-gray-400">Current Effective USD Value</div>
           <div className="text-xs text-gray-500 mt-2">
             Rate: $1 USD = 1,000 Alpha Points lifetime quota
-          </div>
-          
+              </div>
+              
           {/* Collateral Management Actions */}
           <div className="mt-4 pt-3 border-t border-gray-700">
             <div className="space-y-2">
-              <Button 
+                <Button 
                 className="w-full text-sm btn-modern-primary"
-                onClick={() => setShowCollateralModal({ type: 'topup', isOpen: true })}
-              >
+                  onClick={() => setShowCollateralModal({ type: 'topup', isOpen: true })}
+                >
                 <span className="mr-2">⬆️</span>
                 Top Up Current Collateral
-              </Button>
-              <Button 
+                </Button>
+                <Button 
                 className="w-full text-sm bg-green-600 hover:bg-green-700"
-                onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
-              >
+                  onClick={() => setShowCollateralModal({ type: 'add', isOpen: true })}
+                >
                 <span className="mr-2">➕</span>
                 Add Different Backing
-              </Button>
-            </div>
+                </Button>
+              </div>
             <p className="text-xs text-gray-500 mt-2 text-center">
               Increase your quota by adding more collateral
             </p>
           </div>
         </div>
-        
+
         {/* Daily Quota Card */}
         <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-2">Daily Quota</h3>
@@ -1222,15 +1222,15 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
             <div 
               className="bg-blue-400 h-2 rounded-full transition-all duration-300" 
-              style={{ width: `${Math.min(dailyUsedPercent, 100)}%` }}
+                    style={{ width: `${Math.min(dailyUsedPercent, 100)}%` }}
             ></div>
-          </div>
+                  </div>
           <div className="text-sm text-gray-400">{dailyUsedPercent.toFixed(1)}% used today</div>
           <div className="text-xs text-gray-500 mt-1">
             3% of lifetime quota ({pointsMintedToday.toLocaleString()} minted)
-          </div>
-        </div>
-        
+              </div>
+            </div>
+            
         {/* Lifetime Quota Card */}
         <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-2">Lifetime Quota</h3>
@@ -1240,15 +1240,15 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
             <div 
               className="bg-blue-400 h-2 rounded-full transition-all duration-300" 
-              style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
+                    style={{ width: `${Math.min(lifetimeUsedPercent, 100)}%` }}
             ></div>
-          </div>
+                  </div>
           <div className="text-sm text-gray-400">{lifetimeUsedPercent.toFixed(1)}% used total</div>
           <div className="text-xs text-gray-500 mt-1">
             Total minted: {lifetimeMinted.toLocaleString()} AP
-          </div>
-        </div>
-      </div>
+                    </div>
+                </div>
+                </div>
     );
   };
 
@@ -1260,45 +1260,45 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         {/* Partner Status Card */}
         <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Partner Status</h3>
-          <div className="space-y-4">
+            <div className="space-y-4">
             <div className="flex justify-between items-center p-3 bg-gray-900/50 rounded-lg">
               <div>
                 <div className="text-white font-medium">Perks Created</div>
                 <div className="text-sm text-gray-400">Total marketplace perks</div>
-              </div>
+                  </div>
               <div className="text-primary font-semibold">
-                {(() => {
+              {(() => {
                   const metrics = getPartnerPerkMetrics(partnerCap.id);
                   return metrics.totalPerks || partnerCap.totalPerksCreated || 0;
                 })()}
-              </div>
-            </div>
+                    </div>
+                    </div>
 
             <div className="flex justify-between items-center p-3 bg-background rounded-lg">
               <div>
                 <div className="text-white font-medium">Revenue Split</div>
                 <div className="text-sm text-gray-400">70% direct, 20% TVL reinvest, 10% platform</div>
-              </div>
+                    </div>
               <div className="text-green-400 font-semibold">
                 Enhanced
-              </div>
-            </div>
+                    </div>
+                    </div>
 
             <div className="flex justify-between items-center p-3 bg-background rounded-lg">
               <div>
                 <div className="text-white font-medium">Your SUI Balance</div>
                 <div className="text-sm text-gray-400">Available wallet balance</div>
-              </div>
+                    </div>
               <div className="flex items-center space-x-3">
                 <div className="flex items-center text-primary font-semibold">
-                  {loading.suiBalance ? (
+                    {loading.suiBalance ? (
                     <div className="w-6 h-6 bg-gray-700 rounded animate-pulse mr-2"></div>
-                  ) : (
-                    <>
+                    ) : (
+                      <>
                       {formatSui(suiBalance)}
                       <img src={suiLogo} alt="Sui Logo" className="w-5 h-5 rounded-full object-cover ml-2" />
-                    </>
-                  )}
+                      </>
+                    )}
                 </div>
                 <a
                   href="https://faucet.testnet.sui.io/"
@@ -1309,10 +1309,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   Get Testnet SUI
                 </a>
               </div>
-            </div>
-          </div>
-        </div>
-        
+                </div>
+                    </div>
+                  </div>
+
         {/* Quick Actions Card */}
         <div className="bg-background-card rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
@@ -1340,12 +1340,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   Create Additional Partner Cap
                 </Button>
               </Link>
+                    </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
 
   const renderPerksTab = () => {
     const exampleSets = [
@@ -1447,12 +1447,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   "{partnerCap.partnerName}" has no blockchain settings configured. Configure settings first to enable perk creation.
                 </div>
               </div>
-              <button
-                onClick={() => navigate('/partners/settings')}
+            <button
+              onClick={() => navigate('/partners/settings')}
                 className="px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white text-xs rounded font-medium transition-colors"
-              >
+            >
                 Configure Now
-              </button>
+            </button>
             </div>
           </div>
         );
@@ -1500,12 +1500,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   Settings exist for "{partnerCap.partnerName}" but contain invalid values. Please update them.
                 </div>
               </div>
-              <button
-                onClick={() => navigate('/partners/settings')}
+            <button
+              onClick={() => navigate('/partners/settings')}
                 className="btn-modern-primary text-xs px-3 py-1"
-              >
+            >
                 Fix Settings
-              </button>
+            </button>
             </div>
           </div>
         );
@@ -1541,12 +1541,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   Configure settings for "{partnerCap.partnerName}" to enable perk creation validation.
                 </div>
               </div>
-              <button
-                onClick={() => navigate('/partners/settings')}
+            <button
+              onClick={() => navigate('/partners/settings')}
                 className="btn-modern-primary text-xs px-3 py-1"
-              >
+            >
                 Go to Settings
-              </button>
+            </button>
             </div>
           </div>
         );
@@ -1706,33 +1706,33 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       };
       
       // Normal validation when settings are configured
-      return (
+        return (
         <div className="grid grid-cols-2 gap-3 text-xs">
-          {/* Left Column - Validation Status */}
-          <div className="space-y-2">
-            {/* Price Validation */}
-            <div className="flex items-center space-x-2">
-              {renderPriceValidation()}
+            {/* Left Column - Validation Status */}
+            <div className="space-y-2">
+              {/* Price Validation */}
+              <div className="flex items-center space-x-2">
+                {renderPriceValidation()}
+              </div>
+              
+              {/* Revenue Split Validation */}
+              <div className="flex items-center space-x-2">
+                {renderSplitValidation()}
+              </div>
             </div>
             
-            {/* Revenue Split Validation */}
-            <div className="flex items-center space-x-2">
-              {renderSplitValidation()}
-            </div>
-          </div>
-          
-          {/* Right Column - Requirements */}
-          <div className="space-y-2">
-            {/* Tags Validation */}
-            <div className="flex items-center space-x-2">
-              {renderTagsValidation()}
-            </div>
-            
+            {/* Right Column - Requirements */}
+            <div className="space-y-2">
+              {/* Tags Validation */}
+              <div className="flex items-center space-x-2">
+                {renderTagsValidation()}
+              </div>
+              
             {/* Overall Readiness */}
-            <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2">
               {renderReadinessValidation()}
+              </div>
             </div>
-          </div>
         </div>
       );
     };
@@ -1847,139 +1847,139 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 
                 {/* LEFT COLUMN: Input Fields Stack */}
                 <div className="space-y-3">
-                  <Input
-                    placeholder="Perk Name"
-                    value={newPerkName}
-                    onChange={(e) => setNewPerkName(e.target.value)}
-                    disabled={isCreatingPerk}
-                    className="w-full"
-                    title="Enter a catchy name for your perk (e.g., 'VIP Discord Access', 'Exclusive NFT')"
-                  />
-                  
-                  <select
-                    value={newPerkType}
-                    onChange={(e) => setNewPerkType(e.target.value)}
-                    disabled={isCreatingPerk}
-                    className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500"
-                    title="Select the primary type/category for this perk"
-                  >
-                    <option value="Access">Access</option>
-                    <option value="Service">Service</option>
-                    <option value="Digital Asset">Digital Asset</option>
-                    <option value="Physical">Physical</option>
-                    <option value="Event">Event</option>
-                    <option value="VIP">VIP</option>
-                    <option value="Premium">Premium</option>
-                    <option value="Exclusive">Exclusive</option>
-                    <option value="Limited">Limited</option>
-                    <option value="Beta">Beta</option>
-                  </select>
-                  
-                  <Input
-                    type="number"
-                    placeholder="USDC Price"
-                    value={newPerkUsdcPrice}
-                    onChange={(e) => setNewPerkUsdcPrice(e.target.value)}
-                    disabled={isCreatingPerk}
-                    step="0.01"
-                    min="0"
-                    className="w-full"
-                    title="Set the price in USDC (e.g., 10.00 for $10). This determines the Alpha Points cost."
-                  />
-                  
-                  {/* Streamlined Tag Selector */}
-                  <div className="relative tag-selector" title="Select up to 5 tags to categorize your perk and make it discoverable">
-                    <div 
-                      className="min-h-[40px] border border-gray-600 rounded-md bg-gray-900/50 px-3 py-2 cursor-pointer"
-                      onClick={() => setShowTagDropdown(!showTagDropdown)}
+                    <Input
+                      placeholder="Perk Name"
+                      value={newPerkName}
+                      onChange={(e) => setNewPerkName(e.target.value)}
+                      disabled={isCreatingPerk}
+                      className="w-full"
+                      title="Enter a catchy name for your perk (e.g., 'VIP Discord Access', 'Exclusive NFT')"
+                    />
+                    
+                    <select
+                      value={newPerkType}
+                      onChange={(e) => setNewPerkType(e.target.value)}
+                      disabled={isCreatingPerk}
+                      className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500"
+                      title="Select the primary type/category for this perk"
                     >
-                      {newPerkTags.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {newPerkTags.map((tag, index) => (
-                            <span key={index} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-300 text-xs rounded border border-blue-600/30">
-                              {tag}
+                      <option value="Access">Access</option>
+                      <option value="Service">Service</option>
+                      <option value="Digital Asset">Digital Asset</option>
+                      <option value="Physical">Physical</option>
+                      <option value="Event">Event</option>
+                      <option value="VIP">VIP</option>
+                      <option value="Premium">Premium</option>
+                      <option value="Exclusive">Exclusive</option>
+                      <option value="Limited">Limited</option>
+                      <option value="Beta">Beta</option>
+                    </select>
+                  
+                    <Input
+                      type="number"
+                      placeholder="USDC Price"
+                      value={newPerkUsdcPrice}
+                      onChange={(e) => setNewPerkUsdcPrice(e.target.value)}
+                      disabled={isCreatingPerk}
+                      step="0.01"
+                      min="0"
+                      className="w-full"
+                      title="Set the price in USDC (e.g., 10.00 for $10). This determines the Alpha Points cost."
+                    />
+                    
+                    {/* Streamlined Tag Selector */}
+                    <div className="relative tag-selector" title="Select up to 5 tags to categorize your perk and make it discoverable">
+                      <div 
+                        className="min-h-[40px] border border-gray-600 rounded-md bg-gray-900/50 px-3 py-2 cursor-pointer"
+                        onClick={() => setShowTagDropdown(!showTagDropdown)}
+                      >
+                        {newPerkTags.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {newPerkTags.map((tag, index) => (
+                              <span key={index} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-300 text-xs rounded border border-blue-600/30">
+                                {tag}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeTag(tag);
+                                  }}
+                                  className="text-blue-400 hover:text-blue-200 text-xs"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">Select tags...</span>
+                        )}
+                      </div>
+                      
+                      {showTagDropdown && (
+                        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-gray-800/95 backdrop-blur-lg border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                          {/* Custom tag input */}
+                          <div className="p-2 border-b border-gray-600">
+                            <div className="flex gap-1">
+                              <input
+                                type="text"
+                                placeholder="Custom tag..."
+                                value={tagInput}
+                                onChange={(e) => setTagInput(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && handleCustomTag()}
+                                className="flex-1 px-2 py-1 text-xs bg-gray-900/50 border border-gray-600 rounded"
+                                maxLength={20}
+                              />
                               <button
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeTag(tag);
-                                }}
-                                className="text-blue-400 hover:text-blue-200 text-xs"
+                                onClick={handleCustomTag}
+                                disabled={!tagInput.trim() || newPerkTags.length >= 5}
+                                className="btn-modern-primary text-xs px-2 py-1"
                               >
-                                ×
+                                Add
                               </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">Select tags...</span>
-                      )}
-                    </div>
-                    
-                    {showTagDropdown && (
-                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-gray-800/95 backdrop-blur-lg border border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                        {/* Custom tag input */}
-                        <div className="p-2 border-b border-gray-600">
-                          <div className="flex gap-1">
-                            <input
-                              type="text"
-                              placeholder="Custom tag..."
-                              value={tagInput}
-                              onChange={(e) => setTagInput(e.target.value)}
-                              onKeyPress={(e) => e.key === 'Enter' && handleCustomTag()}
-                              className="flex-1 px-2 py-1 text-xs bg-gray-900/50 border border-gray-600 rounded"
-                              maxLength={20}
-                            />
-                            <button
-                              type="button"
-                              onClick={handleCustomTag}
-                              disabled={!tagInput.trim() || newPerkTags.length >= 5}
-                              className="btn-modern-primary text-xs px-2 py-1"
-                            >
-                              Add
-                            </button>
+                            </div>
+                          </div>
+                          
+                          {/* Predefined tags */}
+                          <div className="p-1">
+                            {(tagInput ? filteredTags : availableTags.filter(tag => !newPerkTags.includes(tag))).map((tag) => (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => addTag(tag)}
+                                disabled={newPerkTags.length >= 5}
+                                className="w-full text-left px-2 py-1 text-xs hover:bg-gray-700 rounded disabled:opacity-50 disabled:hover:bg-transparent"
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                            {tagInput && filteredTags.length === 0 && (
+                              <div className="px-2 py-1 text-xs text-gray-400">No matching tags</div>
+                            )}
                           </div>
                         </div>
-                        
-                        {/* Predefined tags */}
-                        <div className="p-1">
-                          {(tagInput ? filteredTags : availableTags.filter(tag => !newPerkTags.includes(tag))).map((tag) => (
-                            <button
-                              key={tag}
-                              type="button"
-                              onClick={() => addTag(tag)}
-                              disabled={newPerkTags.length >= 5}
-                              className="w-full text-left px-2 py-1 text-xs hover:bg-gray-700 rounded disabled:opacity-50 disabled:hover:bg-transparent"
-                            >
-                              {tag}
-                            </button>
-                          ))}
-                          {tagInput && filteredTags.length === 0 && (
-                            <div className="px-2 py-1 text-xs text-gray-400">No matching tags</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-                
+                  
                 {/* MIDDLE COLUMN: Revenue Slider */}
                 <div className="flex flex-col justify-center" title="Control revenue split: Direct payment vs. TVL reinvestment">
                   <div className="text-center mb-4">
                     <div className="text-sm font-medium text-gray-300 mb-2">Revenue Split</div>
                     <div className="text-xs text-gray-400 mb-3">
                       Adjust the balance between direct revenue and TVL reinvestment
-                    </div>
+                      </div>
                   </div>
                   
-                  <div className="relative px-2">
-                    <input
-                      type="range"
-                      min="0"
+                    <div className="relative px-2">
+                      <input
+                        type="range"
+                        min="0"
                       max="60"
-                      value={newPerkReinvestmentPercent}
-                      onChange={(e) => setNewPerkReinvestmentPercent(parseInt(e.target.value))}
-                      disabled={isCreatingPerk}
+                        value={newPerkReinvestmentPercent}
+                        onChange={(e) => setNewPerkReinvestmentPercent(parseInt(e.target.value))}
+                        disabled={isCreatingPerk}
                       className={`w-full h-3 bg-gray-600 rounded-lg appearance-none cursor-pointer slider ${
                         (() => {
                           const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
@@ -1993,9 +1993,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     <div className="flex justify-between text-xs text-gray-400 mt-2">
                       <span>💰 Revenue</span>
                       <span>🔄 Reinvest</span>
+                      </div>
                     </div>
-                  </div>
-                  
+                    
                   <div className="text-center mt-4">
                     <div className={`text-lg font-bold mb-1 ${
                       (() => {
@@ -2004,16 +2004,16 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                       })()
                     }`}>
                       {calculatePartnerShare(newPerkReinvestmentPercent)}% / {newPerkReinvestmentPercent}% / 10%
-                      {(() => {
+                    {(() => {
                         const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
                         return (partnerShare < 10 || partnerShare > 90) ? ' ⚠️' : '';
-                      })()}
-                    </div>
+                    })()}
+                  </div>
                     <div className="text-xs text-gray-500">
                       Revenue / Reinvest / Platform
-                    </div>
-                  </div>
-                </div>
+                          </div>
+                        </div>
+                      </div>
                 
                 {/* RIGHT COLUMN: Alpha Points Display */}
                 <div className="flex flex-col justify-center">
@@ -2037,8 +2037,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                       </div>
                       <div className="text-xs text-gray-400 pt-2">
                         Rate: $1 USD = 1,000 Alpha Points
-                      </div>
                     </div>
+                          </div>
                   ) : (
                     <div className="text-center p-4 bg-background-input rounded-lg border border-gray-600 opacity-50">
                       <div className="text-sm text-gray-400 mb-2">Alpha Points Cost</div>
@@ -2087,14 +2087,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 <h5 className="text-sm font-medium text-blue-400">{exampleSets[currentExampleSet]?.title || 'Examples'}</h5>
                 <svg className="w-3 h-3 text-blue-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
+                    </svg>
                 <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block w-64 p-2 bg-gray-900 border border-blue-700 rounded-lg shadow-lg z-10">
                   <p className="text-blue-300 text-xs">{exampleSets[currentExampleSet]?.tooltip || 'Example tooltip'}</p>
                 </div>
               </div>
               <div className="flex space-x-1">
                 {exampleSets.map((_, index) => (
-                  <button
+                       <button
                     key={index}
                     onClick={() => setCurrentExampleSet(index)}
                     className={`w-2 h-2 rounded-full transition-colors ${
@@ -2102,7 +2102,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     }`}
                   />
                 ))}
-              </div>
+                     </div>
               <div className="flex items-center space-x-1 group relative">
                 <svg className="w-4 h-4 text-green-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
@@ -2111,16 +2111,16 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   <p className="text-green-300 text-sm">
                     <strong>💡 Pro Tip:</strong> The slider controls your revenue split. More reinvestment grows your TVL (increasing future quotas), while more direct revenue gives immediate profit. Default: 70% revenue, 20% reinvestment, 10% platform.
                   </p>
-                </div>
-              </div>
-            </div>
+                         </div>
+                       </div>
+                         </div>
             
             {/* Example Perk Templates */}
             <div className="mt-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {exampleSets[currentExampleSet]?.cards.map((card, index) => (
                   <div key={index} className="bg-background rounded-lg p-2 border border-gray-700">
-                    <div className="flex items-center space-x-2 mb-1">
+                       <div className="flex items-center space-x-2 mb-1">
                       <span className="text-lg">
                         {card.type === 'Access' ? '🔑' :
                          card.type === 'Service' ? '🎧' :
@@ -2128,28 +2128,28 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                          card.type === 'Physical' ? '📦' :
                          card.type === 'Event' ? '🎫' : '🎁'}
                       </span>
-                      <div className="flex-1">
+                         <div className="flex-1">
                         <div className="font-medium text-white text-sm">{card.title}</div>
                         <div className="text-xs text-gray-400">{card.type}</div>
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Price:</span>
+                         </div>
+                     </div>
+
+                       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-1">
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Price:</span>
                         <span className="text-green-400">${card.price}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Revenue:</span>
+                         </div>
+                         <div className="flex justify-between">
+                           <span className="text-gray-400">Revenue:</span>
                         <span className="text-purple-400">{card.share}%</span>
-                      </div>
-                    </div>
+                         </div>
+                       </div>
                     
                     <p className="text-xs text-gray-500 line-clamp-2">{card.description}</p>
                     
-                    <button
+                       <button
                       className="w-full mt-1 px-2 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-xs rounded transition-colors"
-                      onClick={() => {
+                         onClick={() => {
                         // Auto-fill form with example data
                         setNewPerkName(card.title);
                         setNewPerkDescription(card.description);
@@ -2158,15 +2158,15 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                         const reinvestmentPercent = 90 - parseInt(card.share);
                         setNewPerkReinvestmentPercent(reinvestmentPercent);
                         setNewPerkTags([card.type]);
-                      }}
-                    >
-                      Use Template
-                    </button>
-                  </div>
+                         }}
+                       >
+                         Use Template
+                       </button>
+                     </div>
                 ))}
-              </div>
-            </div>
-            
+                   </div>
+                     </div>
+
             {/* Best Practices & Key Insights */}
             <div className="mt-4">
               <h5 className="text-sm font-semibold text-white flex items-center mb-2">
@@ -2234,14 +2234,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   >
                     💎
                   </span>
-                </div>
-                
+                     </div>
+
                 {/* Live Compliance Checking - Inline */}
                 <div className="flex-1 max-w-md ml-4">
                   {renderComplianceCheck()}
-                </div>
-              </div>
-            </div>
+                         </div>
+                       </div>
+                         </div>
           </div>
         </div>
         
@@ -2251,8 +2251,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             <h4 className="text-lg font-semibold text-white">Your Perks</h4>
             <div className="flex items-center space-x-2">
               {/* Show current partner info */}
-              <div className="text-xs text-gray-400">
-                {partnerCap.partnerName}
+            <div className="text-xs text-gray-400">
+              {partnerCap.partnerName}
               </div>
               
               <Button 
@@ -2727,7 +2727,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   <div className="flex items-center text-sm text-amber-300">
                     <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                    </svg>
+                        </svg>
                     Real-Time Only
                   </div>
                 </div>
@@ -2772,11 +2772,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                            <div className="bg-gray-800 bg-opacity-95 backdrop-blur-sm border border-gray-600 p-3 rounded-lg shadow-lg text-sm">
                              <p className="text-gray-300 mb-2">{label}</p>
                              {payload.map((entry: any, idx: number) => (
-                               <p key={idx} style={{ color: entry.stroke }}>
+                                 <p key={idx} style={{ color: entry.stroke }}>
                                  {entry.name}: {entry.value.toLocaleString()}
-                                 {entry.dataKey === 'tvlBacking' ? ' USD' : 
-                                  entry.dataKey === 'dailyQuotaUsage' ? '%' : ' AP'}
-                               </p>
+                                   {entry.dataKey === 'tvlBacking' ? ' USD' : 
+                                    entry.dataKey === 'dailyQuotaUsage' ? '%' : ' AP'}
+                                 </p>
                              ))}
                            </div>
                          );
@@ -3040,16 +3040,16 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold text-white">Current Settings</h3>
-            {isLoadingSettings && (
-              <div className="flex items-center text-blue-400">
-                <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span className="text-sm">Loading...</span>
-              </div>
-            )}
-              </div>
+              {isLoadingSettings && (
+                <div className="flex items-center text-blue-400">
+                  <svg className="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-sm">Loading...</span>
+                </div>
+              )}
+          </div>
 
           {settingsError ? (
             <div className="text-center py-8">
@@ -3208,14 +3208,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         <div className="bg-gray-800/95 backdrop-blur-lg border border-gray-700/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold text-white">Configure Settings</h3>
-            {currentSettings && (
-              <Button 
-                onClick={() => resetFormToCurrentSettings()}
-                className="bg-gray-600 hover:bg-gray-700 text-sm px-3 py-1"
-              >
-                Reset to Current
-              </Button>
-            )}
+              {currentSettings && (
+                <Button 
+                  onClick={() => resetFormToCurrentSettings()}
+                  className="bg-gray-600 hover:bg-gray-700 text-sm px-3 py-1"
+                >
+                  Reset to Current
+                </Button>
+              )}
           </div>
           
           <div className="space-y-4">
