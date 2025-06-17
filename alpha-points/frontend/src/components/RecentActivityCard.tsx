@@ -159,18 +159,18 @@ export const RecentActivityCard: React.FC = () => {
       return false;
     }
     
-    // For activities with values (points), ensure they're not "0 ??P" or similar invalid values
+    // For activities with values (points), ensure they're not "0 αP" or similar invalid values
     if (activity.value) {
-      // Check for "0 ??P", "+0 ??P", "-0 ??P" patterns
-      if (activity.value.match(/^[+-]?0(\.\d+)?\s*\?\?P$/)) {
+      // Check for "0 αP", "+0 αP", "-0 αP" patterns
+      if (activity.value.match(/^[+-]?0(\.\d+)?\s*αP$/)) {
         return false;
       }
     }
     
     // For early unstake activities, ensure they have meaningful data
     if (activity.type === 'early_unstake') {
-      // Reject if description contains "0.00 SUI" or "0 ??P"
-      if (activity.description.includes('0.00 SUI') || activity.description.includes('0 ??P')) {
+      // Reject if description contains "0.00 SUI" or "0 αP"
+      if (activity.description.includes('0.00 SUI') || activity.description.includes('0 αP')) {
         return false;
       }
     }
@@ -183,7 +183,7 @@ export const RecentActivityCard: React.FC = () => {
     
     // For points activities, ensure non-zero amounts
     if (['points_earned', 'points_spent', 'points_locked', 'points_unlocked'].includes(activity.type)) {
-      if (activity.description.includes('0 ??P')) {
+      if (activity.description.includes('0 αP')) {
         return false;
       }
     }
@@ -202,10 +202,10 @@ export const RecentActivityCard: React.FC = () => {
           type: 'points_earned',
           title: isUserActivity ? 'You Earned Alpha Points' : 'Alpha Points Earned',
           description: isUserActivity 
-            ? `Earned ${formatPoints(event.amount || 0)} ??P`
-            : `${shortenAddress(event.userAddress || '')} earned ${formatPoints(event.amount || 0)} ??P`,
+            ? `Earned ${formatPoints(event.amount || 0)} αP`
+            : `${shortenAddress(event.userAddress || '')} earned ${formatPoints(event.amount || 0)} αP`,
           timestamp: event.timestamp,
-          value: `+${formatPoints(event.amount || 0)} ??P`,
+          value: `+${formatPoints(event.amount || 0)} αP`,
           icon: 'plus',
           txDigest: event.txDigest,
           userAddress: event.userAddress,
@@ -217,10 +217,10 @@ export const RecentActivityCard: React.FC = () => {
           type: 'points_spent',
           title: isUserActivity ? 'You Spent Alpha Points' : 'Alpha Points Spent',
           description: isUserActivity
-            ? `Spent ${formatPoints(event.amount || 0)} ??P`
-            : `${shortenAddress(event.userAddress || '')} spent ${formatPoints(event.amount || 0)} ??P`,
+            ? `Spent ${formatPoints(event.amount || 0)} αP`
+            : `${shortenAddress(event.userAddress || '')} spent ${formatPoints(event.amount || 0)} αP`,
           timestamp: event.timestamp,
-          value: `-${formatPoints(event.amount || 0)} ??P`,
+          value: `-${formatPoints(event.amount || 0)} αP`,
           icon: 'minus',
           txDigest: event.txDigest,
           userAddress: event.userAddress,
@@ -232,10 +232,10 @@ export const RecentActivityCard: React.FC = () => {
           type: 'perk_claimed',
           title: isUserActivity ? 'You Claimed a Perk' : 'Perk Claimed',
           description: isUserActivity
-            ? `Spent ${formatPoints(event.amount || 0)} ??P on perk`
+            ? `Spent ${formatPoints(event.amount || 0)} αP on perk`
             : `${shortenAddress(event.userAddress || '')} claimed a perk`,
           timestamp: event.timestamp,
-          value: `-${formatPoints(event.amount || 0)} ??P`,
+          value: `-${formatPoints(event.amount || 0)} αP`,
           icon: 'gift',
           txDigest: event.txDigest,
           userAddress: event.userAddress,
@@ -260,12 +260,12 @@ export const RecentActivityCard: React.FC = () => {
         return {
           id: event.id,
           type: 'early_unstake',
-          title: isUserActivity ? 'You Early Unstaked for ??P' : 'Early Unstake for ??P',
+          title: isUserActivity ? 'You Early Unstaked for αP' : 'Early Unstake for αP',
           description: isUserActivity
-            ? `Received ${formatPoints(event.amount || 0)} ??P for ${((event.eventData?.principal || 0) / 1_000_000_000).toFixed(2)} SUI`
-            : `${shortenAddress(event.userAddress || '')} early unstaked for ??P`,
+            ? `Received ${formatPoints(event.amount || 0)} αP for ${((event.eventData?.principal || 0) / 1_000_000_000).toFixed(2)} SUI`
+            : `${shortenAddress(event.userAddress || '')} early unstaked for αP`,
           timestamp: event.timestamp,
-          value: `+${formatPoints(event.amount || 0)} ??P`,
+          value: `+${formatPoints(event.amount || 0)} αP`,
           badge: 'Early',
           icon: 'zap',
           txDigest: event.txDigest,
@@ -278,10 +278,10 @@ export const RecentActivityCard: React.FC = () => {
           type: 'loan_created',
           title: isUserActivity ? 'You Created a Loan' : 'New Loan Created',
           description: isUserActivity
-            ? `Borrowed ${formatPoints(event.amount || 0)} ??P`
-            : `${shortenAddress(event.userAddress || '')} borrowed ${formatPoints(event.amount || 0)} ??P`,
+            ? `Borrowed ${formatPoints(event.amount || 0)} αP`
+            : `${shortenAddress(event.userAddress || '')} borrowed ${formatPoints(event.amount || 0)} αP`,
           timestamp: event.timestamp,
-          value: `???? ${formatPoints(event.amount || 0)} ??P`,
+          value: `💰 ${formatPoints(event.amount || 0)} αP`,
           icon: 'coin',
           txDigest: event.txDigest,
           userAddress: event.userAddress,
@@ -432,7 +432,7 @@ export const RecentActivityCard: React.FC = () => {
                       <span className="text-xs px-1 py-0.5 bg-blue-500/20 text-blue-400 rounded">You</span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 truncate">{activity.description} ??? {formatTimeAgo(activity.timestamp)}</p>
+                  <p className="text-xs text-gray-400 truncate">{activity.description} • {formatTimeAgo(activity.timestamp)}</p>
                 </div>
                 {activity.value && (
                   <span className="text-sm font-semibold text-white">{activity.value}</span>

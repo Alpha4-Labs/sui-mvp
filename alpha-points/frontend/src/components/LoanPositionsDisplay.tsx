@@ -98,14 +98,14 @@ export const LoanPositionsDisplay: React.FC = () => {
                       <span className="text-gray-400 text-sm">Borrowed</span>
                       <div className="text-right">
                         <span className="text-white font-semibold">{formatPoints(loan.principalPoints)}</span>
-                        <span className="text-purple-400 text-sm ml-1">??P</span>
+                        <span className="text-purple-400 text-sm ml-1">αP</span>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between">
                       <span className="text-gray-400 text-sm">Interest</span>
                       <span className="text-orange-400 text-sm font-medium">
-                        {formatPoints(loan.interestOwedPoints)} ??P
+                        {formatPoints(loan.interestOwedPoints)} αP
                       </span>
                     </div>
                   </div>
@@ -122,7 +122,7 @@ export const LoanPositionsDisplay: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <span className="text-gray-400 text-sm">Total Due</span>
                       <span className="text-red-400 text-sm font-medium">
-                        {formatPoints(loan.estimatedRepayment)} ??P
+                        {formatPoints(loan.estimatedRepayment)} αP
                       </span>
                     </div>
                   </div>
@@ -131,7 +131,7 @@ export const LoanPositionsDisplay: React.FC = () => {
                 {/* Action hint */}
                 <div className="mt-3 pt-3 border-t border-white/10">
                   <p className="text-xs text-gray-500 text-center">
-                    ???? Go to Generation page to create new loans
+                    💡 Go to Generation page to create new loans
                   </p>
                 </div>
               </a>

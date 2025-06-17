@@ -8,10 +8,10 @@ import { buildRedeemPointsTransaction } from '../utils/transaction';
 import { AlphaPerksMarketplace } from '../components/AlphaPerksMarketplace';
 import suiLogo from '../assets/sui-logo.jpg';
 import { toast } from 'react-toastify';
+import { SUI_PRICE_USD, ALPHA_POINTS_PER_USD, ALPHA_POINTS_PER_SUI } from '../utils/constants';
 
-// Define prices for rate calculation
-const SUI_PRICE_USD = 3.28;
-const ALPHA_POINT_PRICE_USD = 3.28 / 1191360; // Approx. 0.000002753 target rate for 1,191,360 αP / SUI
+// Calculate Alpha Point price in USD using centralized constants
+const ALPHA_POINT_PRICE_USD = SUI_PRICE_USD / ALPHA_POINTS_PER_SUI;
 
 // --- Crypto Redemption Card Component ---
 interface CryptoRedemptionCardProps {
@@ -176,8 +176,7 @@ export const MarketplacePage: React.FC = () => {
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
 
   const alphaPointsPerSui = useMemo(() => {
-    if (ALPHA_POINT_PRICE_USD <= 0) return Infinity;
-    return SUI_PRICE_USD / ALPHA_POINT_PRICE_USD;
+    return ALPHA_POINTS_PER_SUI;
   }, []);
 
   const handleRedeemSui = async (amountToRedeem: string) => {
@@ -297,14 +296,32 @@ export const MarketplacePage: React.FC = () => {
                   <span className="text-xs text-gray-500 mt-1">Rate: TBD</span>
                 </div>
 
-                {/* Placeholder for USDC */}
-                <div className="bg-black/20 backdrop-blur-lg border border-dashed border-gray-600/50 rounded-xl p-6 flex flex-col justify-center items-center text-center text-gray-500 min-h-[200px] hover:bg-black/30 transition-all duration-300">
-                  <div className="w-16 h-16 bg-gray-600/20 rounded-2xl flex items-center justify-center mb-4">
-                    <span className="text-2xl font-bold">USDC</span>
+                {/* USDC Redemption Card - with testnet limitation warning */}
+                <div className="bg-amber-500/10 backdrop-blur-lg border border-amber-500/30 rounded-xl p-6 flex flex-col justify-center items-center text-center min-h-[200px] relative hover:bg-amber-500/20 transition-all duration-300">
+                  <div className="flex items-center mb-4">
+                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center mr-3">
+                      <span className="text-white text-xs font-bold">$</span>
+                    </div>
+                    <span className="text-xl font-semibold text-amber-300">USDC</span>
+                    <svg className="w-6 h-6 text-amber-400 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
                   </div>
-                  <span className="text-lg font-medium mb-2">USD Coin</span>
-                  <span className="text-sm text-gray-400">Coming Soon</span>
-                  <span className="text-xs text-gray-500 mt-1">Rate: TBD</span>
+                  <button
+                    className="w-full bg-amber-500/20 text-amber-300 font-semibold py-3 px-6 rounded-lg cursor-not-allowed flex items-center justify-center border border-amber-500/30 relative group"
+                    disabled
+                    style={{ pointerEvents: 'auto' }}
+                  >
+                    <span className="flex items-center">
+                      <svg className="w-5 h-5 text-amber-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      Testnet Faucet Limitation
+                    </span>
+                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-80 bg-black/90 backdrop-blur-lg border border-amber-500/30 text-amber-200 text-sm rounded-xl shadow-2xl px-4 py-3 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-normal text-left z-20">
+                      During the testnet phase, there are no assurances that the conversion transaction will reward sufficient testnet USDC due to faucet limitations.
+                    </div>
+                  </button>
                 </div>
 
                 {/* Placeholder for Solana */}

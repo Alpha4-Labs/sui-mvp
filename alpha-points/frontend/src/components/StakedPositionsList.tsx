@@ -235,7 +235,7 @@ export const StakedPositionsList: React.FC = () => {
 
   /**
    * Handles early unstaking a position for Alpha Points
-   * User receives 100% Alpha Points value (1 SUI = 3,280 ??P) immediately
+   * User receives 100% Alpha Points value (1 SUI = 3,280 αP) immediately
    * Stake remains encumbered until maturity for security
    * @param stakeId The ID of the stake position to early unstake
    * @param principal The principal amount of the stake (for feedback)
@@ -267,8 +267,8 @@ export const StakedPositionsList: React.FC = () => {
       // Prevent duplicate toasts caused by React StrictMode
       showToastOnce(`early-unstake-${stakeId}-${txDigest}`, () => {
         toast.success(
-                  `🎉 Early unstake successful! You received ~${expectedAlphaPoints.toLocaleString()} Alpha Points ` +
-        `⚠️ IMPORTANT: You also received a SUI withdrawal ticket worth 100% of your stake! ` +
+          `🎉 Early unstake successful! You received ~${expectedAlphaPoints.toLocaleString()} Alpha Points ` +
+          `⚠️ IMPORTANT: You also received a SUI withdrawal ticket worth 100% of your stake! ` +
           `Check your wallet for both: Alpha Points (spendable now) + SUI withdrawal ticket (claimable after 2-3 epochs). ` +
           `This is a known double-spend issue. ` +
           `Digest: ${txDigest.substring(0, 10)}...`,
@@ -465,12 +465,12 @@ export const StakedPositionsList: React.FC = () => {
   // Helper for Estimated Rewards Calculation
   // Uses centralized constants for consistent Alpha Points calculations
   const calculateEstAlphaPointRewards = (principal?: string, durationDaysStr?: string, positionApy?: number): string => {
-    if (!principal || !durationDaysStr || typeof positionApy === 'undefined') return '~0 ??P (0 ??P/epoch)';
+    if (!principal || !durationDaysStr || typeof positionApy === 'undefined') return '~0 αP (0 αP/epoch)';
     try {
       const durationDays = parseInt(durationDaysStr, 10);
       const principalSui = convertMistToSui(principal);
 
-      if (isNaN(principalSui) || isNaN(durationDays) || durationDays <= 0) return '~0 ??P (0 ??P/epoch)';
+      if (isNaN(principalSui) || isNaN(durationDays) || durationDays <= 0) return '~0 αP (0 αP/epoch)';
 
       // Calculate rewards using centralized helper functions
       const dailyAlphaPointsRewards = calculateDailyAlphaPointsRewards(principalSui, positionApy);
@@ -479,9 +479,9 @@ export const StakedPositionsList: React.FC = () => {
       const formattedTotalAlphaPoints = totalAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
       const formattedAlphaPointsPerEpoch = dailyAlphaPointsRewards.toLocaleString(undefined, {maximumFractionDigits: 0});
 
-      return `~${formattedTotalAlphaPoints} ??P (${formattedAlphaPointsPerEpoch} ??P/epoch)`;
+      return `~${formattedTotalAlphaPoints} αP (${formattedAlphaPointsPerEpoch} αP/epoch)`;
     } catch {
-      return '~0 ??P (0 ??P/epoch)';
+      return '~0 αP (0 αP/epoch)';
     }
   };
 
@@ -865,7 +865,7 @@ export const StakedPositionsList: React.FC = () => {
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                   </svg>
                                 ) : (
-                                  '??P'
+                                  'αP'
                                 )}
                               </button>
                             )}
@@ -1000,7 +1000,7 @@ export const StakedPositionsList: React.FC = () => {
                                 </svg>
                               </span>
                             ) : (
-                                                              '🎯 Claim SUI'
+                              '💰 Claim SUI'
                             )}
                           </button>
                         ) : null}
@@ -1063,20 +1063,20 @@ export const StakedPositionsList: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                                      🎯 Claim Your SUI Withdrawal Ticket
+            🎯 Claim Your SUI Withdrawal Ticket
           </h3>
           <button
             onClick={() => setShowWithdrawalGuide(false)}
             className="text-slate-400 hover:text-white transition-colors"
           >
-            ???
+            ✕
           </button>
         </div>
 
         {/* Warning Box */}
         <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-3 mb-4">
           <div className="flex items-start gap-2">
-            <span className="text-amber-400 text-lg">??????</span>
+            <span className="text-amber-400 text-lg">⚠️</span>
             <div className="text-amber-200 text-sm">
               <strong>Double Spend Issue:</strong> You received both Alpha Points AND a SUI withdrawal ticket worth 100% of your original stake!
             </div>
@@ -1089,9 +1089,9 @@ export const StakedPositionsList: React.FC = () => {
           
           <div className="space-y-2">
             <div className="flex items-start gap-3 p-2 bg-green-800/50 rounded border border-green-700/50">
-              <span className="bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">???</span>
+              <span className="bg-green-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold">✓</span>
               <div className="text-green-200 text-sm">
-                <strong>NEW:</strong> Click the <span className="bg-purple-600 px-1 rounded text-white">???? Claim SUI</span> button above! 
+                <strong>NEW:</strong> Click the <span className="bg-purple-600 px-1 rounded text-white">💰 Claim SUI</span> button above! 
                 This bypasses encumbrance and claims your SUI directly.
               </div>
             </div>
@@ -1122,7 +1122,7 @@ export const StakedPositionsList: React.FC = () => {
         {/* Technical Info */}
         <div className="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-4">
           <div className="text-blue-200 text-sm">
-            <strong>Technical Note:</strong> The "???? Claim SUI" button calls the native Sui staking system directly, 
+            <strong>Technical Note:</strong> The "💰 Claim SUI" button calls the native Sui staking system directly, 
             bypassing our package's encumbrance checks. This is the easiest way to claim your SUI!
           </div>
         </div>
@@ -1130,7 +1130,7 @@ export const StakedPositionsList: React.FC = () => {
         {/* Reward Info */}
         <div className="bg-green-900/30 border border-green-700/50 rounded-lg p-3 mb-4">
           <div className="flex items-center gap-2 text-green-200 text-sm">
-            <span className="text-green-400">????</span>
+            <span className="text-green-400">💰</span>
             <strong>You'll receive:</strong> 100% SUI value + any staking rewards earned!
           </div>
         </div>
@@ -1144,7 +1144,7 @@ export const StakedPositionsList: React.FC = () => {
             }}
             className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-sm font-medium rounded-lg transition-all duration-300"
           >
-            ???? Find My Tickets
+            🔍 Find My Tickets
           </button>
           <button
             onClick={() => setShowWithdrawalGuide(false)}

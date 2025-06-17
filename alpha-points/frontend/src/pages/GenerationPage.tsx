@@ -35,7 +35,7 @@ export const GenerationPage: React.FC = () => {
       id: 'stake-sui',
       name: 'Stake SUI',
       description: 'Earn Alpha Points by staking SUI tokens in the protocol.',
-      icon: '????',
+      icon: '🟦',
       status: 'active',
       tags: ['Staking', 'Financial', 'Activity'],
       details: (
@@ -55,22 +55,22 @@ export const GenerationPage: React.FC = () => {
               <div className="bg-background-card p-3 rounded-lg">
                 <div className="text-gray-400 mb-1">7-Day Stake</div>
                 <div className="text-white font-medium">5% APY</div>
-                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(5).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} ??P/day per 1 SUI</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(5).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
               </div>
               <div className="bg-background-card p-3 rounded-lg">
                 <div className="text-gray-400 mb-1">30-Day Stake</div>
                 <div className="text-white font-medium">10% APY</div>
-                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(10).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} ??P/day per 1 SUI</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(10).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
               </div>
               <div className="bg-background-card p-3 rounded-lg">
                 <div className="text-gray-400 mb-1">90-Day Stake</div>
                 <div className="text-white font-medium">15% APY</div>
-                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(15).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} ??P/day per 1 SUI</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(15).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
               </div>
               <div className="bg-background-card p-3 rounded-lg">
                 <div className="text-gray-400 mb-1">365-Day Stake</div>
                 <div className="text-white font-medium">25% APY</div>
-                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(25).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} ??P/day per 1 SUI</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(25).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
               </div>
             </div>
           </div>
@@ -81,7 +81,7 @@ export const GenerationPage: React.FC = () => {
       id: 'collateral-loan',
       name: 'Collateral Loan',
       description: 'Borrow Alpha Points against your staked SUI as collateral.',
-      icon: '????',
+      icon: '🏦',
       status: 'active',
       tags: ['Financial', 'Staking', 'DeFi', 'Activity'],
       details: (
@@ -127,7 +127,7 @@ export const GenerationPage: React.FC = () => {
       id: 'referral-conversion',
       name: 'Referral Conversion',
       description: 'Inviter & invitee earn when newcomer completes first quest.',
-      icon: '????',
+      icon: '🫂',
       status: 'coming-soon',
       tags: ['Referral', 'Community', 'Partner', 'Engagement'],
       details: (
@@ -147,14 +147,14 @@ export const GenerationPage: React.FC = () => {
       id: 'staking-liquidity-provision',
       name: 'Staking / Liquidity Provision',
       description: 'Points minted per dollar-seconds locked when staking or providing liquidity.',
-      icon: '????',
+      icon: '💸',
       status: 'coming-soon',
       tags: ['Staking', 'Financial', 'DeFi', 'Partner', 'Activity'],
       details: (
         <div className="p-4 bg-background rounded-lg">
           <h3 className="text-lg font-medium text-white mb-3">Staking / LP Details</h3>
           <p className="text-gray-300 mb-2">
-            <strong>How it Works:</strong> Stake tokens or provide liquidity (LP tokens) for a defined minimum period (e.g., ??? 7 days); Alpha Points are minted based on the value locked and duration (dollar-seconds).
+            <strong>How it Works:</strong> Stake tokens or provide liquidity (LP tokens) for a defined minimum period (e.g., ≥ 7 days); Alpha Points are minted based on the value locked and duration (dollar-seconds).
           </p>
           <p className="text-gray-400 text-sm mb-1">
             <strong>Potential Partners:</strong> DeFi protocols, yield platforms, DEXs, any project with staking or liquidity pool mechanisms.
@@ -167,7 +167,7 @@ export const GenerationPage: React.FC = () => {
       id: 'airdrop-campaign',
       name: 'Airdrop Campaign',
       description: 'Earn Alpha Points by participating in special airdrop events.',
-      icon: '????',
+      icon: '🎁',
       status: 'coming-soon',
       tags: ['Community', 'Engagement', 'Financial', 'Partner', 'Activity'],
       details: (
@@ -187,7 +187,7 @@ export const GenerationPage: React.FC = () => {
       id: 'proof-of-purchase',
       name: 'Proof-of-Purchase',
       description: 'Earn for purchases by signing a receipt hash.',
-      icon: '????',
+      icon: '🛒',
       status: 'coming-soon',
       tags: ['ProofOfX', 'Financial', 'Partner', 'Activity', 'Retail'],
       details: (
@@ -207,7 +207,7 @@ export const GenerationPage: React.FC = () => {
       id: 'geofenced-check-in',
       name: 'Geofenced Check-In',
       description: 'Earn points by checking in at specific locations.',
-      icon: '????',
+      icon: '📍',
       status: 'coming-soon',
       tags: ['ProofOfX', 'Location', 'Partner', 'Activity', 'Event'],
       details: (
@@ -227,7 +227,7 @@ export const GenerationPage: React.FC = () => {
       id: 'social-share-challenge',
       name: 'Social Share Challenge',
       description: 'Get points for sharing content on social media.',
-      icon: '????',
+      icon: '📢',
       status: 'coming-soon',
       tags: ['Social', 'Content', 'Partner', 'Engagement', 'Marketing'],
       details: (
@@ -247,7 +247,7 @@ export const GenerationPage: React.FC = () => {
       id: 'hold-to-earn-nft',
       name: 'Hold-to-Earn / Delist NFT',
       description: 'Earn points for holding or not listing brand NFTs.',
-      icon: '???????',
+      icon: '🖼️',
       status: 'coming-soon',
       tags: ['NFT', 'Staking', 'Community', 'Partner', 'Financial'],
       details: (
@@ -267,7 +267,7 @@ export const GenerationPage: React.FC = () => {
       id: 'learn-to-earn',
       name: 'Learn-to-Earn Module',
       description: 'Gain points by completing educational modules or quizzes.',
-      icon: '????',
+      icon: '🎓',
       status: 'coming-soon',
       tags: ['Education', 'Engagement', 'Partner', 'ProofOfX'],
       details: (
@@ -287,7 +287,7 @@ export const GenerationPage: React.FC = () => {
       id: 'dao-vote-participation',
       name: 'DAO Vote Participation',
       description: 'Earn points for participating in DAO governance.',
-      icon: '???????',
+      icon: '🗳️',
       status: 'coming-soon',
       tags: ['Governance', 'Community', 'Partner', 'Engagement', 'DeFi'],
       details: (
@@ -307,7 +307,7 @@ export const GenerationPage: React.FC = () => {
       id: 'fitness-proof',
       name: 'Fitness Proof',
       description: 'Earn points by achieving fitness goals.',
-      icon: '????',
+      icon: '🏃',
       status: 'coming-soon',
       tags: ['ProofOfX', 'Activity', 'Partner', 'Health'],
       details: (
@@ -327,7 +327,7 @@ export const GenerationPage: React.FC = () => {
       id: 'survey-feedback',
       name: 'Survey or Feedback Loop',
       description: 'Earn for completing surveys or providing product feedback.',
-      icon: '????',
+      icon: '📝',
       status: 'coming-soon',
       tags: ['Engagement', 'Content', 'Partner', 'Community'],
       details: (

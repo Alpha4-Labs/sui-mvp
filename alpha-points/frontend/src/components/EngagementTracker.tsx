@@ -15,88 +15,6 @@ interface EngagementData extends EngagementStats {
   sustainabilityInfo: any;
 }
 
-// Add icon SVG components
-const getIconSvg = (icon: string, className: string = "w-4 h-4") => {
-  const icons = {
-    start: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3l14 9-14 9V3z" />
-      </svg>
-    ),
-    fire: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
-      </svg>
-    ),
-    target: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    trophy: (
-      <svg className={className} fill="currentColor" viewBox="0 0 24 24">
-        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-      </svg>
-    ),
-    shield: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-      </svg>
-    ),
-    diamond: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-      </svg>
-    ),
-    crown: (
-      <svg className={className} fill="currentColor" viewBox="0 0 24 24">
-        <path d="M5 16L3 3l5.5 5L12 4l3.5 4L21 3l-2 13H5zm2.7-2h8.6l.9-5.4-2.1 1.4L12 8l-3.1 2L6.8 8.6L7.7 14z"/>
-      </svg>
-    ),
-    star: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-      </svg>
-    ),
-    lightning: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-      </svg>
-    ),
-    rocket: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-      </svg>
-    ),
-    lock: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-      </svg>
-    ),
-    gift: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
-      </svg>
-    ),
-    info: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-    warning: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    ),
-    check: (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-      </svg>
-    )
-  };
-  return icons[icon] || icons.star;
-};
-
 export const EngagementTracker: React.FC = () => {
   const { address, isConnected, suiClient } = useAlphaContext();
   const { isPartner } = usePartnerDetection(); // Detect if user is a partner
@@ -264,7 +182,7 @@ export const EngagementTracker: React.FC = () => {
       
       // Success toast
       toast.success(
-        `???? Claimed ${rewardStatus.dynamicReward} AP for ${rewardStatus.milestone.name}!`,
+        `🎉 Claimed ${rewardStatus.dynamicReward} AP for ${rewardStatus.milestone.name}!`,
         { 
           id: loadingToast,
           duration: 5000,
@@ -295,32 +213,33 @@ export const EngagementTracker: React.FC = () => {
 
   // Get streak status styling
   const getStreakStatusStyle = () => {
-    if (data.currentStreak > 0 && data.currentStreak === data.longestStreak) {
-      return { color: 'emerald', icon: 'fire', text: 'Active Streak', bgClass: 'from-emerald-500/10 to-emerald-600/10', borderClass: 'border-emerald-500/20', textClass: 'text-emerald-400' };
-    } else if (data.currentStreak === 0 && data.longestStreak > 0) {
-      return { color: 'orange', icon: 'warning', text: 'Streak Broken', bgClass: 'from-orange-500/10 to-orange-600/10', borderClass: 'border-orange-500/20', textClass: 'text-orange-400' };
-    } else if (data.currentStreak > 0) {
-      return { color: 'purple', icon: 'lightning', text: 'New Streak', bgClass: 'from-purple-500/10 to-purple-600/10', borderClass: 'border-purple-500/20', textClass: 'text-purple-400' };
-    } else {
-      return { color: 'blue', icon: 'star', text: 'Start Your Streak', bgClass: 'from-blue-500/10 to-blue-600/10', borderClass: 'border-blue-500/20', textClass: 'text-blue-400' };
+    switch (data.streakStatus) {
+      case 'active':
+        return { color: 'emerald', icon: '🔥', text: 'Active Streak', bgClass: 'from-emerald-500/10 to-emerald-600/10', borderClass: 'border-emerald-500/20', textClass: 'text-emerald-400' };
+      case 'broken':
+        return { color: 'orange', icon: '💔', text: 'Streak Broken', bgClass: 'from-orange-500/10 to-orange-600/10', borderClass: 'border-orange-500/20', textClass: 'text-orange-400' };
+      case 'new':
+        return { color: 'purple', icon: '🌟', text: 'New Streak', bgClass: 'from-purple-500/10 to-purple-600/10', borderClass: 'border-purple-500/20', textClass: 'text-purple-400' };
+      default:
+        return { color: 'blue', icon: '🌟', text: 'Start Your Streak', bgClass: 'from-blue-500/10 to-blue-600/10', borderClass: 'border-blue-500/20', textClass: 'text-blue-400' };
     }
   };
 
   // Get milestone info
   const getMilestoneInfo = (milestoneType: number) => {
     switch (milestoneType) {
-      case 1:
-        return { icon: 'target', name: 'First Steps', description: 'First Alpha Points activity' };
-      case 2:
-        return { icon: 'lightning', name: 'Momentum Builder', description: '10-day activity streak' };
-      case 3:
-        return { icon: 'shield', name: 'Consistency Master', description: '30-day activity streak' };
-      case 4:
-        return { icon: 'crown', name: 'Legend Status', description: '100-day activity streak' };
-      case 5:
-        return { icon: 'trophy', name: 'New Record', description: 'Personal best streak' };
+      case 1: // FIRST_ACTIVITY
+        return { icon: '🎯', name: 'First Steps', description: 'First Alpha Points activity' };
+      case 2: // STREAK_10
+        return { icon: '⚡', name: 'Momentum Builder', description: '10-day activity streak' };
+      case 3: // STREAK_30
+        return { icon: '🚀', name: 'Consistency Master', description: '30-day activity streak' };
+      case 4: // STREAK_100
+        return { icon: '💎', name: 'Legend Status', description: '100-day activity streak' };
+      case 5: // NEW_RECORD
+        return { icon: '🏆', name: 'New Record', description: 'Personal best streak' };
       default:
-        return { icon: 'star', name: 'Achievement', description: 'Engagement milestone' };
+        return { icon: '🏅', name: 'Achievement', description: 'Engagement milestone' };
     }
   };
 
@@ -339,17 +258,17 @@ export const EngagementTracker: React.FC = () => {
   // Define milestone roadmap - split into two tiers
   // Unlocked based on longest streak (achievements), but progress shows current streak
   const tierOneMilestones = [
-    { day: 0, icon: 'start', name: 'Start', unlocked: true, color: 'text-gray-400', currentProgress: data.currentStreak >= 0 },
-    { day: 1, icon: 'fire', name: 'First Step', unlocked: data.longestStreak >= 1, color: 'text-blue-400', currentProgress: data.currentStreak >= 1 },
-    { day: 3, icon: 'target', name: 'Getting Warm', unlocked: data.longestStreak >= 3, color: 'text-orange-400', currentProgress: data.currentStreak >= 3 },
-    { day: 7, icon: 'shield', name: 'Weekly Warrior', unlocked: data.longestStreak >= 7, color: 'text-green-400', currentProgress: data.currentStreak >= 7 },
+    { day: 0, icon: '🌱', name: 'Start', unlocked: true, color: 'text-gray-400', currentProgress: data.currentStreak >= 0 },
+    { day: 1, icon: '⚡', name: 'First Step', unlocked: data.longestStreak >= 1, color: 'text-blue-400', currentProgress: data.currentStreak >= 1 },
+    { day: 3, icon: '🔥', name: 'Getting Warm', unlocked: data.longestStreak >= 3, color: 'text-orange-400', currentProgress: data.currentStreak >= 3 },
+    { day: 7, icon: '💪', name: 'Weekly Warrior', unlocked: data.longestStreak >= 7, color: 'text-green-400', currentProgress: data.currentStreak >= 7 },
   ];
 
   const tierTwoMilestones = [
-    { day: 14, icon: 'lightning', name: 'Momentum', unlocked: data.longestStreak >= 14, color: 'text-purple-400', currentProgress: data.currentStreak >= 14 },
-    { day: 30, icon: 'crown', name: 'Consistency King', unlocked: data.longestStreak >= 30, color: 'text-yellow-400', currentProgress: data.currentStreak >= 30 },
-    { day: 50, icon: 'diamond', name: 'Diamond Hands', unlocked: data.longestStreak >= 50, color: 'text-cyan-400', currentProgress: data.currentStreak >= 50 },
-    { day: 100, icon: 'trophy', name: 'Legend', unlocked: data.longestStreak >= 100, color: 'text-amber-400', currentProgress: data.currentStreak >= 100 },
+    { day: 14, icon: '🚀', name: 'Momentum', unlocked: data.longestStreak >= 14, color: 'text-purple-400', currentProgress: data.currentStreak >= 14 },
+    { day: 30, icon: '👑', name: 'Consistency King', unlocked: data.longestStreak >= 30, color: 'text-yellow-400', currentProgress: data.currentStreak >= 30 },
+    { day: 50, icon: '💎', name: 'Diamond Hands', unlocked: data.longestStreak >= 50, color: 'text-cyan-400', currentProgress: data.currentStreak >= 50 },
+    { day: 100, icon: '🏆', name: 'Legend', unlocked: data.longestStreak >= 100, color: 'text-amber-400', currentProgress: data.currentStreak >= 100 },
   ];
 
   // Calculate progress percentage for each tier based on current streak
@@ -425,7 +344,7 @@ export const EngagementTracker: React.FC = () => {
                     bg-gradient-to-br from-white/10 to-white/5 border border-white/10
                     shadow-lg backdrop-blur-sm
                   `}>
-                    {getIconSvg(streakStyle.icon, "w-6 h-6")}
+                    {streakStyle.icon}
                   </div>
                   
                   {/* Streak Numbers */}
@@ -461,7 +380,7 @@ export const EngagementTracker: React.FC = () => {
                             <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover/tooltip:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
                               <div className="bg-gray-900/95 backdrop-blur-sm border border-gray-600/50 rounded-lg p-3 shadow-xl min-w-[280px]">
                                 <div className="text-xs font-medium text-gray-200 mb-2 flex items-center space-x-1">
-                                  {getIconSvg('gift', "w-3 h-3")}
+                                  <span>📊</span>
                                   <span>Reward System Status</span>
                                 </div>
                                 
@@ -535,7 +454,7 @@ export const EngagementTracker: React.FC = () => {
             {data.pendingRewards > 0 && (
               <div className="flex items-center justify-center">
                 <div className="flex items-center space-x-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 rounded-lg px-3 py-1">
-                  {getIconSvg('warning', "w-4 h-4 text-yellow-400")}
+                  <span className="text-yellow-400 text-sm">🎁</span>
                   <div className="flex flex-col">
                     <span className="text-xs font-medium text-yellow-300">
                       {data.pendingRewards.toLocaleString()} AP to claim!
@@ -584,19 +503,19 @@ export const EngagementTracker: React.FC = () => {
                             : 'bg-gray-700/50 border-gray-600 text-gray-500'
                           }
                         `}>
-                          {milestone.currentProgress ? getIconSvg(milestone.icon, "w-5 h-5") : milestone.unlocked ? getIconSvg(milestone.icon, "w-5 h-5") : getIconSvg('lock', "w-4 h-4")}
+                          {milestone.currentProgress ? milestone.icon : milestone.unlocked ? milestone.icon : '🔒'}
                           
                           {/* Reward Available Indicator */}
                           {rewardStatus?.canClaim && (
                             <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full animate-pulse flex items-center justify-center">
-                              <span className="text-xs">{getIconSvg('check', "w-3 h-3")}</span>
+                              <span className="text-xs">!</span>
                             </div>
                           )}
                           
                           {/* Already Rewarded Indicator */}
                           {rewardStatus?.isRewarded && (
                             <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full flex items-center justify-center">
-                              <span className="text-xs">???</span>
+                              <span className="text-xs">✓</span>
                             </div>
                           )}
                         </div>
@@ -677,19 +596,19 @@ export const EngagementTracker: React.FC = () => {
                              : 'bg-gray-700/50 border-gray-600 text-gray-500'
                            }
                          `}>
-                           {milestone.currentProgress ? getIconSvg(milestone.icon, "w-5 h-5") : milestone.unlocked ? getIconSvg(milestone.icon, "w-5 h-5") : getIconSvg('lock', "w-4 h-4")}
+                           {milestone.currentProgress ? milestone.icon : milestone.unlocked ? milestone.icon : '🔒'}
                            
                            {/* Reward Available Indicator */}
                            {rewardStatus?.canClaim && (
                              <div className="absolute -top-1 -right-1 w-3 h-3 bg-yellow-400 rounded-full animate-pulse flex items-center justify-center">
-                               <span className="text-xs">{getIconSvg('check', "w-3 h-3")}</span>
+                               <span className="text-xs">!</span>
                              </div>
                            )}
                            
                            {/* Already Rewarded Indicator */}
                            {rewardStatus?.isRewarded && (
                              <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full flex items-center justify-center">
-                               <span className="text-xs">???</span>
+                               <span className="text-xs">✓</span>
                              </div>
                            )}
                          </div>

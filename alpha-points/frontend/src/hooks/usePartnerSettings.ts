@@ -98,11 +98,8 @@ export interface UsePartnerSettingsReturn {
   refreshSettings: () => Promise<void>;
   resetFormToCurrentSettings: () => void;
   
-  // Privacy and metadata management
+  // Privacy management
   generateNewSalt: () => void;
-  addMetadataField: (field: MetadataField) => void;
-  removeMetadataField: (fieldKey: string) => void;
-  updateMetadataField: (fieldKey: string, updatedField: MetadataField) => void;
 }
 
 const DEFAULT_SETTINGS: PartnerSettings = {
@@ -288,28 +285,7 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
     }) : null);
   }, [partnerCapId]);
 
-  const addMetadataField = useCallback((field: MetadataField) => {
-    setFormSettings(prev => ({
-      ...prev,
-      metadataSchema: [...(prev.metadataSchema || []), field]
-    }));
-  }, []);
 
-  const removeMetadataField = useCallback((fieldKey: string) => {
-    setFormSettings(prev => ({
-      ...prev,
-      metadataSchema: (prev.metadataSchema || []).filter(field => field.key !== fieldKey)
-    }));
-  }, []);
-
-  const updateMetadataField = useCallback((fieldKey: string, updatedField: MetadataField) => {
-    setFormSettings(prev => ({
-      ...prev,
-      metadataSchema: (prev.metadataSchema || []).map(field =>
-        field.key === fieldKey ? updatedField : field
-      )
-    }));
-  }, []);
 
   // Auto-fetch on mount and when partnerCapId changes
   useEffect(() => {
@@ -329,8 +305,5 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
     refreshSettings,
     resetFormToCurrentSettings,
     generateNewSalt,
-    addMetadataField,
-    removeMetadataField,
-    updateMetadataField,
   };
 } 

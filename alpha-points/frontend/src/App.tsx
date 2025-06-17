@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { createNetworkConfig, SuiClientProvider, WalletProvider } from '@mysten/dapp-kit';
 import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from 'react-hot-toast';
 import { ZkLoginCallback } from './components/ZkLoginCallback';
 import { MainLayout } from './layouts/MainLayout';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -14,7 +15,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { MarketplacePage } from './pages/MarketplacePage';
 import { GenerationPage } from './pages/GenerationPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
-import { LoanPage } from './pages/LoanPage';
+
 import { AlphaProvider } from './context/AlphaContext';
 import { PartnerOnboardingPage } from './pages/PartnerOnboardingPage';
 import { PartnersPage } from './pages/PartnersPage';
@@ -39,20 +40,20 @@ function App() {
       <SuiClientProvider networks={networkConfig} defaultNetwork={NETWORK_TYPE}>
         <WalletProvider autoConnect={true}>
           <AlphaProvider>
-            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <BrowserRouter>
               <Routes>
-                <Route path="/" element={<MainLayout children={undefined} />} >
+                <Route path="/" element={<MainLayout />} >
                   <Route index element={<WelcomePage />} />
                   <Route path="callback" element={<ZkLoginCallback />} />
                 </Route>
 
                 <Route element={<ProtectedRoute />}>
-                  <Route element={<MainLayout children={undefined} />}>
+                  <Route element={<MainLayout />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/marketplace" element={<MarketplacePage />} />
                     <Route path="/generation" element={<GenerationPage />} />
                     <Route path="/analytics" element={<AnalyticsPage />} />
-                    <Route path="/loans" element={<LoanPage />} />
+
                     <Route path="/partners" element={<PartnersPage />} />
                     <Route path="/partners/overview" element={<PartnersPage />} />
                     <Route path="/partners/perks" element={<PartnersPage />} />
@@ -66,6 +67,33 @@ function App() {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </BrowserRouter>
+            
+            {/* Toast Notifications */}
+            <Toaster
+              position="top-right"
+              toastOptions={{
+                duration: 4000,
+                style: {
+                  background: '#1f2937',
+                  color: '#f9fafb',
+                  border: '1px solid #374151',
+                  borderRadius: '0.75rem',
+                  fontSize: '0.875rem',
+                },
+                success: {
+                  iconTheme: {
+                    primary: '#10b981',
+                    secondary: '#f9fafb',
+                  },
+                },
+                error: {
+                  iconTheme: {
+                    primary: '#ef4444',
+                    secondary: '#f9fafb',
+                  },
+                },
+              }}
+            />
           </AlphaProvider>
         </WalletProvider>
       </SuiClientProvider>

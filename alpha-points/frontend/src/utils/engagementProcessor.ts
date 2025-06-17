@@ -40,13 +40,13 @@ export interface MilestoneReward {
 }
 
 export const MILESTONE_REWARDS: MilestoneReward[] = [
-  { day: 1, name: 'First Step', icon: '???', rewardPercentage: 3, description: 'Complete your first day of engagement', color: 'text-blue-400' }, // 0.03% of daily quota (~1 AP)
-  { day: 3, name: 'Getting Warm', icon: '????', rewardPercentage: 8, description: '3 days of consistent activity', color: 'text-orange-400' }, // 0.08% (~2.5 AP)
-  { day: 7, name: 'Weekly Warrior', icon: '????', rewardPercentage: 15, description: 'One full week of engagement', color: 'text-green-400' }, // 0.15% (~5 AP)
-  { day: 14, name: 'Momentum', icon: '????', rewardPercentage: 25, description: 'Two weeks of dedication', color: 'text-purple-400' }, // 0.25% (~8 AP)
-  { day: 30, name: 'Consistency King', icon: '????', rewardPercentage: 40, description: 'One month of excellence', color: 'text-yellow-400' }, // 0.40% (~13 AP)
-  { day: 50, name: 'Diamond Hands', icon: '????', rewardPercentage: 60, description: '50 days of unwavering commitment', color: 'text-cyan-400' }, // 0.60% (~20 AP)
-  { day: 100, name: 'Legend', icon: '????', rewardPercentage: 100, description: '100 days - True legend status', color: 'text-amber-400' }, // 1.00% (~33 AP)
+  { day: 1, name: 'First Step', icon: '⚡', rewardPercentage: 3, description: 'Complete your first day of engagement', color: 'text-blue-400' }, // 0.03% of daily quota (~1 AP)
+  { day: 3, name: 'Getting Warm', icon: '🔥', rewardPercentage: 8, description: '3 days of consistent activity', color: 'text-orange-400' }, // 0.08% (~2.5 AP)
+  { day: 7, name: 'Weekly Warrior', icon: '💪', rewardPercentage: 15, description: 'One full week of engagement', color: 'text-green-400' }, // 0.15% (~5 AP)
+  { day: 14, name: 'Momentum', icon: '🚀', rewardPercentage: 25, description: 'Two weeks of dedication', color: 'text-purple-400' }, // 0.25% (~8 AP)
+  { day: 30, name: 'Consistency King', icon: '👑', rewardPercentage: 40, description: 'One month of excellence', color: 'text-yellow-400' }, // 0.40% (~13 AP)
+  { day: 50, name: 'Diamond Hands', icon: '💎', rewardPercentage: 60, description: '50 days of unwavering commitment', color: 'text-cyan-400' }, // 0.60% (~20 AP)
+  { day: 100, name: 'Legend', icon: '🏆', rewardPercentage: 100, description: '100 days - True legend status', color: 'text-amber-400' }, // 1.00% (~33 AP)
 ];
 
 export interface MilestoneRewardStatus {

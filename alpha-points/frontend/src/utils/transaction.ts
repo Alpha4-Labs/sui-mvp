@@ -274,7 +274,7 @@ export const buildPurchaseAlphaPerkTransaction = (
   userAddress: string,
   suinsClientInstance: SuinsClient // Use the actual SuinsClient type
 ): never => {
-  throw new Error("??? DEPRECATED: buildPurchaseAlphaPerkTransaction is no longer supported. Use buildClaimPerkWithMetadataTransaction instead for metadata-based perks.");
+  throw new Error("❌ DEPRECATED: buildPurchaseAlphaPerkTransaction is no longer supported. Use buildClaimPerkWithMetadataTransaction instead for metadata-based perks.");
 };
 
 /**
@@ -303,7 +303,7 @@ export const buildCreateProxyCapTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored ProxyCap creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+    console.log(`🎁 Sponsored ProxyCap creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
   }
   
   tx.moveCall({
@@ -335,7 +335,7 @@ export const buildCreatePartnerCapFlexTransaction = (
   // Set up sponsorship if sponsor address is provided (typically deployer/admin wallet)
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored PartnerCapFlex creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+    console.log(`🎁 Sponsored PartnerCapFlex creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
   }
 
   // Split SUI from gas coin for collateral
@@ -375,7 +375,7 @@ export const buildEarnPointsByPartnerFlexTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored points minting: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+    console.log(`🎁 Sponsored points minting: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
   }
 
   tx.moveCall({
@@ -414,7 +414,7 @@ export const buildCreateLoanWithPartnerFlexTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored loan creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+    console.log(`🎁 Sponsored loan creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
   }
   
   tx.moveCall({
@@ -451,7 +451,7 @@ export const buildCheckPartnerQuotaTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored quota check: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+    console.log(`🎁 Sponsored quota check: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
   }
   
   // This would be a view function to check quotas
@@ -484,7 +484,7 @@ export const buildCreatePartnerCapFlexWithUSDCTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored PartnerCapFlex USDC creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+    console.log(`🎁 Sponsored PartnerCapFlex USDC creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
   }
   
   // Use the provided USDC coin object directly
@@ -527,7 +527,7 @@ export const buildCreatePartnerCapFlexWithNFTTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored PartnerCapFlex NFT creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+    console.log(`🎁 Sponsored PartnerCapFlex NFT creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
   }
   
   // Reference the kiosk object
@@ -571,7 +571,7 @@ export const buildAddSuiCollateralTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored SUI collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored SUI collateral addition: Gas fees will be paid by ${sponsorAddress}`);
   }
   
   // Split additional SUI from gas coin
@@ -610,7 +610,7 @@ export const buildCreateInitialSuiVaultTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored initial SUI vault creation: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored initial SUI vault creation: Gas fees will be paid by ${sponsorAddress}`);
   }
   
   // Split initial SUI from gas coin
@@ -648,7 +648,7 @@ export const buildAddUsdcCollateralTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored USDC collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored USDC collateral addition: Gas fees will be paid by ${sponsorAddress}`);
   }
   
   // Use the provided USDC coin object
@@ -691,7 +691,7 @@ export const buildAddNftCollateralTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored NFT collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored NFT collateral addition: Gas fees will be paid by ${sponsorAddress}`);
   }
   
   // Reference the kiosk object
@@ -735,7 +735,7 @@ export const buildWithdrawCollateralTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored collateral withdrawal: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored collateral withdrawal: Gas fees will be paid by ${sponsorAddress}`);
   }
   
   switch (collateralType) {
@@ -809,7 +809,7 @@ export const buildCreatePartnerCapTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored legacy PartnerCap creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
+    console.log(`🎁 Sponsored legacy PartnerCap creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
   }
 
   const [collateralCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(suiAmountMist.toString())]);
@@ -864,7 +864,7 @@ export const buildCreatePartnerPerkStatsTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
   }
 
   tx.moveCall({
@@ -941,10 +941,10 @@ export const findPartnerStatsId = async (
   partnerCapId: string
 ): Promise<string> => {
   try {
-    console.log('???? ===== SEARCHING FOR PARTNERPERKSTATSV2 =====');
-    console.log('???? Partner Cap ID:', partnerCapId);
-    console.log('???? Package ID:', PACKAGE_ID);
-    console.log('???? Expected object type:', `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`);
+    console.log('🔍 ===== SEARCHING FOR PARTNERPERKSTATSV2 =====');
+    console.log('🔍 Partner Cap ID:', partnerCapId);
+    console.log('🔍 Package ID:', PACKAGE_ID);
+    console.log('🔍 Expected object type:', `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`);
 
     if (!PACKAGE_ID) {
       throw new Error('PACKAGE_ID not configured');
@@ -954,10 +954,10 @@ export const findPartnerStatsId = async (
 
     // Multi-approach search strategy for PartnerPerkStatsV2 objects
     const objectType = `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`;
-    console.log('???? Looking for objects of type:', objectType);
+    console.log('🔍 Looking for objects of type:', objectType);
     
     // Approach 1: Search via transaction history (most reliable)
-    console.log('???? Approach 1: Searching via transaction history...');
+    console.log('🔍 Approach 1: Searching via transaction history...');
     try {
       // Search for recent transactions that created PartnerPerkStatsV2 objects
       const recentTxs = await suiClient.queryTransactionBlocks({
@@ -972,7 +972,7 @@ export const findPartnerStatsId = async (
         order: 'descending'
       });
       
-      console.log('???? Found', recentTxs.data.length, 'recent PartnerPerkStatsV2 creation transactions');
+      console.log('🔍 Found', recentTxs.data.length, 'recent PartnerPerkStatsV2 creation transactions');
       
       for (const tx of recentTxs.data) {
         try {
@@ -991,7 +991,7 @@ export const findPartnerStatsId = async (
                   change.objectType && 
                   change.objectType.includes('PartnerPerkStatsV2')) {
                 
-                console.log('???? Found PartnerPerkStatsV2 object:', change.objectId);
+                console.log('🔍 Found PartnerPerkStatsV2 object:', change.objectId);
                 
                 // Check if this object belongs to our partner cap
                 try {
@@ -1002,15 +1002,15 @@ export const findPartnerStatsId = async (
                   
                   if (objectResponse.data?.content?.dataType === 'moveObject') {
                     const fields = (objectResponse.data.content as any).fields;
-                    console.log('???? Object fields:', fields);
+                    console.log('🔍 Object fields:', fields);
                     
                     if (fields.partner_cap_id === partnerCapId) {
-                      console.log('??? Found matching PartnerPerkStatsV2:', change.objectId);
+                      console.log('✅ Found matching PartnerPerkStatsV2:', change.objectId);
                       allFoundStatsIds.push(change.objectId);
                     }
                   }
                 } catch (error) {
-                  console.log('??? Error accessing object:', change.objectId, error);
+                  console.log('❌ Error accessing object:', change.objectId, error);
                 }
               }
             }
@@ -1020,11 +1020,11 @@ export const findPartnerStatsId = async (
           if (txResponse.events) {
             for (const event of txResponse.events) {
               if (event.type && event.type.includes('PartnerPerkStatsCreated')) {
-                console.log('???? Found PartnerPerkStatsCreated event:', event);
+                console.log('🔍 Found PartnerPerkStatsCreated event:', event);
                 if (event.parsedJson && 
                     event.parsedJson.partner_cap_id === partnerCapId &&
                     event.parsedJson.stats_id) {
-                  console.log('??? Found matching stats ID from event:', event.parsedJson.stats_id);
+                  console.log('✅ Found matching stats ID from event:', event.parsedJson.stats_id);
                   if (!allFoundStatsIds.includes(event.parsedJson.stats_id)) {
                     allFoundStatsIds.push(event.parsedJson.stats_id);
                   }
@@ -1033,15 +1033,15 @@ export const findPartnerStatsId = async (
             }
           }
         } catch (txError) {
-          console.log('??? Error processing transaction:', tx.digest, txError);
+          console.log('❌ Error processing transaction:', tx.digest, txError);
         }
       }
     } catch (searchError) {
-      console.log('???? Transaction-based search failed:', (searchError as Error).message);
+      console.log('🔍 Transaction-based search failed:', (searchError as Error).message);
     }
 
     // Approach 2: Fallback event search (in case transaction search missed something)
-    console.log('???? Approach 2: Fallback event search...');
+    console.log('🔍 Approach 2: Fallback event search...');
     try {
       // Try different event type variations
       const eventTypes = [
@@ -1052,7 +1052,7 @@ export const findPartnerStatsId = async (
       
       for (const eventType of eventTypes) {
         try {
-          console.log('???? Trying event type:', eventType);
+          console.log('🔍 Trying event type:', eventType);
           const eventsResponse = await suiClient.queryEvents({
             query: {
               MoveEventType: eventType
@@ -1061,13 +1061,13 @@ export const findPartnerStatsId = async (
             order: 'descending'
           });
           
-          console.log('???? Found', eventsResponse.data.length, 'events for', eventType);
+          console.log('🔍 Found', eventsResponse.data.length, 'events for', eventType);
           
           for (const event of eventsResponse.data) {
             if (event.parsedJson && event.parsedJson.partner_cap_id === partnerCapId) {
               const statsId = event.parsedJson.stats_id;
               if (statsId && !allFoundStatsIds.includes(statsId)) {
-                console.log('??? Found matching stats ID from event:', statsId);
+                console.log('✅ Found matching stats ID from event:', statsId);
                 
                 // Verify the object exists
                 try {
@@ -1077,11 +1077,11 @@ export const findPartnerStatsId = async (
                   });
                   
                   if (objectResponse.data?.content) {
-                    console.log('??? Verified stats object exists:', statsId);
+                    console.log('✅ Verified stats object exists:', statsId);
                     allFoundStatsIds.push(statsId);
                   }
                 } catch (verifyError) {
-                  console.log('??? Stats object from event no longer exists:', statsId);
+                  console.log('❌ Stats object from event no longer exists:', statsId);
                 }
               }
             }
@@ -1092,29 +1092,29 @@ export const findPartnerStatsId = async (
             break;
           }
         } catch (eventError) {
-          console.log('???? Event type', eventType, 'failed:', (eventError as Error).message);
+          console.log('🔍 Event type', eventType, 'failed:', (eventError as Error).message);
         }
       }
     } catch (searchError) {
-      console.log('???? Fallback event search failed:', (searchError as Error).message);
+      console.log('🔍 Fallback event search failed:', (searchError as Error).message);
     }
 
     // Handle results - check for duplicates and return appropriate response
     if (allFoundStatsIds.length === 0) {
-      console.error('??? No PartnerPerkStatsV2 found for partner cap:', partnerCapId);
+      console.error('❌ No PartnerPerkStatsV2 found for partner cap:', partnerCapId);
       throw new Error(`No PartnerPerkStatsV2 found for partner cap ${partnerCapId}. The partner needs to create their stats object first using the partner dashboard.`);
     } else if (allFoundStatsIds.length === 1) {
       const statsId = allFoundStatsIds[0];
       if (statsId) {
-        console.log('??? Found exactly one PartnerPerkStatsV2:', statsId);
+        console.log('✅ Found exactly one PartnerPerkStatsV2:', statsId);
         return statsId;
       }
     } else {
-      console.warn('?????? DUPLICATE STATS OBJECTS DETECTED!');
-      console.warn('?????? Found', allFoundStatsIds.length, 'PartnerPerkStatsV2 objects for partner cap:', partnerCapId);
-      console.warn('?????? Stats IDs:', allFoundStatsIds);
-      console.warn('?????? This should not happen - each partner should have only one stats object!');
-      console.warn('?????? Using the first one found, but this needs to be resolved.');
+      console.warn('⚠️ DUPLICATE STATS OBJECTS DETECTED!');
+      console.warn('⚠️ Found', allFoundStatsIds.length, 'PartnerPerkStatsV2 objects for partner cap:', partnerCapId);
+      console.warn('⚠️ Stats IDs:', allFoundStatsIds);
+      console.warn('⚠️ This should not happen - each partner should have only one stats object!');
+      console.warn('⚠️ Using the first one found, but this needs to be resolved.');
       
       // Return the first one but log the issue
       const firstStatsId = allFoundStatsIds[0];
@@ -1124,7 +1124,7 @@ export const findPartnerStatsId = async (
     }
     
     // Fallback if somehow we get here
-    console.error('??? Unexpected error: Found stats IDs but none are valid');
+    console.error('❌ Unexpected error: Found stats IDs but none are valid');
     throw new Error(`Found ${allFoundStatsIds.length} stats objects but none are accessible for partner cap ${partnerCapId}`);
     
   } catch (error) {
@@ -1207,21 +1207,21 @@ export const ensurePartnerStatsExists = async (
   try {
     // First, try to find existing stats
     const statsId = await findPartnerStatsId(suiClient, partnerCapId);
-    console.log('??? Found existing PartnerPerkStatsV2:', statsId);
+    console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
     return statsId;
   } catch (error) {
-    console.log('??? PartnerPerkStatsV2 not found...');
+    console.log('⚡ PartnerPerkStatsV2 not found...');
     
     // Only attempt auto-creation if signAndExecuteTransaction is available
     if (!signAndExecuteTransaction) {
-      console.log('??? Cannot auto-create PartnerPerkStatsV2 - no transaction function available');
+      console.log('❌ Cannot auto-create PartnerPerkStatsV2 - no transaction function available');
       throw new Error(
         `No PartnerPerkStatsV2 found for partner cap ${partnerCapId}. ` +
         `The partner needs to create their stats object first using the partner dashboard.`
       );
     }
     
-    console.log('??? Attempting auto-creation of PartnerPerkStatsV2...');
+    console.log('⚡ Attempting auto-creation of PartnerPerkStatsV2...');
     
     // Calculate appropriate daily quota based on partner collateral
     // This should match the partner's actual quota from their PartnerCapFlex
@@ -1237,12 +1237,12 @@ export const ensurePartnerStatsExists = async (
       });
       
       if (result?.digest) {
-        console.log('??? PartnerPerkStatsV2 created automatically:', result.digest);
+        console.log('✅ PartnerPerkStatsV2 created automatically:', result.digest);
         
         // Extract the newly created stats ID from the transaction
         const newStatsId = await extractStatsIdFromCreationTransaction(suiClient, result.digest);
         if (newStatsId) {
-          console.log('??? Extracted new stats ID:', newStatsId);
+          console.log('✅ Extracted new stats ID:', newStatsId);
           return newStatsId;
         } else {
           throw new Error('Failed to extract stats ID from creation transaction');
@@ -1251,7 +1251,7 @@ export const ensurePartnerStatsExists = async (
         throw new Error('Failed to create PartnerPerkStatsV2 - no transaction digest');
       }
     } catch (creationError) {
-      console.error('??? Failed to auto-create PartnerPerkStatsV2:', creationError);
+      console.error('❌ Failed to auto-create PartnerPerkStatsV2:', creationError);
       throw new Error(
         `Unable to create required PartnerPerkStatsV2 object. ` +
         `The partner needs to create their stats object first using the partner dashboard. ` +
@@ -1270,7 +1270,7 @@ export const extractStatsIdFromCreationTransaction = async (
   txDigest: string
 ): Promise<string | null> => {
   try {
-    console.log('???? Extracting stats ID from transaction:', txDigest);
+    console.log('🔍 Extracting stats ID from transaction:', txDigest);
     
     // Get transaction details including effects
     const txResponse = await suiClient.getTransactionBlock({
@@ -1287,7 +1287,7 @@ export const extractStatsIdFromCreationTransaction = async (
       for (const event of txResponse.events) {
         if (event.type.includes('::perk_manager::PartnerPerkStatsCreatedV2') && event.parsedJson) {
           const statsId = event.parsedJson.stats_id;
-          console.log('??? Found stats ID from creation event:', statsId);
+          console.log('✅ Found stats ID from creation event:', statsId);
           return statsId;
         }
       }
@@ -1300,16 +1300,16 @@ export const extractStatsIdFromCreationTransaction = async (
             change.objectType && 
             change.objectType.includes('::perk_manager::PartnerPerkStatsV2')) {
           const statsId = change.objectId;
-          console.log('??? Found stats ID from object changes:', statsId);
+          console.log('✅ Found stats ID from object changes:', statsId);
           return statsId;
         }
       }
     }
     
-    console.warn('?????? Could not extract stats ID from transaction');
+    console.warn('⚠️ Could not extract stats ID from transaction');
     return null;
   } catch (error) {
-    console.error('??? Error extracting stats ID:', error);
+    console.error('❌ Error extracting stats ID:', error);
     return null;
   }
 };
@@ -1410,7 +1410,7 @@ export const buildSetPerkActiveStatusTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
   }
 
   tx.moveCall({
@@ -1451,7 +1451,7 @@ export const buildUpdatePerkSettingsTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
   }
 
   const maxUsesOption = maxUsesPerClaim 
@@ -1499,7 +1499,7 @@ export const buildUpdatePerkTagsTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
   }
 
   tx.moveCall({
@@ -1517,8 +1517,8 @@ export const buildUpdatePerkTagsTransaction = (
 /**
  * Builds a transaction for updating perk price (Alpha Points conversion)
  * 
- * ???? WORKAROUND NOTE: This function now includes a fix for the contract pricing bug.
- * The contract incorrectly uses oracle conversion for USDC???Alpha Points, so we need
+ * 🚨 WORKAROUND NOTE: This function now includes a fix for the contract pricing bug.
+ * The contract incorrectly uses oracle conversion for USDC→Alpha Points, so we need
  * to transform the stored USDC price to make the buggy conversion produce correct results.
  * 
  * @param perkDefinitionId Object ID of the PerkDefinition to update
@@ -1538,10 +1538,10 @@ export const buildUpdatePerkPriceTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
   }
 
-  // ???? IMPORTANT: The buildUpdatePerkPriceTransaction function only triggers a price recalculation
+  // 🚨 IMPORTANT: The buildUpdatePerkPriceTransaction function only triggers a price recalculation
   // based on the existing stored usdc_price in the contract. Since existing perks have the 
   // original USDC values stored, the contract will apply the buggy oracle conversion to those.
   //
@@ -1554,7 +1554,7 @@ export const buildUpdatePerkPriceTransaction = (
   // Since there's no direct way to update the stored usdc_price, this function will
   // still produce buggy results for existing perks. The real fix requires contract deployment.
 
-  console.log(`??????  WARNING: Price update for existing perks will still use buggy oracle conversion!`);
+  console.log(`⚠️  WARNING: Price update for existing perks will still use buggy oracle conversion!`);
   console.log(`   This function can only fix the pricing when the contract is updated.`);
   console.log(`   For immediate fix: Create new perks with the corrected frontend workaround.`);
 
@@ -1620,7 +1620,7 @@ export const buildUpdatePerkControlSettingsTransaction = (
   }
 
   // FIXED: Use oracle conversion to match smart contract validation
-  // Smart contract: converts USD ??? oracle ??? Alpha Points for validation
+  // Smart contract: converts USD → oracle → Alpha Points for validation
   // Settings: should store the same Alpha Points the smart contract expects
   const maxCostPerPerkAlphaPoints = usdToAlphaPointsForSettingsViaOracle(maxCostPerPerk);
   
@@ -1673,7 +1673,7 @@ export const buildCreatePartnerCapFlexTransactionSponsored = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored PartnerCapFlex creation: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored PartnerCapFlex creation: Gas fees will be paid by ${sponsorAddress}`);
   }
 
   // Split SUI from gas coin for collateral
@@ -1716,7 +1716,7 @@ export const buildUpdatePerkTypeListsTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
   }
 
   tx.moveCall({
@@ -1755,7 +1755,7 @@ export const buildUpdatePerkTagListsTransaction = (
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`???? Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
   }
 
   tx.moveCall({
@@ -1794,11 +1794,11 @@ export const checkPartnerQuotaStatus = async (
   error?: string;
 }> => {
   try {
-    console.log('???? DIAGNOSTIC: Checking partner quota status for:', partnerCapId);
+    console.log('🔍 DIAGNOSTIC: Checking partner quota status for:', partnerCapId);
     
     // Find the PartnerPerkStatsV2 object
     const statsId = await findPartnerStatsId(suiClient, partnerCapId);
-    console.log('??? Found PartnerPerkStatsV2:', statsId);
+    console.log('✅ Found PartnerPerkStatsV2:', statsId);
     
     // Get the object details
     const objectResponse = await suiClient.getObject({
@@ -1848,27 +1848,27 @@ export const checkPartnerQuotaStatus = async (
       needsEpochReset
     };
     
-    console.log('???? QUOTA STATUS:', quotaStatus);
+    console.log('🔍 QUOTA STATUS:', quotaStatus);
     
     // Provide diagnostic information
     if (dailyQuotaLimit === 0) {
-      console.log('??? ISSUE: Daily quota limit is 0 - partner needs to set a quota');
+      console.log('❌ ISSUE: Daily quota limit is 0 - partner needs to set a quota');
     } else if (dailyQuotaLimit < 1000) {
-      console.log('?????? WARNING: Daily quota limit is very low:', dailyQuotaLimit);
+      console.log('⚠️ WARNING: Daily quota limit is very low:', dailyQuotaLimit);
     }
     
     if (!needsEpochReset && remainingQuota <= 0) {
-      console.log('??? ISSUE: Partner has exhausted daily quota');
+      console.log('❌ ISSUE: Partner has exhausted daily quota');
     }
     
     if (needsEpochReset) {
-      console.log('?????? INFO: Daily stats need epoch reset - quota should refresh');
+      console.log('⚠️ INFO: Daily stats need epoch reset - quota should refresh');
     }
     
     return quotaStatus;
     
   } catch (error) {
-    console.error('??? Error checking partner quota status:', error);
+    console.error('❌ Error checking partner quota status:', error);
     return { 
       error: `Failed to check quota status: ${error instanceof Error ? error.message : 'Unknown error'}` 
     };
@@ -1888,7 +1888,7 @@ export const calculateExpectedPartnerShare = (
   partnerSharePercentage: number = 80
 ): number => {
   const partnerShare = Math.floor((perkCostAlphaPoints * partnerSharePercentage) / 100);
-  console.log('???? QUOTA IMPACT CALCULATION:', {
+  console.log('🔍 QUOTA IMPACT CALCULATION:', {
     perkCost: perkCostAlphaPoints,
     partnerSharePercentage,
     expectedPartnerShare: partnerShare
@@ -2228,7 +2228,7 @@ export function buildSelfServiceBatchMigrateStakesTransaction(
 // === HELPER FUNCTIONS FOR CROSS-PACKAGE RECOVERY ===
 
 /**
- * Convert SUI amount to Alpha Points using 1:1000 USD ratio (1 SUI = 3,280 ??P)
+ * Convert SUI amount to Alpha Points using 1:1000 USD ratio (1 SUI = 3,280 αP)
  */
 export function convertSuiToAlphaPoints(suiAmount: string): string {
   const suiAmountBN = BigInt(suiAmount);
@@ -2272,7 +2272,7 @@ export const buildCreatePartnerStatsIfNotExistsTransaction = async (
     // First check if stats already exist
     const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
     
-    console.log('?????? PartnerPerkStatsV2 already exists for this partner cap:', existingStatsId);
+    console.log('⚠️ PartnerPerkStatsV2 already exists for this partner cap:', existingStatsId);
     return { 
       transaction: null, 
       alreadyExists: true, 
@@ -2280,7 +2280,7 @@ export const buildCreatePartnerStatsIfNotExistsTransaction = async (
     };
   } catch (error) {
     // Stats don't exist, safe to create
-    console.log('??? No existing PartnerPerkStatsV2 found, creating new one...');
+    console.log('✅ No existing PartnerPerkStatsV2 found, creating new one...');
     
     const transaction = buildCreatePartnerStatsIfNeededTransaction(partnerCapId, dailyQuotaLimit);
     return { 
@@ -2562,8 +2562,8 @@ export const buildClaimWithdrawalTicketTransaction = (
     // In the future, we could query the object to determine its type
     throw new Error(
       "Package ID required for migration. Please specify which old package created this withdrawal ticket:\n" +
-      "??? 0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf (6-argument version)\n" +
-      "??? 0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a (4-argument version)"
+      "• 0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf (6-argument version)\n" +
+      "• 0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a (4-argument version)"
     );
   }
 
@@ -2599,8 +2599,8 @@ export const buildClaimWithdrawalTicketTransaction = (
     throw new Error(
       `Unsupported package ID: ${oldPackageId}\n` +
       `Supported packages:\n` +
-      `??? 0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf\n` +
-      `??? 0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a`
+      `• 0xdb62a7c1bbac6627f58863bec7774f30ea7022d862bb713cb86fcee3d0631fdf\n` +
+      `• 0xbae3eef628211af44c386e621142118bdee8825b059e0514bf3729638109cd3a`
     );
   }
 

@@ -111,16 +111,16 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
               {formatSui((availableCollateral * 1_000_000_000).toString())} SUI
             </div>
             <div className="text-xs text-gray-400">
-              ??? ${(availableCollateral * SUI_PRICE_USD).toFixed(2)}
+              ≈ ${(availableCollateral * SUI_PRICE_USD).toFixed(2)}
             </div>
           </div>
           <div className="bg-black/20 rounded-lg p-3">
             <div className="text-xs text-gray-400 mb-1">Max Loan (70% LTV)</div>
             <div className="text-lg font-semibold text-purple-400">
-              {formatPoints(maxLoanAmount.toString(), 0)} ??P
+              {formatPoints(maxLoanAmount.toString(), 0)} αP
             </div>
             <div className="text-xs text-gray-400">
-              ??? ${(maxLoanAmount / ALPHA_POINTS_PER_USD).toFixed(2)}
+              ≈ ${(maxLoanAmount / ALPHA_POINTS_PER_USD).toFixed(2)}
             </div>
           </div>
         </div>
@@ -183,7 +183,7 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
                         {formatSui(position.principal || '0')} SUI
                       </div>
                       <div className="text-xs text-gray-400">
-                        Max loan: {formatPoints(maxLoan.toString(), 0)} ??P
+                        Max loan: {formatPoints(maxLoan.toString(), 0)} αP
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -240,7 +240,7 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
               disabled={!selectedStakeId}
             />
             <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm">
-              ??P
+              αP
             </span>
           </div>
 
@@ -278,12 +278,12 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">You'll receive:</span>
-                <span className="text-white font-semibold">{formatPoints(loanAmount)} ??P</span>
+                <span className="text-white font-semibold">{formatPoints(loanAmount)} αP</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-400">Est. repayment:</span>
                 <span className="text-orange-400">
-                  {formatPoints((parseInt(loanAmount || '0') * 1.051).toString(), 0)} ??P
+                  {formatPoints((parseInt(loanAmount || '0') * 1.051).toString(), 0)} αP
                 </span>
               </div>
             </div>
@@ -313,7 +313,7 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
           ) : !loanAmount || parseInt(loanAmount) <= 0 ? (
             'Enter Loan Amount'
           ) : (
-            `Borrow ${formatPoints(loanAmount)} ??P`
+            `Borrow ${formatPoints(loanAmount)} αP`
           )}
         </button>
 

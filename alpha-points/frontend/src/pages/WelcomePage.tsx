@@ -9,7 +9,7 @@ import { useAlphaContext } from '../context/AlphaContext';
 import { useNavigate } from 'react-router-dom';
 import alphaPointsLogo from '../assets/alpha4-logo.svg'; // Verify this path
 import neonLogoVideo from '../assets/Neon_Logo_01.mp4'; // Import the video
-import { toast, ToastContainer } from 'react-toastify';
+import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 export const WelcomePage: React.FC = () => {
@@ -86,10 +86,8 @@ export const WelcomePage: React.FC = () => {
       <div className="absolute top-40 right-20 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
       <div className="absolute -bottom-8 left-40 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
 
-      <ToastContainer />
-      
-      <div className="w-full max-w-6xl flex flex-col items-center relative z-10 flex-1 justify-center">
-        <div className="text-center mb-8 animate-fade-in">
+      <div className="w-full max-w-6xl flex flex-col items-center relative z-10 flex-1 justify-center -mt-16">
+        <div className="text-center mb-6 animate-fade-in">
           {/* Logo Container */}
           <div className="relative mb-6">
             <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full blur-2xl opacity-50 animate-pulse"></div>
@@ -106,96 +104,76 @@ export const WelcomePage: React.FC = () => {
             <span className="bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 text-transparent bg-clip-text">
               Welcome to
             </span>
-            <br />
             <span className="bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 text-transparent bg-clip-text">
-              Alpha Points
+              {" "}Alpha4
             </span>
           </h1>
 
           <p className="text-gray-300 mb-8 text-base md:text-lg max-w-2xl mx-auto leading-relaxed animate-slide-up animation-delay-200">
-            Connect your wallet to start earning and staking Alpha Points.
+            Connect your wallet and enter the realm of bounless rewards and opportunities
             <br className="hidden md:block" />
-            <span className="text-purple-400">Your journey to financial freedom begins here.</span>
+            <span className="text-purple-400">Your journey to free flowing, cross application rewards lives here.</span>
           </p>
         </div>
 
-        <div className="w-full max-w-md animate-slide-up animation-delay-400">
-          <div className="card-modern p-6 space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold mb-4 text-center">Choose Your Wallet</h2>
-              {wallets.length === 0 ? (
-                <div className="text-center py-6">
-                  <div className="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                    </svg>
-                  </div>
-                  <p className="text-gray-400">No wallets detected</p>
-                  <p className="text-sm text-gray-500 mt-2">Please install a SUI wallet extension</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {wallets.map((wallet, index) => (
-                    <button
-                      key={wallet.name}
-                      onClick={async () => {
-
-                        try {
-                          await disconnectWallet();
-                          console.log('Disconnect call completed.');
-                        } catch (disconnectError) {
-
-                        }
-
-                        console.log('Attempting to connect to wallet:', wallet.name, wallet);
-                        try {
-                          await connectWallet({ wallet });
- 
-                        } catch (err) {
-                          
-                        }
-                      }}
-                      className="w-full btn-modern-primary group animate-fade-in flex items-center justify-between"
-                      style={{ animationDelay: `${600 + index * 100}ms` }}
-                    >
-                      <div className="flex items-center">
-                        {wallet.icon && (
-                          <img src={wallet.icon} alt={`${wallet.name} icon`} className="w-5 h-5 mr-3 group-hover:scale-110 transition-transform duration-300" />
-                        )}
-                        <span>Connect to {wallet.name}</span>
-                      </div>
-                      <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Features Preview */}
-            <div className="pt-4 border-t border-white/10">
-              <p className="text-center text-sm text-gray-400 mb-3">What you'll get access to:</p>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="flex items-center space-x-2 text-gray-300">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                  <span>Stake & Earn</span>
-                </div>
-                <div className="flex items-center space-x-2 text-gray-300">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span>Track Points</span>
-                </div>
-                <div className="flex items-center space-x-2 text-gray-300">
-                  <div className="w-2 h-2 bg-pink-500 rounded-full"></div>
-                  <span>Marketplace</span>
-                </div>
-                <div className="flex items-center space-x-2 text-gray-300">
-                  <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                  <span>Partnerships</span>
-                </div>
+        <div className="w-full max-w-4xl animate-slide-up animation-delay-400">
+          <h2 className="text-lg font-semibold mb-8 text-center">Choose Your Wallet</h2>
+          
+          {wallets.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
               </div>
+              <p className="text-gray-400">No wallets detected</p>
+              <p className="text-sm text-gray-500 mt-2">Please install a SUI wallet extension</p>
             </div>
-          </div>
+          ) : (
+            <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 justify-items-center ${wallets.length > 10 ? 'max-h-[480px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-purple-600 scrollbar-track-gray-800' : ''}`}>
+              {wallets.map((wallet, index) => (
+                <button
+                  key={wallet.name}
+                  onClick={async () => {
+
+                    try {
+                      await disconnectWallet();
+                      console.log('Disconnect call completed.');
+                    } catch (disconnectError) {
+
+                    }
+
+                    console.log('Attempting to connect to wallet:', wallet.name, wallet);
+                    try {
+                      await connectWallet({ wallet });
+
+                    } catch (err) {
+                      
+                    }
+                  }}
+                  className="group relative bg-black/20 backdrop-blur-lg border border-white/10 rounded-2xl p-6 w-full max-w-[180px] aspect-square flex flex-col items-center justify-center space-y-3 hover:bg-black/30 hover:border-purple-500/50 hover:scale-105 transition-all duration-300 animate-fade-in shadow-2xl hover:shadow-purple-500/20"
+                  style={{ animationDelay: `${600 + index * 100}ms` }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-purple-600/10 to-blue-600/10 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                  
+                  <div className="relative z-10 flex flex-col items-center space-y-3">
+                    {wallet.icon && (
+                      <div className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-xl group-hover:bg-white/10 transition-colors duration-300">
+                        <img 
+                          src={wallet.icon} 
+                          alt={`${wallet.name} icon`} 
+                          className="w-8 h-8 group-hover:scale-110 transition-transform duration-300" 
+                        />
+                      </div>
+                    )}
+                    <span className="text-sm font-medium text-center group-hover:text-purple-300 transition-colors duration-300">
+                      {wallet.name}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

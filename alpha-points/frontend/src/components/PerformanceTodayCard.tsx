@@ -171,7 +171,7 @@ export const PerformanceTodayCard: React.FC = () => {
       // In the future, this could be enhanced with limited sampling
       const estimatedRank = getDeterministicRankEstimate(totalAlphaPoints);
       
-      console.log(`???? Global Rank refreshed: #${estimatedRank} (${totalAlphaPoints.toLocaleString()} Alpha Points)`);
+      console.log(`🎯 Global Rank refreshed: #${estimatedRank} (${totalAlphaPoints.toLocaleString()} Alpha Points)`);
       
       // Save to cache
       saveCachedRank(address, estimatedRank);
@@ -185,7 +185,7 @@ export const PerformanceTodayCard: React.FC = () => {
       }));
 
     } catch (error) {
-      console.error('??? Error refreshing global rank:', error);
+      console.error('❌ Error refreshing global rank:', error);
       setGlobalRankState(prev => ({ ...prev, isLazyLoading: false }));
     }
   };
@@ -234,7 +234,7 @@ export const PerformanceTodayCard: React.FC = () => {
         u.address.toLowerCase() === userAddress.toLowerCase()
       ) + 1;
       
-      console.log(`???? User found in sample at position #${sampleRank} of ${sampleBalances.length}`);
+      console.log(`🎯 User found in sample at position #${sampleRank} of ${sampleBalances.length}`);
       
       // Extrapolate to full population (assume sample is representative)
       // If we sampled ~150 users and user is #10, estimate they're in top ~7% globally
@@ -242,7 +242,7 @@ export const PerformanceTodayCard: React.FC = () => {
       const estimatedTotalUsers = Math.max(10000, sampleBalances.length * 50); // Conservative estimate
       const estimatedRank = Math.floor(samplePercentile * estimatedTotalUsers);
       
-      console.log(`???? Estimated rank: #${estimatedRank} (${(samplePercentile * 100).toFixed(1)}% percentile)`);
+      console.log(`📊 Estimated rank: #${estimatedRank} (${(samplePercentile * 100).toFixed(1)}% percentile)`);
       return Math.max(1, estimatedRank);
     } else {
       // User not in sample - estimate based on distribution
@@ -251,11 +251,11 @@ export const PerformanceTodayCard: React.FC = () => {
       
       if (higherBalances === 0) {
         // User would be #1 in sample
-        console.log(`???? User would rank #1 in sample with ${userPoints.toLocaleString()} points`);
+        console.log(`🥇 User would rank #1 in sample with ${userPoints.toLocaleString()} points`);
         return getDeterministicRankEstimate(userPoints); // Use deterministic for very high scores
       } else if (lowerBalances === 0) {
         // User would be last in sample
-        console.log(`???? User would rank last in sample with ${userPoints.toLocaleString()} points`);
+        console.log(`📉 User would rank last in sample with ${userPoints.toLocaleString()} points`);
         const estimatedTotalUsers = Math.max(50000, sampleBalances.length * 100);
         return Math.floor(estimatedTotalUsers * 0.8); // Assume bottom 20%
       } else {
@@ -265,8 +265,8 @@ export const PerformanceTodayCard: React.FC = () => {
         const estimatedTotalUsers = Math.max(10000, sampleBalances.length * 50);
         const estimatedRank = Math.floor(samplePercentile * estimatedTotalUsers);
         
-        console.log(`???? Estimated sample position: #${estimatedSampleRank} of ${sampleBalances.length}`);
-        console.log(`???? Estimated global rank: #${estimatedRank} (${(samplePercentile * 100).toFixed(1)}% percentile)`);
+        console.log(`📈 Estimated sample position: #${estimatedSampleRank} of ${sampleBalances.length}`);
+        console.log(`📊 Estimated global rank: #${estimatedRank} (${(samplePercentile * 100).toFixed(1)}% percentile)`);
         
         return Math.max(1, estimatedRank);
       }
@@ -375,7 +375,7 @@ export const PerformanceTodayCard: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div className="absolute bottom-full right-0 mb-2 px-3 py-2 bg-black/90 backdrop-blur-lg border border-blue-500/20 rounded-lg text-xs text-white whitespace-nowrap opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[99999]">
-            ???? Your Alpha Points engagement metrics
+            💡 Your Alpha Points engagement metrics
             <div className="absolute top-full right-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-black/90"></div>
           </div>
         </div>
@@ -399,9 +399,9 @@ export const PerformanceTodayCard: React.FC = () => {
                 </svg>
               </div>
               <div className="absolute left-full top-0 ml-2 px-3 py-2 bg-black/95 backdrop-blur-lg border border-blue-500/30 rounded-lg text-xs text-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[99999] w-64">
-                <div className="font-medium text-blue-400 mb-1">???? Passive Income</div>
+                <div className="font-medium text-blue-400 mb-1">💰 Passive Income</div>
                 <div className="text-gray-300">Alpha Points earned per hour from your active stake positions.</div>
-                <div className="text-blue-300 mt-1">???? Stake more SUI to increase your hourly rate!</div>
+                <div className="text-blue-300 mt-1">💡 Stake more SUI to increase your hourly rate!</div>
                 <div className="absolute right-full top-2 w-0 h-0 border-t-4 border-b-4 border-r-4 border-transparent border-r-black/95"></div>
               </div>
             </div>
@@ -425,9 +425,9 @@ export const PerformanceTodayCard: React.FC = () => {
                 </svg>
               </div>
               <div className="absolute left-full top-0 ml-2 px-3 py-2 bg-black/95 backdrop-blur-lg border border-emerald-500/30 rounded-lg text-xs text-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[99999] w-64">
-                <div className="font-medium text-emerald-400 mb-1">???? Capital Efficiency</div>
+                <div className="font-medium text-emerald-400 mb-1">📊 Capital Efficiency</div>
                 <div className="text-gray-300">How well you're utilizing your total available capital (SUI + Alpha Points).</div>
-                <div className="text-emerald-300 mt-1">???? Deploy more assets in staking or loans to boost efficiency!</div>
+                <div className="text-emerald-300 mt-1">💡 Deploy more assets in staking or loans to boost efficiency!</div>
                 <div className="absolute right-full top-2 w-0 h-0 border-t-4 border-b-4 border-r-4 border-transparent border-r-black/95"></div>
               </div>
             </div>
@@ -451,9 +451,9 @@ export const PerformanceTodayCard: React.FC = () => {
                 </svg>
               </div>
               <div className="absolute left-full top-0 ml-2 px-3 py-2 bg-black/95 backdrop-blur-lg border border-purple-500/30 rounded-lg text-xs text-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[99999] w-64">
-                <div className="font-medium text-purple-400 mb-1">???? Engagement Streak</div>
+                <div className="font-medium text-purple-400 mb-1">🔥 Engagement Streak</div>
                 <div className="text-gray-300">Consecutive epochs with Alpha Points activity (claim, stake, spend, etc.)</div>
-                <div className="text-purple-300 mt-1">???? Stay active every epoch to build your streak!</div>
+                <div className="text-purple-300 mt-1">💡 Stay active every epoch to build your streak!</div>
                 <div className="absolute right-full top-2 w-0 h-0 border-t-4 border-b-4 border-r-4 border-transparent border-r-black/95"></div>
               </div>
             </div>
@@ -509,9 +509,9 @@ export const PerformanceTodayCard: React.FC = () => {
                 )}
               </div>
               <div className="absolute left-full top-0 ml-2 px-3 py-2 bg-black/95 backdrop-blur-lg border border-orange-500/30 rounded-lg text-xs text-white opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-[99999] w-64">
-                <div className="font-medium text-orange-400 mb-1">???? Global Rank</div>
+                <div className="font-medium text-orange-400 mb-1">🏆 Global Rank</div>
                 <div className="text-gray-300">Your position on the Alpha Points leaderboard vs all other users.</div>
-                <div className="text-orange-300 mt-1">???? Earn more Alpha Points to climb the rankings!</div>
+                <div className="text-orange-300 mt-1">💡 Earn more Alpha Points to climb the rankings!</div>
                 <div className="text-gray-500 mt-1 text-xs">Click refresh to update estimate</div>
                 <div className="absolute right-full top-2 w-0 h-0 border-t-4 border-b-4 border-r-4 border-transparent border-r-black/95"></div>
               </div>
@@ -528,7 +528,7 @@ export const PerformanceTodayCard: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="text-xs text-amber-300">
-              <p className="font-medium">???? Boost your efficiency:</p>
+              <p className="font-medium">💡 Boost your efficiency:</p>
               <p className="text-amber-400/80">Stake more SUI or use Alpha Points for loans to improve capital utilization</p>
             </div>
           </div>

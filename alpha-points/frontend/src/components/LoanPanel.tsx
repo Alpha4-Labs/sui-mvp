@@ -83,7 +83,7 @@ export const LoanPanel: React.FC = () => {
                         <span className="text-gray-400 text-sm">Borrowed</span>
                         <div className="text-right">
                           <span className="text-white font-semibold">{formatPoints(loan.principalPoints)}</span>
-                          <span className="text-purple-400 text-sm ml-1">??P</span>
+                          <span className="text-purple-400 text-sm ml-1">αP</span>
                         </div>
                       </div>
 
@@ -98,14 +98,14 @@ export const LoanPanel: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <span className="text-gray-400 text-sm">Interest</span>
                         <span className="text-orange-400 text-sm font-medium">
-                          {formatPoints(loan.interestOwedPoints)} ??P
+                          {formatPoints(loan.interestOwedPoints)} αP
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between">
                         <span className="text-gray-400 text-sm">Est. Repayment</span>
                         <span className="text-red-400 text-sm font-medium">
-                          {formatPoints(loan.estimatedRepayment)} ??P
+                          {formatPoints(loan.estimatedRepayment)} αP
                         </span>
                       </div>
                     </div>

@@ -7,14 +7,14 @@ import { useAlphaContext } from '../context/AlphaContext'; // Import useAlphaCon
 import { usePartnerDetection } from '../hooks/usePartnerDetection';
 // Removed TVL calculation import - not needed anymore
 import { formatAddress } from '../utils/format';
-import alpha4Logo from '../../public/alpha4-logo.svg';
+import alpha4Logo from '../assets/alpha4-logo.svg';
 // import alphaPointsLogo from '../assets/alphapoints-logo.svg'; // Assuming path is correct if used
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { toast } from 'react-toastify'; // Import toast
 
 interface MainLayoutProps {
-  children: ReactNode;
+  children?: ReactNode; // Make children optional since we use Outlet
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
@@ -32,16 +32,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
   // Removed platform statistics - not needed anymore
 
-  // Check if we're on a partner route (PartnerDashboard handles its own navigation)
-  const isPartnerRoute = location.pathname.startsWith('/partners') && location.pathname !== '/partners/create';
-
-  // Nav links by mode (only for non-partner routes)
+  // Nav links by mode
   const userNavLinks = [
     { name: 'Dashboard', path: '/dashboard' },
     { name: 'Marketplace', path: '/marketplace' },
     { name: 'Generation', path: '/generation' },
     { name: 'Analytics', path: '/analytics' },
-    { name: 'Loans', path: '/loans' },
   ];
   const partnerNavLinks = [
     { name: 'Overview', path: '/partners/overview' },
@@ -49,8 +45,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     { name: 'Analytics', path: '/partners/analytics' },
     { name: 'Settings', path: '/partners/settings' },
   ];
-  
-  // Show appropriate navigation based on mode
   const navLinks = mode === 'partner' ? partnerNavLinks : userNavLinks;
 
   // Click outside to close dropdown - Updated to handle both button and dropdown
@@ -190,73 +184,56 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         </div>
       </header>
 
-      {/* Mobile Navigation - Only show if not on partner routes */}
-      {!isPartnerRoute && (
-        <nav className="md:hidden bg-black/20 backdrop-blur-lg border-t border-white/10 py-3 px-4 fixed bottom-0 left-0 right-0 z-50 shadow-2xl">
-          <div className="flex justify-around">
-            {navLinks.map((link, index) => (
-              <NavLink
-                key={link.path}
-                to={link.path}
-                className={({ isActive }) => `
-                  flex flex-col items-center px-3 py-2 text-center text-xs rounded-lg transition-all duration-300
-                  ${isActive
-                    ? 'text-purple-400 bg-purple-500/10 font-medium'
-                    : 'text-gray-400 hover:text-purple-400 hover:bg-white/5'
-                  }
-                `}
-              >
-                {/* Add icons based on the link name */}
-                <div className="text-lg mb-1">
-                  {link.name === 'Dashboard' && '📊'}
-                  {link.name === 'Marketplace' && '🛒'}
-                  {link.name === 'Generation' && '⚡'}
-                  {link.name === 'Analytics' && '📈'}
-                  {link.name === 'Loans' && '💰'}
-                </div>
-                <span>{link.name}</span>
-              </NavLink>
-            ))}
-          </div>
-        </nav>
-      )}
+      {/* Mobile Navigation */}
+      <nav className="md:hidden bg-black/20 backdrop-blur-lg border-t border-white/10 py-3 px-4 fixed bottom-0 left-0 right-0 z-[9999] shadow-2xl">
+        <div className="flex justify-around">
+          {navLinks.map((link, index) => (
+            <NavLink
+              key={link.path}
+              to={link.path}
+              className={({ isActive }) => `
+                flex flex-col items-center px-3 py-2 text-center text-xs rounded-lg transition-all duration-300
+                ${isActive
+                  ? 'text-purple-400 bg-purple-500/10 font-medium'
+                  : 'text-gray-400 hover:text-purple-400 hover:bg-white/5'
+                }
+              `}
+              style={{animationDelay: `${index * 0.1}s`}}
+            >
+              <span className="animate-fade-in">{link.name}</span>
+            </NavLink>
+          ))}
+        </div>
+      </nav>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        {children || <Outlet />}
+      {/* Main Content Area */}
+      <main className="container mx-auto px-4 pt-6 pb-20 md:pb-6 box-border flex-grow overflow-hidden">
+        <div className="animate-fade-in">
+          <Outlet />
+        </div>
       </main>
 
       {/* Footer */}
-      <footer className="bg-black/10 backdrop-blur-lg border-t border-white/10 py-4 px-4 flex-shrink-0">
-        <div className="container mx-auto">
-          {/* Mode toggle button */}
-          <div className="flex items-center justify-center mb-3">
+      <footer className="bg-black/10 backdrop-blur-lg border-t border-white/10 py-4 px-4 text-center text-sm text-gray-400 flex-shrink-0 w-full">
+        <div className="w-full flex flex-col items-center space-y-2">
+          <div className="flex flex-wrap justify-center items-center space-x-4 md:space-x-6 w-full">
+            <a href="https://alpha4.io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-purple-400 transition-colors duration-300">Main Site</a>
+            <span className="text-gray-600">•</span>
+            <a href="https://discord.gg/VuF5NmC9Dg" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-purple-400 transition-colors duration-300">Discord</a>
+            <span className="text-gray-600">•</span>
+            <a href="https://www.linkedin.com/company/alpha4-io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-purple-400 transition-colors duration-300">LinkedIn</a>
+            <span className="text-gray-600">•</span>
+            <a href="https://x.com/alpha4_io" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-purple-400 transition-colors duration-300">X</a>
+            <span className="text-gray-600">•</span>
+            {/* Footer toggle button */}
             <button
               onClick={handleFooterToggle}
+              className="text-gray-400 hover:text-purple-400 transition-colors duration-300 underline decoration-dotted underline-offset-2 focus:outline-none disabled:opacity-50"
               disabled={partnerDetecting}
-              className={`
-                px-6 py-2 rounded-xl text-sm font-medium transition-all duration-300 shadow-lg
-                ${mode === 'partner' 
-                  ? 'bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white shadow-orange-500/25' 
-                  : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white shadow-green-500/25'
-                }
-                ${partnerDetecting ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}
-              `}
             >
-              {partnerDetecting ? (
-                <div className="flex items-center space-x-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>Detecting...</span>
-                </div>
-              ) : (
-                <>
-                  {mode === 'partner' ? '👤 Switch to User' : '🤝 Partners'}
-                </>
-              )}
+              {mode === 'partner' ? '🏠 Home' : '🤝 Partners'}
             </button>
           </div>
-          
-          {/* Copyright */}
           <div className="w-full text-center text-gray-500 text-xs px-4" title="Testnet demo for experimental purposes only. Features shown may not reflect final product and are subject to change without notice. Alpha Points MVP © 2025">
             Testnet demo • Alpha Points MVP © 2025
           </div>

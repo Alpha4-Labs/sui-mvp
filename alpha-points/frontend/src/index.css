@@ -258,6 +258,29 @@
   .swiper-pagination-custom .swiper-pagination-bullet-active {
     @apply bg-primary opacity-100 transform scale-125;
   }
+
+  /* Stats Swiper Styles */
+  .stats-swiper .swiper-pagination {
+    position: relative !important;
+    bottom: 0 !important;
+    margin-top: 12px !important;
+  }
+
+  .stats-swiper .swiper-pagination-bullet {
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 50% !important;
+    margin: 0 3px !important;
+    background: rgba(255, 255, 255, 0.3) !important;
+    opacity: 0.4 !important;
+    transition: all 0.3s ease !important;
+  }
+
+  .stats-swiper .swiper-pagination-bullet-active {
+    background: rgba(255, 255, 255, 1) !important;
+    opacity: 1 !important;
+    transform: scale(1.2) !important;
+  }
 }
 
 /* Global styles */
