@@ -15,7 +15,8 @@ import {
 export const LoanPanel: React.FC = () => {
   const { loans, stakePositions, refreshData, refreshLoansData, setTransactionLoading } = useAlphaContext();
   const [repayInProgress, setRepayInProgress] = useState<string | null>(null);
-  const { registerRefreshCallback, signAndExecute } = useTransactionSuccess();
+  const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
+  const { registerRefreshCallback } = useTransactionSuccess();
 
   // Register refresh callback
   React.useEffect(() => {
@@ -56,15 +57,21 @@ export const LoanPanel: React.FC = () => {
     try {
       const tx = buildRepayLoanTransaction(loanId, stakeId, estimatedRepayment);
       
-      await signAndExecute({
+      const result = await signAndExecuteTransaction({
         transaction: tx,
         options: {
           showObjectChanges: true,
           showEffects: true,
         },
-        successMessage: `Successfully repaid loan! Your collateral stake is now available for unstaking.`,
-        errorMessage: 'Failed to repay loan'
       });
+
+      if (result?.digest) {
+        toast.success('Successfully repaid loan! Your collateral stake is now available for unstaking.');
+        
+        // Manually trigger refresh since we're not using the auto-refresh hook
+        await refreshLoansData();
+        await refreshData();
+      }
 
     } catch (error: any) {
       console.error('Error repaying loan:', error);
@@ -182,17 +189,14 @@ export const LoanPanel: React.FC = () => {
                             className="px-2 py-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-600 disabled:to-gray-600 text-white text-xs font-medium rounded transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                             title={`Repay ${formatPoints(loan.estimatedRepayment)} αP to unlock your collateral`}
                           >
-                            {isRepaying ? (
-                              <div className="flex items-center">
-                                <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span className="text-xs">Repaying...</span>
-                              </div>
-                            ) : (
-                              <span className="text-xs">💰 Repay</span>
-                            )}
+                                                      {isRepaying ? (
+                            <div className="flex items-center">
+                              <div className="animate-spin h-3 w-3 mr-1 border border-white border-t-transparent rounded-full"></div>
+                              <span className="text-xs">Repaying...</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs">💰 Repay</span>
+                          )}
                           </button>
                         </div>
                         <span className="text-red-400 text-sm font-medium text-right">
