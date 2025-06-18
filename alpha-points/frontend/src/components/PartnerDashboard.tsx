@@ -10,7 +10,6 @@ import { useAlphaContext } from '../context/AlphaContext';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
 import { usePartnerSettings } from '../hooks/usePartnerSettings';
 import { usePartnerAnalytics } from '../hooks/usePartnerAnalytics';
-import { SDKConfigurationDashboard } from './SDKConfigurationDashboard';
 
 import { usePartnerDetection } from '../hooks/usePartnerDetection';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
@@ -1628,6 +1627,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 <Button 
                   className="text-sm bg-gray-600 hover:bg-gray-700 px-3 py-2 whitespace-nowrap"
                   onClick={onRefresh}
+
                 >
                   <span className="mr-1">🔄</span>
                   Refresh
@@ -4757,8 +4757,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   />
                   <span className="text-sm text-gray-300">Allow Unique Metadata</span>
                   </label>
-              </div>
-            
+            </div>
                         {/* Zero-Dev Integration Settings Button */}
             <div className="pt-4 border-t border-gray-700">
               <Button
@@ -4858,6 +4857,223 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     setNftKioskId('');
     setNftCollectionType('');
     setNftFloorValue('');
+  };
+
+  // Calculate withdrawable amount (TVL - backing for already minted points)
+  const calculateWithdrawableAmount = () => {
+    const totalUsdValue = partnerCap.currentEffectiveUsdcValue || 0;
+    const pointsMinted = partnerCap.totalPointsMintedLifetime || 0;
+    // Each 1000 points requires $1 USD backing
+    const requiredBacking = pointsMinted / 1000;
+    const withdrawable = Math.max(0, totalUsdValue - requiredBacking);
+    return withdrawable;
+  };
+
+  // Get the vault ID for the selected partner cap by fetching fresh data
+  const getVaultIdForPartner = async () => {
+    if (!selectedPartnerCapId || !suiClient) return null;
+    
+    try {
+      // Fetch fresh partner cap data to get vault information
+      const freshPartnerCap = await suiClient.getObject({
+        id: selectedPartnerCapId,
+        options: { showContent: true, showType: true }
+      });
+      
+      // Extract vault ID from the locked_sui_coin_id field
+      const lockedSuiCoinId = (freshPartnerCap.data?.content as any)?.fields?.locked_sui_coin_id;
+      
+      if (!lockedSuiCoinId) return null;
+      
+      // Handle different Option<T> formats from Sui Move
+      if (typeof lockedSuiCoinId === 'string' && lockedSuiCoinId.length > 0) {
+        return lockedSuiCoinId; // Direct string value
+      } else if (Array.isArray(lockedSuiCoinId) && lockedSuiCoinId.length > 0) {
+        return lockedSuiCoinId[0]; // Array format
+      } else if (lockedSuiCoinId.vec && lockedSuiCoinId.vec.length > 0) {
+        return lockedSuiCoinId.vec[0]; // Object with vec format
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error fetching vault ID:', error);
+      return null;
+    }
+  };
+
+  // Handle TVL withdrawal
+  const handleTvlWithdrawal = async () => {
+    if (!suiClient || !account?.address || !selectedPartnerCapId) {
+      toast.error('Unable to process withdrawal: Missing required data');
+      return;
+    }
+
+    const withdrawalAmountNum = parseFloat(withdrawalAmount);
+    if (isNaN(withdrawalAmountNum) || withdrawalAmountNum <= 0) {
+      toast.error('Please enter a valid withdrawal amount');
+      return;
+    }
+
+    const vaultId = await getVaultIdForPartner();
+    if (!vaultId) {
+      toast.error('No SUI vault found for this partner');
+      return;
+    }
+
+    setIsProcessingWithdrawal(true);
+
+    try {
+      // Convert USD to SUI for withdrawal
+      // This is a simplified conversion - in reality, you'd want to use the oracle
+      const suiPrice = 2.0; // Placeholder - should get from oracle
+      const suiAmountToWithdraw = withdrawalAmountNum / suiPrice;
+      const suiAmountInMist = BigInt(Math.floor(suiAmountToWithdraw * 1e9));
+
+      const tx = buildWithdrawCollateralTransaction(
+        selectedPartnerCapId,
+        'SUI',
+        suiAmountInMist
+      );
+
+      const result = await signAndExecuteTransaction({
+        transaction: tx,
+        options: {
+          showObjectChanges: true,
+          showEvents: true,
+        },
+      });
+
+      if (result.effects?.status?.status === 'success') {
+        toast.success(`Successfully withdrew ${withdrawalAmountNum.toFixed(2)} USD worth of SUI`);
+        setShowWithdrawalModal(false);
+        setWithdrawalAmount('');
+        
+        // Refresh partner data
+        await checkPartnerStats(true);
+      } else {
+        const errorMsg = result.effects?.status?.error || 'Unknown error';
+        if (errorMsg.includes('E_POINTS_TOO_YOUNG')) {
+          toast.error('Your minted points are too young. Please wait a few more epochs before withdrawing.');
+        } else if (errorMsg.includes('E_WITHDRAWAL_EXCEEDS_EPOCH_LIMIT')) {
+          toast.error('Withdrawal exceeds your epoch limit. Try a smaller amount or wait until next epoch.');
+        } else if (errorMsg.includes('E_WITHDRAWAL_WOULD_UNDERBACK_POINTS')) {
+          toast.error('This withdrawal would leave insufficient backing for your minted points.');
+        } else if (errorMsg.includes('E_WITHDRAWAL_PAUSED')) {
+          toast.error('Withdrawals are currently paused for security reasons.');
+        } else {
+          toast.error(`Withdrawal failed: ${errorMsg}`);
+        }
+      }
+    } catch (error: any) {
+      console.error('TVL withdrawal error:', error);
+      let errorMessage = 'Failed to withdraw TVL';
+      
+      if (error.message?.includes('E_POINTS_TOO_YOUNG')) {
+        errorMessage = 'Your minted points are too young. Please wait a few more epochs before withdrawing.';
+      } else if (error.message?.includes('E_WITHDRAWAL_EXCEEDS_EPOCH_LIMIT')) {
+        errorMessage = 'Withdrawal exceeds your epoch limit. Try a smaller amount or wait until next epoch.';
+      } else if (error.message?.includes('E_WITHDRAWAL_WOULD_UNDERBACK_POINTS')) {
+        errorMessage = 'This withdrawal would leave insufficient backing for your minted points.';
+      } else if (error.message?.includes('E_WITHDRAWAL_PAUSED')) {
+        errorMessage = 'Withdrawals are currently paused for security reasons.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
+    } finally {
+      setIsProcessingWithdrawal(false);
+    }
+  };
+
+  // Handle TVL withdrawal
+  const handleWithdrawCapital = async () => {
+    if (!partnerCap.id || !withdrawalAmount || !suiClient) {
+      toast.error('Missing required information for withdrawal');
+      return;
+    }
+
+    const withdrawAmountUsd = parseFloat(withdrawalAmount);
+    if (isNaN(withdrawAmountUsd) || withdrawAmountUsd <= 0) {
+      toast.error('Please enter a valid withdrawal amount');
+      return;
+    }
+
+    const maxWithdrawable = calculateWithdrawableAmount();
+    if (withdrawAmountUsd > maxWithdrawable) {
+      toast.error(`Maximum withdrawable amount is $${maxWithdrawable.toFixed(2)}`);
+      return;
+    }
+
+    try {
+      setIsProcessingWithdrawal(true);
+
+      // Convert USD to SUI amount (this would need current SUI price)
+      // For now, using 1 SUI = $1 as placeholder
+      const suiAmountToWithdraw = withdrawAmountUsd; 
+      const suiAmountInMist = Math.floor(suiAmountToWithdraw * 1_000_000_000);
+
+      // Fetch fresh partner cap data to get vault information
+      const freshPartnerCap = await suiClient.getObject({
+        id: partnerCap.id,
+        options: { showContent: true, showType: true }
+      });
+      
+      // Extract vault ID from the locked_sui_coin_id field
+      const lockedSuiCoinId = (freshPartnerCap.data?.content as any)?.fields?.locked_sui_coin_id;
+      
+      let vaultId = null;
+      if (lockedSuiCoinId) {
+        // Handle different Option<T> formats from Sui Move
+        if (typeof lockedSuiCoinId === 'string' && lockedSuiCoinId.length > 0) {
+          vaultId = lockedSuiCoinId; // Direct string value
+        } else if (Array.isArray(lockedSuiCoinId) && lockedSuiCoinId.length > 0) {
+          vaultId = lockedSuiCoinId[0]; // Array format
+        } else if (lockedSuiCoinId.vec && lockedSuiCoinId.vec.length > 0) {
+          vaultId = lockedSuiCoinId.vec[0]; // Object with vec format
+        }
+      }
+      
+      if (!vaultId) {
+        toast.error('No vault found for this partner');
+        return;
+      }
+
+      const transaction = buildWithdrawCollateralTransaction(
+        partnerCap.id,
+        'SUI',
+        BigInt(suiAmountInMist)
+      );
+
+      signAndExecuteTransaction(
+        { transaction },
+        {
+          onSuccess: (result: any) => {
+            console.log('✅ Capital withdrawal successful:', result);
+            toast.success(`Successfully withdrew $${withdrawAmountUsd} worth of SUI`);
+            
+            // Clear form and close modal
+            setWithdrawalAmount('');
+            setShowWithdrawalModal(false);
+            
+            // Refresh partner data
+            setTimeout(() => {
+              onRefresh();
+            }, 2000);
+          },
+          onError: (error: any) => {
+            console.error('❌ Capital withdrawal failed:', error);
+            toast.error(`Withdrawal failed: ${error.message || 'Unknown error'}`);
+          }
+        }
+      );
+
+    } catch (error: any) {
+      console.error('Error in capital withdrawal:', error);
+      toast.error(`Error: ${error.message || 'Unknown error occurred'}`);
+    } finally {
+      setIsProcessingWithdrawal(false);
+    }
   };
 
   // Calculate withdrawable amount (TVL - backing for already minted points)

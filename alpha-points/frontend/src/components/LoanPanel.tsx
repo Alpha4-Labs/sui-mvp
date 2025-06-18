@@ -49,53 +49,6 @@ export const LoanPanel: React.FC = () => {
     }
   };
 
-  // Handle loan repayment
-  const handleRepayLoan = async (loanId: string, stakeId: string, estimatedRepayment: string) => {
-    setRepayInProgress(loanId);
-    setTransactionLoading(true);
-
-    try {
-      const tx = buildRepayLoanTransaction(loanId, stakeId, estimatedRepayment);
-      
-      const result = await signAndExecuteTransaction({
-        transaction: tx,
-        options: {
-          showObjectChanges: true,
-          showEffects: true,
-        },
-      });
-
-      if (result?.digest) {
-        toast.success('Successfully repaid loan! Your collateral stake is now available for unstaking.');
-        
-        // Manually trigger refresh since we're not using the auto-refresh hook
-        await refreshLoansData();
-        await refreshData();
-      }
-
-    } catch (error: any) {
-      console.error('Error repaying loan:', error);
-      
-      let errorMessage = 'Failed to repay loan';
-      if (error?.message) {
-        if (error.message.includes('Insufficient balance')) {
-          errorMessage = 'Insufficient Alpha Points balance to repay this loan';
-        } else if (error.message.includes('InvalidLoan')) {
-          errorMessage = 'Invalid loan state - loan may already be repaid';
-        } else if (error.message.includes('unauthorized')) {
-          errorMessage = 'You are not authorized to repay this loan';
-        } else {
-          errorMessage = getTransactionErrorMessage(error) || error.message;
-        }
-      }
-      
-      toast.error(errorMessage);
-    } finally {
-      setRepayInProgress(null);
-      setTransactionLoading(false);
-    }
-  };
-
   return (
     <div className="h-full">
       <div className="p-2 h-full">
@@ -159,7 +112,6 @@ export const LoanPanel: React.FC = () => {
                           <span className="text-purple-400 text-sm ml-1">αP</span>
                         </div>
                       </div>
-
                       <div className="flex items-center justify-between">
                         <span className="text-gray-400 text-sm">Collateral</span>
                         <div className="text-right">
@@ -174,7 +126,6 @@ export const LoanPanel: React.FC = () => {
                           {formatPoints(loan.interestOwedPoints)} αP
                         </span>
                       </div>
-
                       {/* 3-column layout with button in middle */}
                       <div className="grid grid-cols-3 items-center gap-2">
                         <span className="text-gray-400 text-sm">Est. Repayment</span>
@@ -204,7 +155,6 @@ export const LoanPanel: React.FC = () => {
                         </span>
                       </div>
                     </div>
-                  </div>
                 );
               })}
             </div>

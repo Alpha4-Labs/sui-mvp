@@ -3079,7 +3079,4 @@ export const validateEventData = (
   }
 };
 
-// === CROSS-PACKAGE RECOVERY FUNCTIONS ===
-
-
 
