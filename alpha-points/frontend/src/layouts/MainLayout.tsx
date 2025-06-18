@@ -43,6 +43,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
     { name: 'Overview', path: '/partners/overview' },
     { name: 'Perks', path: '/partners/perks' },
     { name: 'Analytics', path: '/partners/analytics' },
+    { name: 'Generations', path: '/partners/generations' },
     { name: 'Settings', path: '/partners/settings' },
   ];
   const navLinks = mode === 'partner' ? partnerNavLinks : userNavLinks;

@@ -76,6 +76,31 @@ export interface PartnerSettings {
   // New privacy and metadata fields
   partnerSalt?: string;
   metadataSchema?: MetadataField[];
+  
+  // Zero-Dev Integration Settings
+  integrationEnabled?: boolean;
+  allowedOrigins?: string[];
+  rateLimitPerMinute?: number;
+  requireUserSignature?: boolean;
+  enableNotifications?: boolean;
+  debugMode?: boolean;
+  signatureValidation?: boolean;
+  replayProtection?: boolean;
+  
+  // Event Configuration
+  eventMappings?: EventMapping[];
+}
+
+export interface EventMapping {
+  eventType: string;
+  displayName: string;
+  description: string;
+  pointsPerEvent: number;
+  maxEventsPerUser: number;
+  maxEventsPerDay: number;
+  cooldownMinutes: number;
+  isActive: boolean;
+  requiresSignature: boolean;
 }
 
 export interface UsePartnerSettingsReturn {
@@ -118,6 +143,17 @@ const DEFAULT_SETTINGS: PartnerSettings = {
   blacklistedTags: [],
   partnerSalt: '', // Will be set when partner cap ID is available
   metadataSchema: [],
+  
+  // Zero-Dev Integration Defaults
+  integrationEnabled: false,
+  allowedOrigins: [],
+  rateLimitPerMinute: 10,
+  requireUserSignature: true,
+  enableNotifications: true,
+  debugMode: false,
+  signatureValidation: true,
+  replayProtection: true,
+  eventMappings: [],
 };
 
 export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsReturn {
@@ -189,6 +225,63 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
           const rawAlphaPoints = Number(perkControlSettings.max_cost_per_perk || '0');
           const conversion = convertSettingsForDisplay(rawAlphaPoints);
           
+          // Check for Zero-Dev integration settings in dynamic fields
+          let integrationSettings = null;
+          let eventMappings: EventMapping[] = [];
+          
+          // Try to find integration settings and event mappings in the PartnerCapFlex
+          if (fields.id && fields.id.id) {
+            try {
+              // Look for dynamic fields that might contain integration settings
+              const dynamicFields = await client.getDynamicFields({
+                parentId: fields.id.id,
+              });
+              
+              // Parse integration settings if they exist
+              for (const field of dynamicFields.data) {
+                if (field.name?.value === 'IntegrationSettingsKey') {
+                  const settingsObject = await client.getObject({
+                    id: field.objectId,
+                    options: { showContent: true }
+                  });
+                  
+                  if (settingsObject.data?.content && settingsObject.data.content.dataType === 'moveObject') {
+                    integrationSettings = (settingsObject.data.content as any).fields;
+                  }
+                }
+                
+                if (field.name?.value === 'EventMappingsKey') {
+                  const mappingsObject = await client.getObject({
+                    id: field.objectId,
+                    options: { showContent: true }
+                  });
+                  
+                  if (mappingsObject.data?.content && mappingsObject.data.content.dataType === 'moveObject') {
+                    const mappingsData = (mappingsObject.data.content as any).fields;
+                    // Parse event mappings from the table structure
+                    if (mappingsData && mappingsData.contents) {
+                      // Convert Move table to EventMapping array
+                      eventMappings = Object.entries(mappingsData.contents).map(([eventType, config]: [string, any]) => ({
+                        eventType,
+                        displayName: config.display_name || eventType,
+                        description: config.description || '',
+                        pointsPerEvent: Number(config.points_per_event || 0),
+                        maxEventsPerUser: Number(config.max_events_per_user || 0),
+                        maxEventsPerDay: Number(config.max_events_per_day || 0),
+                        cooldownMinutes: Number(config.cooldown_minutes || 0),
+                        isActive: config.is_active || false,
+                        requiresSignature: config.requires_signature || false,
+                      }));
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('Could not fetch Zero-Dev integration settings:', err);
+              // Continue with default values
+            }
+          }
+
           const settings: PartnerSettings = {
             maxPerksPerPartner: Number(perkControlSettings.max_perks_per_partner || '0'),
             maxClaimsPerPerk: Number(perkControlSettings.max_claims_per_perk || '0'),
@@ -206,6 +299,17 @@ export function usePartnerSettings(partnerCapId?: string): UsePartnerSettingsRet
             // Privacy fields (stored off-chain for now, will be added to blockchain later)
             partnerSalt: getOrCreateSalt(partnerCapId), // Get or create persistent salt
             metadataSchema: [], // Default to empty schema
+            
+            // Zero-Dev Integration Settings
+            integrationEnabled: integrationSettings?.integration_enabled || false,
+            allowedOrigins: integrationSettings?.allowed_origins || [],
+            rateLimitPerMinute: Number(integrationSettings?.rate_limit_per_minute || 10),
+            requireUserSignature: integrationSettings?.require_user_signature || true,
+            enableNotifications: integrationSettings?.enable_notifications || true,
+            debugMode: integrationSettings?.debug_mode || false,
+            signatureValidation: integrationSettings?.signature_validation || true,
+            replayProtection: integrationSettings?.replay_protection || true,
+            eventMappings,
           };
           
 

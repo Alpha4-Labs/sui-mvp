@@ -30,10 +30,11 @@ export function PartnersPage() {
   };
 
   // Determine current tab from URL (memoized to prevent unnecessary re-renders)
-  const currentTab = React.useMemo((): 'overview' | 'perks' | 'analytics' | 'settings' => {
+  const currentTab = React.useMemo((): 'overview' | 'perks' | 'analytics' | 'settings' | 'generations' => {
     const path = location.pathname;
     if (path.includes('/perks')) return 'perks';
     if (path.includes('/analytics')) return 'analytics';
+    if (path.includes('/generations')) return 'generations';
     if (path.includes('/settings')) return 'settings';
     return 'overview'; // default
   }, [location.pathname]);

@@ -19,6 +19,8 @@ import { AnalyticsPage } from './pages/AnalyticsPage';
 import { AlphaProvider } from './context/AlphaContext';
 import { PartnerOnboardingPage } from './pages/PartnerOnboardingPage';
 import { PartnersPage } from './pages/PartnersPage';
+import { SDKDemo } from './components/SDKDemo';
+import { SecurityDemo } from './components/SecurityDemo';
 
 // Create a client for React Query
 const queryClient = new QueryClient();
@@ -47,6 +49,12 @@ function App() {
                   <Route path="callback" element={<ZkLoginCallback />} />
                 </Route>
 
+                {/* Demo routes - accessible without full authentication */}
+                <Route element={<MainLayout />}>
+                  <Route path="/sdk-demo" element={<SDKDemo />} />
+                  <Route path="/security-demo" element={<SecurityDemo />} />
+                </Route>
+
                 <Route element={<ProtectedRoute />}>
                   <Route element={<MainLayout />}>
                     <Route path="/dashboard" element={<DashboardPage />} />
@@ -58,6 +66,7 @@ function App() {
                     <Route path="/partners/overview" element={<PartnersPage />} />
                     <Route path="/partners/perks" element={<PartnersPage />} />
                     <Route path="/partners/analytics" element={<PartnersPage />} />
+                    <Route path="/partners/generations" element={<PartnersPage />} />
                     <Route path="/partners/settings" element={<PartnersPage />} />
                     <Route path="/partners/create" element={<PartnerOnboardingPage />} />
                     <Route path="/partner-onboarding" element={<Navigate to="/partners" replace />} />
