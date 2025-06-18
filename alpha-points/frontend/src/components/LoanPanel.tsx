@@ -1,11 +1,30 @@
 // === LoanPanel.tsx (Displaying Active Loans Only) ===
-import React from 'react';
+import React, { useState } from 'react';
+import { useSignAndExecuteTransaction } from '@mysten/dapp-kit';
+import { toast } from 'react-toastify';
 import { useAlphaContext } from '../context/AlphaContext';
 import { formatPoints, formatSui, formatAddress, formatTimestamp } from '../utils/format';
 import { convertMistToSui } from '../utils/constants';
+import { buildRepayLoanTransaction } from '../utils/transaction';
+import { useTransactionSuccess } from '../hooks/useTransactionSuccess';
+import {
+  getTransactionErrorMessage,
+  getTransactionResponseError,
+} from '../utils/transaction-adapter';
 
 export const LoanPanel: React.FC = () => {
-  const { loans, stakePositions } = useAlphaContext();
+  const { loans, stakePositions, refreshData, refreshLoansData, setTransactionLoading } = useAlphaContext();
+  const [repayInProgress, setRepayInProgress] = useState<string | null>(null);
+  const { registerRefreshCallback, signAndExecute } = useTransactionSuccess();
+
+  // Register refresh callback
+  React.useEffect(() => {
+    const cleanup = registerRefreshCallback(async () => {
+      await refreshLoansData();
+      await refreshData();
+    });
+    return cleanup;
+  }, [registerRefreshCallback, refreshLoansData, refreshData]);
 
   // Helper function to get stake details for a loan
   const getStakeDetails = (stakeId: string) => {
@@ -29,6 +48,47 @@ export const LoanPanel: React.FC = () => {
     }
   };
 
+  // Handle loan repayment
+  const handleRepayLoan = async (loanId: string, stakeId: string, estimatedRepayment: string) => {
+    setRepayInProgress(loanId);
+    setTransactionLoading(true);
+
+    try {
+      const tx = buildRepayLoanTransaction(loanId, stakeId, estimatedRepayment);
+      
+      await signAndExecute({
+        transaction: tx,
+        options: {
+          showObjectChanges: true,
+          showEffects: true,
+        },
+        successMessage: `Successfully repaid loan! Your collateral stake is now available for unstaking.`,
+        errorMessage: 'Failed to repay loan'
+      });
+
+    } catch (error: any) {
+      console.error('Error repaying loan:', error);
+      
+      let errorMessage = 'Failed to repay loan';
+      if (error?.message) {
+        if (error.message.includes('Insufficient balance')) {
+          errorMessage = 'Insufficient Alpha Points balance to repay this loan';
+        } else if (error.message.includes('InvalidLoan')) {
+          errorMessage = 'Invalid loan state - loan may already be repaid';
+        } else if (error.message.includes('unauthorized')) {
+          errorMessage = 'You are not authorized to repay this loan';
+        } else {
+          errorMessage = getTransactionErrorMessage(error) || error.message;
+        }
+      }
+      
+      toast.error(errorMessage);
+    } finally {
+      setRepayInProgress(null);
+      setTransactionLoading(false);
+    }
+  };
+
   return (
     <div className="h-full">
       <div className="p-2 h-full">
@@ -48,35 +108,41 @@ export const LoanPanel: React.FC = () => {
                 const stakeDetails = getStakeDetails(loan.stakeId);
                 const principalSui = stakeDetails ? convertMistToSui(stakeDetails.principal) : 0;
                 const timeSinceOpened = getTimeSinceOpened(loan.openedTimeMs);
+                const isRepaying = repayInProgress === loan.id;
                 
                 return (
-                  <a
+                  <div
                     key={loan.id}
-                    href={`https://suiscan.xyz/testnet/object/${loan.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block bg-black/20 backdrop-blur-lg border border-white/10 rounded-lg p-2 hover:bg-black/30 hover:border-white/20 transition-all duration-300 cursor-pointer shadow-xl hover:shadow-purple-500/10"
-                    title="View Loan on Suiscan"
+                    className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-lg p-2 shadow-xl hover:shadow-purple-500/10 transition-all duration-300"
                   >
-                    <div className="flex justify-between items-start mb-1">
-                      <div className="flex items-center space-x-2">
-                        <div className="status-indicator-warning"></div>
-                        <div>
-                          <span className="text-gray-300 font-mono text-xs block">
-                            Loan Position
-                          </span>
-                          <span className="text-gray-500 text-xs">
-                            {formatAddress(loan.id)}
-                          </span>
+                    {/* Header with link to Suiscan */}
+                    <a
+                      href={`https://suiscan.xyz/testnet/object/${loan.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block hover:bg-black/10 rounded p-1 -m-1 mb-1 transition-colors duration-200"
+                      title="View Loan on Suiscan"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center space-x-2">
+                          <div className="status-indicator-warning"></div>
+                          <div>
+                            <span className="text-gray-300 font-mono text-xs block">
+                              Loan Position
+                            </span>
+                            <span className="text-gray-500 text-xs">
+                              {formatAddress(loan.id)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-gray-400">{timeSinceOpened}</div>
+                          <div className="px-2 py-1 bg-yellow-900/50 text-yellow-300 border border-yellow-700/50 rounded text-xs font-medium">
+                            Active
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-xs text-gray-400">{timeSinceOpened}</div>
-                        <div className="px-2 py-1 bg-yellow-900/50 text-yellow-300 border border-yellow-700/50 rounded text-xs font-medium">
-                          Active
-                        </div>
-                      </div>
-                    </div>
+                    </a>
 
                     <div className="space-y-1">
                       <div className="flex items-center justify-between">
@@ -102,14 +168,39 @@ export const LoanPanel: React.FC = () => {
                         </span>
                       </div>
 
-                      <div className="flex items-center justify-between">
+                      {/* 3-column layout with button in middle */}
+                      <div className="grid grid-cols-3 items-center gap-2">
                         <span className="text-gray-400 text-sm">Est. Repayment</span>
-                        <span className="text-red-400 text-sm font-medium">
+                        <div className="flex justify-center">
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleRepayLoan(loan.id, loan.stakeId, loan.estimatedRepayment);
+                            }}
+                            disabled={isRepaying}
+                            className="px-2 py-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-600 disabled:to-gray-600 text-white text-xs font-medium rounded transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                            title={`Repay ${formatPoints(loan.estimatedRepayment)} αP to unlock your collateral`}
+                          >
+                            {isRepaying ? (
+                              <div className="flex items-center">
+                                <svg className="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span className="text-xs">Repaying...</span>
+                              </div>
+                            ) : (
+                              <span className="text-xs">💰 Repay</span>
+                            )}
+                          </button>
+                        </div>
+                        <span className="text-red-400 text-sm font-medium text-right">
                           {formatPoints(loan.estimatedRepayment)} αP
                         </span>
                       </div>
                     </div>
-                  </a>
+                  </div>
                 );
               })}
             </div>
