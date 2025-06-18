@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { PartnerCapInfo } from '../hooks/usePartnerDetection';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
-import { toast } from 'react-toastify';
+import { toast } from 'react-hot-toast';
 import { useCurrentWallet, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
-import { SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils';
+import { PACKAGE_ID, CLOCK_ID } from '../config/contract';
 
 interface GenerationBuilderProps {
   partnerCap: PartnerCapInfo;
@@ -211,7 +211,7 @@ export const GenerationBuilder: React.FC<GenerationBuilderProps> = ({
       if (formData.executionType === 'embedded_code') {
         // Create embedded generation
         tx.moveCall({
-          target: `${process.env.REACT_APP_PACKAGE_ID}::generation_manager::create_embedded_generation`,
+          target: `${PACKAGE_ID}::generation_manager::create_embedded_generation`,
           arguments: [
             tx.object(partnerCap.id),
             tx.pure.string(formData.name),
@@ -227,13 +227,13 @@ export const GenerationBuilder: React.FC<GenerationBuilderProps> = ({
             tx.pure.vector('string', formData.tags),
             formData.icon ? tx.pure.option('string', formData.icon) : tx.pure.option('string', null),
             formData.estimatedCompletionMinutes ? tx.pure.option('u64', formData.estimatedCompletionMinutes) : tx.pure.option('u64', null),
-            tx.object(SUI_CLOCK_OBJECT_ID),
+            tx.object(CLOCK_ID),
           ],
         });
       } else {
         // Create external generation
         tx.moveCall({
-          target: `${process.env.REACT_APP_PACKAGE_ID}::generation_manager::create_external_generation`,
+          target: `${PACKAGE_ID}::generation_manager::create_external_generation`,
           arguments: [
             tx.object(partnerCap.id),
             tx.pure.string(formData.name),
@@ -250,7 +250,7 @@ export const GenerationBuilder: React.FC<GenerationBuilderProps> = ({
             tx.pure.vector('string', formData.tags),
             formData.icon ? tx.pure.option('string', formData.icon) : tx.pure.option('string', null),
             formData.estimatedCompletionMinutes ? tx.pure.option('u64', formData.estimatedCompletionMinutes) : tx.pure.option('u64', null),
-            tx.object(SUI_CLOCK_OBJECT_ID),
+            tx.object(CLOCK_ID),
           ],
         });
       }

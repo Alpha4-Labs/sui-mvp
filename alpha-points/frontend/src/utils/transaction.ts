@@ -2647,17 +2647,439 @@ export function buildEmergencyUnstakeTransaction(
     target: `${PACKAGE_ID}::integration::emergency_unstake_native_sui_v2`,
     arguments: [
       tx.object(adminCapId), // admin_cap: &AdminCap
-      tx.object(CONFIG_ID), // config: &Config  
-      tx.object(STAKING_MANAGER_ID), // manager: &mut StakingManager
+      tx.object(SHARED_OBJECTS.config), // config: &Config  
+      tx.object(SHARED_OBJECTS.stakingManager), // manager: &mut StakingManager
       tx.object(SUI_SYSTEM_STATE_ID), // sui_system_state: &mut SuiSystemState
       tx.object(stakePositionId), // stake_position: StakePosition<StakedSui>
       tx.object(CLOCK_ID), // clock: &Clock
-      tx.object(LEDGER_ID), // ledger: &mut Ledger
+      tx.object(SHARED_OBJECTS.ledger), // ledger: &mut Ledger
     ],
   });
 
   return tx;
 }
+
+// === GENERATION MANAGER FUNCTIONS ===
+// Functions for creating and managing generation opportunities
+
+/**
+ * Builds a transaction for creating an embedded generation opportunity
+ * 
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param name Generation name
+ * @param description Generation description
+ * @param category Generation category
+ * @param walrusBlobId Walrus storage blob ID for the code
+ * @param codeHash SHA-256 hash of the code
+ * @param templateType Template type for the generation
+ * @param quotaCostPerExecution Quota cost per execution
+ * @param maxExecutionsPerUser Maximum executions per user (optional)
+ * @param maxTotalExecutions Maximum total executions (optional)
+ * @param expirationTimestamp Expiration timestamp (optional)
+ * @param tags Array of tags
+ * @param icon Icon URL (optional)
+ * @param estimatedCompletionMinutes Estimated completion time (optional)
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildCreateEmbeddedGenerationTransaction = (
+  partnerCapId: string,
+  name: string,
+  description: string,
+  category: string,
+  walrusBlobId: string,
+  codeHash: string,
+  templateType: string,
+  quotaCostPerExecution: number,
+  maxExecutionsPerUser?: number,
+  maxTotalExecutions?: number,
+  expirationTimestamp?: number,
+  tags: string[] = [],
+  icon?: string,
+  estimatedCompletionMinutes?: number,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored generation creation: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::generation_manager::create_embedded_generation`,
+    arguments: [
+      tx.object(partnerCapId),
+      tx.pure.string(name),
+      tx.pure.string(description),
+      tx.pure.string(category),
+      tx.pure.string(walrusBlobId),
+      tx.pure(bcs.vector(bcs.u8()).serialize(Array.from(new TextEncoder().encode(codeHash)))),
+      tx.pure.string(templateType),
+      tx.pure.u64(BigInt(quotaCostPerExecution)),
+      maxExecutionsPerUser ? tx.pure(bcs.option(bcs.u64()).serialize(BigInt(maxExecutionsPerUser))) : tx.pure(bcs.option(bcs.u64()).serialize(null)),
+      maxTotalExecutions ? tx.pure(bcs.option(bcs.u64()).serialize(BigInt(maxTotalExecutions))) : tx.pure(bcs.option(bcs.u64()).serialize(null)),
+      expirationTimestamp ? tx.pure(bcs.option(bcs.u64()).serialize(BigInt(expirationTimestamp))) : tx.pure(bcs.option(bcs.u64()).serialize(null)),
+      tx.pure(bcs.vector(bcs.String).serialize(tags)),
+      icon ? tx.pure(bcs.option(bcs.String).serialize(icon)) : tx.pure(bcs.option(bcs.String).serialize(null)),
+      estimatedCompletionMinutes ? tx.pure(bcs.option(bcs.u64()).serialize(BigInt(estimatedCompletionMinutes))) : tx.pure(bcs.option(bcs.u64()).serialize(null)),
+      tx.object(CLOCK_ID),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for creating an external generation opportunity
+ * 
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param name Generation name
+ * @param description Generation description
+ * @param category Generation category
+ * @param targetUrl Target URL for the generation
+ * @param redirectType Redirect type ('iframe' | 'new_tab' | 'popup')
+ * @param returnCallbackUrl Return callback URL (optional)
+ * @param requiresAuthentication Whether authentication is required
+ * @param quotaCostPerExecution Quota cost per execution
+ * @param maxExecutionsPerUser Maximum executions per user (optional)
+ * @param maxTotalExecutions Maximum total executions (optional)
+ * @param expirationTimestamp Expiration timestamp (optional)
+ * @param tags Array of tags
+ * @param icon Icon URL (optional)
+ * @param estimatedCompletionMinutes Estimated completion time (optional)
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildCreateExternalGenerationTransaction = (
+  partnerCapId: string,
+  name: string,
+  description: string,
+  category: string,
+  targetUrl: string,
+  redirectType: string,
+  returnCallbackUrl: string | null,
+  requiresAuthentication: boolean,
+  quotaCostPerExecution: number,
+  maxExecutionsPerUser?: number,
+  maxTotalExecutions?: number,
+  expirationTimestamp?: number,
+  tags: string[] = [],
+  icon?: string,
+  estimatedCompletionMinutes?: number,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored generation creation: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::generation_manager::create_external_generation`,
+    arguments: [
+      tx.object(partnerCapId),
+      tx.pure.string(name),
+      tx.pure.string(description),
+      tx.pure.string(category),
+      tx.pure.string(targetUrl),
+      tx.pure.string(redirectType),
+      returnCallbackUrl ? tx.pure(bcs.option(bcs.String).serialize(returnCallbackUrl)) : tx.pure(bcs.option(bcs.String).serialize(null)),
+      tx.pure.bool(requiresAuthentication),
+      tx.pure.u64(BigInt(quotaCostPerExecution)),
+      maxExecutionsPerUser ? tx.pure(bcs.option(bcs.u64()).serialize(BigInt(maxExecutionsPerUser))) : tx.pure(bcs.option(bcs.u64()).serialize(null)),
+      maxTotalExecutions ? tx.pure(bcs.option(bcs.u64()).serialize(BigInt(maxTotalExecutions))) : tx.pure(bcs.option(bcs.u64()).serialize(null)),
+      expirationTimestamp ? tx.pure(bcs.option(bcs.u64()).serialize(BigInt(expirationTimestamp))) : tx.pure(bcs.option(bcs.u64()).serialize(null)),
+      tx.pure(bcs.vector(bcs.String).serialize(tags)),
+      icon ? tx.pure(bcs.option(bcs.String).serialize(icon)) : tx.pure(bcs.option(bcs.String).serialize(null)),
+      estimatedCompletionMinutes ? tx.pure(bcs.option(bcs.u64()).serialize(BigInt(estimatedCompletionMinutes))) : tx.pure(bcs.option(bcs.u64()).serialize(null)),
+      tx.object(CLOCK_ID),
+    ],
+  });
+
+  return tx;
+};
+
+// === ZERO-DEV INTEGRATION SYSTEM ===
+// Event-based point minting system for frontend/backend integration
+
+/**
+ * Builds a transaction for configuring Zero-Dev integration settings on an existing PartnerCapFlex
+ * This enables event-based point minting without requiring a new partner capability
+ * 
+ * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
+ * @param allowedOrigins Array of whitelisted domains that can submit events
+ * @param webhookUrl Optional webhook URL for server-side integration
+ * @param apiKeyHash Optional API key hash for authentication
+ * @param rateLimitPerMinute Rate limit for event submissions per minute
+ * @param requireUserSignature Whether events require user wallet signature
+ * @param integrationEnabled Master switch for the integration
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildUpdateIntegrationSettingsTransaction = (
+  partnerCapFlexId: string,
+  allowedOrigins: string[] = [],
+  webhookUrl?: string,
+  apiKeyHash?: string,
+  rateLimitPerMinute: number = 60,
+  requireUserSignature: boolean = true,
+  integrationEnabled: boolean = true,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored integration settings update: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::update_integration_settings`,
+    arguments: [
+      tx.object(partnerCapFlexId),
+      tx.pure(bcs.vector(bcs.String).serialize(allowedOrigins)),
+      webhookUrl ? tx.pure(bcs.option(bcs.String).serialize(webhookUrl)) : tx.pure(bcs.option(bcs.String).serialize(null)),
+      apiKeyHash ? tx.pure(bcs.option(bcs.String).serialize(apiKeyHash)) : tx.pure(bcs.option(bcs.String).serialize(null)),
+      tx.pure.u64(BigInt(rateLimitPerMinute)),
+      tx.pure.bool(requireUserSignature),
+      tx.pure.bool(integrationEnabled),
+      tx.object(CLOCK_ID),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for configuring event mappings on a PartnerCapFlex
+ * 
+ * @param partnerCapFlexId Object ID of the PartnerCapFlex
+ * @param eventType Event type identifier (e.g., 'user_signup', 'purchase_completed')
+ * @param pointsPerEvent Points to award per event occurrence
+ * @param maxEventsPerUser Maximum events per user (0 = unlimited)
+ * @param maxEventsPerDay Maximum events per day (0 = unlimited)
+ * @param cooldownSeconds Cooldown between events in seconds (0 = no cooldown)
+ * @param eventConditions JSON string of conditions that must be met
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildConfigureEventMappingTransaction = (
+  partnerCapFlexId: string,
+  eventType: string,
+  pointsPerEvent: number,
+  maxEventsPerUser: number = 0,
+  maxEventsPerDay: number = 0,
+  cooldownSeconds: number = 0,
+  eventConditions: string = '{}',
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored event mapping configuration: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::configure_event_mapping`,
+    arguments: [
+      tx.object(partnerCapFlexId),
+      tx.pure.string(eventType),
+      tx.pure.u64(BigInt(pointsPerEvent)),
+      tx.pure.u64(BigInt(maxEventsPerUser)),
+      tx.pure.u64(BigInt(maxEventsPerDay)),
+      tx.pure.u64(BigInt(cooldownSeconds)),
+      tx.pure.string(eventConditions),
+      tx.object(CLOCK_ID),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for submitting a partner event and minting points
+ * This is the core function for Zero-Dev integration
+ * 
+ * @param partnerCapFlexId Object ID of the PartnerCapFlex
+ * @param eventType Event type that was configured
+ * @param userAddress Address to mint points for
+ * @param eventData Additional event data as bytes
+ * @param eventHash Unique hash to prevent replay attacks
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildSubmitPartnerEventTransaction = (
+  partnerCapFlexId: string,
+  eventType: string,
+  userAddress: string,
+  eventData: Uint8Array,
+  eventHash: string,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored event submission: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::submit_partner_event`,
+    arguments: [
+      tx.object(partnerCapFlexId),
+      tx.pure.string(eventType),
+      tx.pure.address(userAddress),
+      tx.pure(bcs.vector(bcs.u8()).serialize(Array.from(eventData))),
+      tx.pure.string(eventHash),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(CLOCK_ID),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for updating allowed origins for a PartnerCapFlex
+ * This is a convenience function that updates just the allowed origins
+ * 
+ * @param partnerCapFlexId Object ID of the PartnerCapFlex
+ * @param allowedOrigins New array of whitelisted domains
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildUpdateAllowedOriginsTransaction = (
+  partnerCapFlexId: string,
+  allowedOrigins: string[],
+  sponsorAddress?: string
+) => {
+  // This is a convenience wrapper that preserves other settings
+  // In practice, partners would use buildUpdateIntegrationSettingsTransaction
+  // with their current settings to update just origins
+  return buildUpdateIntegrationSettingsTransaction(
+    partnerCapFlexId,
+    allowedOrigins,
+    undefined, // preserve webhook
+    undefined, // preserve api key
+    60, // default rate limit
+    true, // default signature requirement
+    true, // default enabled
+    sponsorAddress
+  );
+};
+
+/**
+ * Builds a transaction for removing an event mapping from a PartnerCapFlex
+ * 
+ * @param partnerCapFlexId Object ID of the PartnerCapFlex
+ * @param eventType Event type to remove
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildRemoveEventMappingTransaction = (
+  partnerCapFlexId: string,
+  eventType: string,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored event mapping removal: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::remove_event_mapping`,
+    arguments: [
+      tx.object(partnerCapFlexId),
+      tx.pure.string(eventType),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Helper function to generate event hash for replay protection
+ * 
+ * @param eventType Event type
+ * @param userAddress User address
+ * @param eventData Event data
+ * @param timestamp Current timestamp
+ * @returns SHA-256 hash string
+ */
+export const generateEventHash = async (
+  eventType: string,
+  userAddress: string,
+  eventData: Uint8Array,
+  timestamp: number
+): Promise<string> => {
+  const encoder = new TextEncoder();
+  const data = new Uint8Array([
+    ...encoder.encode(eventType),
+    ...encoder.encode(userAddress),
+    ...eventData,
+    ...encoder.encode(timestamp.toString())
+  ]);
+  
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+/**
+ * Client-side helper to validate event data before submission
+ * 
+ * @param eventType Event type
+ * @param eventData Event data object
+ * @param eventConfig Event configuration from partner
+ * @returns Validation result
+ */
+export const validateEventData = (
+  eventType: string,
+  eventData: any,
+  eventConfig: any
+): { valid: boolean; error?: string } => {
+  try {
+    // Basic validation
+    if (!eventType || typeof eventType !== 'string') {
+      return { valid: false, error: 'Invalid event type' };
+    }
+
+    // Validate against event conditions if provided
+    if (eventConfig?.conditions) {
+      const conditions = JSON.parse(eventConfig.conditions);
+      
+      // Example condition checks (extend as needed)
+      if (conditions.minValue && eventData.value < conditions.minValue) {
+        return { valid: false, error: `Value must be at least ${conditions.minValue}` };
+      }
+      
+      if (conditions.requiredFields) {
+        for (const field of conditions.requiredFields) {
+          if (!(field in eventData)) {
+            return { valid: false, error: `Missing required field: ${field}` };
+          }
+        }
+      }
+    }
+
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, error: 'Invalid event configuration' };
+  }
+};
+
+// === CROSS-PACKAGE RECOVERY FUNCTIONS ===
 
 
 

@@ -10,6 +10,7 @@ import { useAlphaContext } from '../context/AlphaContext';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
 import { usePartnerSettings } from '../hooks/usePartnerSettings';
 import { usePartnerAnalytics } from '../hooks/usePartnerAnalytics';
+import { SDKConfigurationDashboard } from './SDKConfigurationDashboard';
 
 import { usePartnerDetection } from '../hooks/usePartnerDetection';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
@@ -783,10 +784,10 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
     // Validate consumable settings
     if (newPerkIsConsumable) {
-      if (!currentSettings.allowConsumablePerks) {
-        toast.error('Consumable perks are not enabled in your settings. Please enable them first.');
-        return;
-      }
+              if (!currentSettings?.allowConsumablePerks) {
+          toast.error('Consumable perks are not enabled in your settings. Please enable them first.');
+          return;
+        }
       const charges = parseInt(newPerkCharges);
       if (isNaN(charges) || charges <= 0) {
         toast.error('Please enter a valid number of charges (minimum 1)');
@@ -1684,6 +1685,13 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 >
                   <span className="mr-2">🔄</span>
                   Refresh Data
+                </Button>
+                <Button 
+                  className="w-full text-xs bg-purple-700 hover:bg-purple-600"
+                  onClick={() => setShowSDKConfigDashboard(true)}
+                >
+                  <span className="mr-2">🔗</span>
+                  Zero-Dev SDK
                 </Button>
                 <Link to="/partners/create" className="block">
                   <Button className="w-full text-xs bg-green-700 hover:bg-green-600">
@@ -2686,9 +2694,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     <select
                       value={newPerkExpiryType}
                       onChange={(e) => setNewPerkExpiryType(e.target.value as 'none' | 'days' | 'date')}
-                      disabled={isCreatingPerk || !currentSettings.allowExpiringPerks}
+                      disabled={isCreatingPerk || !currentSettings?.allowExpiringPerks}
                       className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500 disabled:opacity-50"
-                      title={!currentSettings.allowExpiringPerks ? "Enable expiring perks in settings first" : "Set when this perk expires"}
+                                              title={!currentSettings?.allowExpiringPerks ? "Enable expiring perks in settings first" : "Set when this perk expires"}
                     >
                       <option value="none">No Expiry</option>
                       <option value="days">Expires in X days</option>
@@ -2731,13 +2739,13 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                         id="consumable-toggle-main"
                         checked={newPerkIsConsumable}
                         onChange={(e) => setNewPerkIsConsumable(e.target.checked)}
-                        disabled={isCreatingPerk || !currentSettings.allowConsumablePerks}
+                        disabled={isCreatingPerk || !currentSettings?.allowConsumablePerks}
                         className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
                       />
                       <label 
                         htmlFor="consumable-toggle-main" 
-                        className={`text-sm ${!currentSettings.allowConsumablePerks ? 'text-gray-500' : 'text-white cursor-pointer'}`}
-                        title={!currentSettings.allowConsumablePerks ? "Enable consumable perks in settings first" : "Make this perk consumable with limited uses"}
+                        className={`text-sm ${!currentSettings?.allowConsumablePerks ? 'text-gray-500' : 'text-white cursor-pointer'}`}
+                        title={!currentSettings?.allowConsumablePerks ? "Enable consumable perks in settings first" : "Make this perk consumable with limited uses"}
                       >
                         Consumable
                       </label>
@@ -4571,67 +4579,22 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     )}
                   </div>
                 </div>
+
               </div>
               
-              {/* Partner Salt Section */}
+              {/* Partner Salt Button */}
               <div className="bg-background rounded-lg p-3">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <div className="text-sm text-gray-400 font-medium">Partner Salt</div>
-                    <div className="text-xs text-gray-500">Used for privacy-preserving metadata hashing</div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <Button 
-                      onClick={downloadSalt}
-                      className="bg-green-600 hover:bg-green-700 text-xs px-2 py-1"
-                      title="Download salt backup file"
-                    >
-                      💾 Download
-                    </Button>
-                    <Button 
-                      onClick={handleSaltRegeneration}
-                      className="bg-red-600 hover:bg-red-700 text-xs px-2 py-1"
-                      title="⚠️ DANGER: This will invalidate all existing metadata"
-                    >
-                      🚨 Regenerate
-                    </Button>
-                  </div>
-                </div>
-                <div className="bg-gray-800 rounded p-2 font-mono text-xs text-gray-300 break-all relative flex items-center">
-                  <span className="flex-1">
-                    {perkSettings.partnerSalt 
-                      ? (showSalt ? perkSettings.partnerSalt : '*'.repeat(perkSettings.partnerSalt.length))
-                      : 'No salt generated'
-                    }
+                <Button
+                  onClick={() => setShowPartnerSaltModal(true)}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 flex items-center justify-center gap-2"
+                >
+                  🔐 Manage Partner Salt
+                  <span className="text-xs bg-white/20 px-2 py-1 rounded ml-2">
+                    {perkSettings.partnerSalt ? 'Generated' : 'Not Set'}
                   </span>
-                  {perkSettings.partnerSalt && (
-                    <div className="flex space-x-1 ml-2">
-                      <button
-                        onClick={() => setShowSalt(!showSalt)}
-                        className="bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded text-xs transition-colors"
-                        title={showSalt ? 'Hide salt' : 'Show salt'}
-                      >
-                        {showSalt ? '👁️' : '👁️‍🗨️'}
-                      </button>
-                      <button
-                        onClick={copySalt}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs transition-colors"
-                        title="Copy salt to clipboard"
-                      >
-                        📋
-                      </button>
-                      <button
-                        onClick={downloadSalt}
-                        className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs transition-colors"
-                        title="Download salt backup file"
-                      >
-                        💾
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="text-xs text-gray-400 mt-2">
-                  🔐 This salt is automatically generated and persisted for your partner account. <strong>Download a backup</strong> to protect against data loss. Share this salt with your custom frontends and bots to verify user data. Once set, metadata hashed with this salt will only work with the same salt value.
+                </Button>
+                <div className="text-xs text-gray-400 mt-2 text-center">
+                  Used for privacy-preserving metadata hashing
                 </div>
               </div>
             </div>
@@ -4796,7 +4759,21 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   </label>
               </div>
             
-
+                        {/* Zero-Dev Integration Settings Button */}
+            <div className="pt-4 border-t border-gray-700">
+              <Button
+                onClick={() => setShowZeroDevModal(true)}
+                className="w-full bg-purple-600 hover:bg-purple-700 flex items-center justify-center gap-2"
+              >
+                🔐 Configure Zero-Dev Integration
+                <span className="text-xs bg-green-600/20 text-green-300 px-2 py-1 rounded ml-2">
+                  Enabled
+                </span>
+              </Button>
+              <div className="text-xs text-gray-400 mt-2 text-center">
+                Set up security, domains, events, and generate SDK code
+              </div>
+            </div>
 
             {/* Save Button */}
             <div className="pt-4 border-t border-gray-700">
@@ -5531,6 +5508,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     );
   };
 
+  // SDK Configuration state
+  const [showSDKConfigDashboard, setShowSDKConfigDashboard] = useState(false);
+  const [showZeroDevModal, setShowZeroDevModal] = useState(false);
+  const [showPartnerSaltModal, setShowPartnerSaltModal] = useState(false);
+
   return (
     <>
       <style>{`
@@ -5789,6 +5771,387 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           {currentTab === 'generations' && <GenerationsTab partnerCap={partnerCap} selectedPartnerCapId={selectedPartnerCapId} />}
         </div>
       </div>
+      
+      {/* Partner Salt Modal */}
+      {showPartnerSaltModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                🔐 Partner Salt Management
+                <span className="text-sm bg-indigo-600/20 text-indigo-300 px-2 py-1 rounded">
+                  {perkSettings.partnerSalt ? 'Generated' : 'Not Set'}
+                </span>
+              </h2>
+              <button
+                onClick={() => setShowPartnerSaltModal(false)}
+                className="text-gray-400 hover:text-white text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Salt Display */}
+              <div className="bg-gray-900/50 rounded-lg p-4">
+                <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                  🔑 Current Salt
+                </h3>
+                <div className="bg-gray-800 rounded p-3 font-mono text-sm text-gray-300 break-all relative flex items-center">
+                  <span className="flex-1">
+                    {perkSettings.partnerSalt 
+                      ? (showSalt ? perkSettings.partnerSalt : '*'.repeat(perkSettings.partnerSalt.length))
+                      : 'No salt generated'
+                    }
+                  </span>
+                  {perkSettings.partnerSalt && (
+                    <div className="flex space-x-2 ml-3">
+                      <button
+                        onClick={() => setShowSalt(!showSalt)}
+                        className="bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1 rounded text-sm transition-colors"
+                        title={showSalt ? 'Hide salt' : 'Show salt'}
+                      >
+                        {showSalt ? '👁️ Hide' : '👁️‍🗨️ Show'}
+                      </button>
+                      <button
+                        onClick={copySalt}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors"
+                        title="Copy salt to clipboard"
+                      >
+                        📋 Copy
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Salt Actions */}
+              <div className="bg-gray-900/50 rounded-lg p-4">
+                <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                  ⚡ Salt Actions
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Button
+                    onClick={downloadSalt}
+                    className="bg-green-600 hover:bg-green-700 flex items-center justify-center gap-2"
+                    disabled={!perkSettings.partnerSalt}
+                  >
+                    💾 Download Backup
+                  </Button>
+                  <Button
+                    onClick={handleSaltRegeneration}
+                    className="bg-red-600 hover:bg-red-700 flex items-center justify-center gap-2"
+                  >
+                    🚨 Regenerate Salt
+                  </Button>
+                </div>
+              </div>
+
+              {/* Salt Information */}
+              <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-4">
+                <h3 className="text-lg font-medium text-blue-300 mb-3 flex items-center gap-2">
+                  ℹ️ About Partner Salt
+                </h3>
+                <div className="text-sm text-gray-300 space-y-2">
+                  <p>
+                    🔐 This salt is automatically generated and persisted for your partner account.
+                  </p>
+                  <p>
+                    💾 <strong>Download a backup</strong> to protect against data loss.
+                  </p>
+                  <p>
+                    🤝 Share this salt with your custom frontends and bots to verify user data.
+                  </p>
+                  <p>
+                    ⚠️ Once set, metadata hashed with this salt will only work with the same salt value.
+                  </p>
+                  <p className="text-red-300 font-medium">
+                    🚨 Regenerating the salt will invalidate all existing metadata hashes!
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4 border-t border-gray-700">
+                <Button
+                  onClick={() => setShowPartnerSaltModal(false)}
+                  className="flex-1 bg-gray-600 hover:bg-gray-700"
+                >
+                  Close
+                </Button>
+                {perkSettings.partnerSalt && (
+                  <Button
+                    onClick={() => {
+                      copySalt();
+                      setShowPartnerSaltModal(false);
+                    }}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  >
+                    Copy & Close
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Zero-Dev Integration Modal */}
+      {showZeroDevModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                🔐 Zero-Dev Integration Settings
+                <span className="text-sm bg-green-600/20 text-green-300 px-2 py-1 rounded">
+                  Enabled
+                </span>
+              </h2>
+              <button
+                onClick={() => setShowZeroDevModal(false)}
+                className="text-gray-400 hover:text-white text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Auto-enable integration when accessing settings */}
+              <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">✅</span>
+                  <h3 className="text-lg font-medium text-blue-300">Zero-Dev Integration Active</h3>
+                </div>
+                <p className="text-sm text-gray-300">
+                  Integration is automatically enabled when configuring settings. External websites can award points via SDK with your configured security settings.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Domain Whitelist */}
+                    <div className="bg-gray-900/30 rounded-lg p-4">
+                      <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                        🌐 Domain Security
+                      </h3>
+                      <div className="space-y-3">
+                        {(perkSettings.allowedOrigins || []).map((domain, index) => (
+                          <div key={index} className="flex items-center gap-2 p-2 bg-gray-800/50 rounded">
+                            <span className="text-sm text-gray-300 flex-1">{domain}</span>
+                            <button
+                              onClick={() => {
+                                const newOrigins = [...(perkSettings.allowedOrigins || [])];
+                                newOrigins.splice(index, 1);
+                                setPerkSettings(prev => ({ ...prev, allowedOrigins: newOrigins }));
+                              }}
+                              className="text-red-400 hover:text-red-300 text-xs px-2 py-1"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="yourdomain.com"
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                const domain = (e.target as HTMLInputElement).value.trim();
+                                if (domain && !(perkSettings.allowedOrigins || []).includes(domain)) {
+                                  setPerkSettings(prev => ({ 
+                                    ...prev, 
+                                    allowedOrigins: [...(prev.allowedOrigins || []), domain] 
+                                  }));
+                                  (e.target as HTMLInputElement).value = '';
+                                }
+                              }
+                            }}
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            onClick={(e) => {
+                              const input = (e.target as HTMLElement).parentElement?.querySelector('input');
+                              if (input) {
+                                const domain = input.value.trim();
+                                if (domain && !(perkSettings.allowedOrigins || []).includes(domain)) {
+                                  setPerkSettings(prev => ({ 
+                                    ...prev, 
+                                    allowedOrigins: [...(prev.allowedOrigins || []), domain] 
+                                  }));
+                                  input.value = '';
+                                }
+                              }
+                            }}
+                            className="bg-green-600 hover:bg-green-700 px-3 py-1 text-sm"
+                          >
+                            Add
+                          </Button>
+                        </div>
+                        <p className="text-xs text-gray-400">Only these domains can use your integration</p>
+                      </div>
+                    </div>
+
+                    {/* Rate Limiting */}
+                    <div className="bg-gray-900/30 rounded-lg p-4">
+                      <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                        ⏱️ Rate Limiting
+                      </h3>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Requests per minute per user</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="100"
+                          value={perkSettings.rateLimitPerMinute || 10}
+                          onChange={(e) => setPerkSettings(prev => ({ 
+                            ...prev, 
+                            rateLimitPerMinute: parseInt(e.target.value) || 10 
+                          }))}
+                          className="w-full"
+                        />
+                        <p className="text-xs text-gray-400 mt-2">Lower values increase security but may impact user experience</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Security Features */}
+                  <div className="bg-gray-900/30 rounded-lg p-4">
+                    <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                      🛡️ Security Features
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <label className="flex items-center p-3 bg-gray-800/50 rounded">
+                        <input
+                          type="checkbox"
+                          checked={perkSettings.requireUserSignature || false}
+                          onChange={(e) => setPerkSettings(prev => ({ 
+                            ...prev, 
+                            requireUserSignature: e.target.checked 
+                          }))}
+                          className="mr-3 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-300">Require User Signatures</span>
+                          <p className="text-xs text-gray-400">Users must sign events with their wallet</p>
+                        </div>
+                      </label>
+                      
+                      <label className="flex items-center p-3 bg-gray-800/50 rounded">
+                        <input
+                          type="checkbox"
+                          checked={perkSettings.signatureValidation || false}
+                          onChange={(e) => setPerkSettings(prev => ({ 
+                            ...prev, 
+                            signatureValidation: e.target.checked 
+                          }))}
+                          className="mr-3 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-300">Signature Validation</span>
+                          <p className="text-xs text-gray-400">Validate signatures on-chain</p>
+                        </div>
+                      </label>
+                      
+                      <label className="flex items-center p-3 bg-gray-800/50 rounded">
+                        <input
+                          type="checkbox"
+                          checked={perkSettings.replayProtection || false}
+                          onChange={(e) => setPerkSettings(prev => ({ 
+                            ...prev, 
+                            replayProtection: e.target.checked 
+                          }))}
+                          className="mr-3 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-300">Replay Protection</span>
+                          <p className="text-xs text-gray-400">Prevent duplicate event submissions</p>
+                        </div>
+                      </label>
+                      
+                      <label className="flex items-center p-3 bg-gray-800/50 rounded">
+                        <input
+                          type="checkbox"
+                          checked={perkSettings.enableNotifications || false}
+                          onChange={(e) => setPerkSettings(prev => ({ 
+                            ...prev, 
+                            enableNotifications: e.target.checked 
+                          }))}
+                          className="mr-3 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-300">Enable Notifications</span>
+                          <p className="text-xs text-gray-400">Show user feedback for events</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* SDK Configuration Button */}
+                  <div className="bg-gray-900/30 rounded-lg p-4">
+                    <h3 className="text-lg font-medium text-white mb-3 flex items-center gap-2">
+                      🔧 SDK Configuration
+                    </h3>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Button
+                        onClick={() => window.open('/sdk-demo', '_blank')}
+                        className="flex-1 bg-purple-600 hover:bg-purple-700 flex items-center justify-center gap-2"
+                      >
+                        🔧 Configure Events & Generate Code
+                      </Button>
+                      <Button
+                        onClick={() => window.open('/security-demo', '_blank')}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 flex items-center justify-center gap-2"
+                      >
+                        🧪 Test Security Features
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2 text-center">
+                      Set up event types, points, generate integration code, and test security
+                    </p>
+                  </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4 border-t border-gray-700">
+                <Button
+                  onClick={() => setShowZeroDevModal(false)}
+                  className="flex-1 bg-gray-600 hover:bg-gray-700"
+                >
+                  Close
+                </Button>
+                <Button
+                  onClick={() => {
+                    // Auto-enable integration when saving settings
+                    setPerkSettings(prev => ({ ...prev, integrationEnabled: true }));
+                    setShowZeroDevModal(false);
+                  }}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                >
+                  Save Settings
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SDK Configuration Dashboard */}
+      {showSDKConfigDashboard && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg w-full max-w-6xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-white">SDK Configuration</h2>
+              <button
+                onClick={() => setShowSDKConfigDashboard(false)}
+                className="text-gray-400 hover:text-white text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-4">
+              <SDKConfigurationDashboard />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 } 
