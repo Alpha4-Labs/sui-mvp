@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sui Points Adapter - Basic Integration Example</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .example-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 5px;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        .social-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .status {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        .code {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 Sui Points Adapter - Basic Integration Example</h1>
+    
+    <div class="status">
+        <h3>SDK Status</h3>
+        <div id="sdk-status">Loading...</div>
+        <button onclick="checkStatus()">Refresh Status</button>
+        <button onclick="connectWallet()">Connect Wallet</button>
+    </div>
+
+    <div class="example-section">
+        <h2>🔄 Automatic Event Detection</h2>
+        <p>The SDK automatically detects common events. Try the examples below:</p>
+        
+        <h3>User Signup Form</h3>
+        <form class="signup-form" onsubmit="handleFormSubmit(event)">
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit">Sign Up (50 points)</button>
+        </form>
+
+        <h3>Newsletter Subscription</h3>
+        <form class="newsletter-signup" onsubmit="handleFormSubmit(event)">
+            <div class="form-group">
+                <label for="newsletter-email">Email:</label>
+                <input type="email" id="newsletter-email" name="email" required>
+            </div>
+            <button type="submit">Subscribe to Newsletter (25 points)</button>
+        </form>
+
+        <h3>Purchase Buttons</h3>
+        <div>
+            <button class="buy-now-btn" onclick="simulatePurchase()">Buy Now - $99 (100 points)</button>
+            <button class="add-to-cart" onclick="simulateAddToCart()">Add to Cart (100 points)</button>
+            <button onclick="simulateCheckout()">Checkout (100 points)</button>
+        </div>
+
+        <h3>Social Share Buttons</h3>
+        <div class="social-buttons">
+            <button class="share-twitter" onclick="shareOnTwitter()">Share on Twitter (15 points)</button>
+            <button class="share-facebook" onclick="shareOnFacebook()">Share on Facebook (15 points)</button>
+            <button class="social-share" onclick="shareGeneric()">Share (15 points)</button>
+        </div>
+    </div>
+
+    <div class="example-section">
+        <h2>🎯 Manual Event Tracking</h2>
+        <p>You can also manually trigger events:</p>
+        
+        <button onclick="trackCustomEvent('user_signup')">Manual User Signup</button>
+        <button onclick="trackCustomEvent('purchase_completed')">Manual Purchase</button>
+        <button onclick="trackCustomEvent('newsletter_signup')">Manual Newsletter</button>
+        <button onclick="trackCustomEvent('social_share')">Manual Social Share</button>
+        <button onclick="trackCustomEvent('profile_completed')">Manual Profile Complete</button>
+        <button onclick="trackReferral()">Manual Referral (200 points)</button>
+    </div>
+
+    <div class="example-section">
+        <h2>📊 Event Log</h2>
+        <div id="event-log" class="code">Events will appear here...</div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <div class="example-section">
+        <h2>🔧 Integration Code</h2>
+        <p>To integrate this SDK into your website, simply add:</p>
+        <div class="code">
+&lt;script src="../sui-points-adapter.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+    const adapter = new SuiPointsAdapter({
+        packageId: '0x123...',
+        partnerCapId: '0x456...',
+        enableAutoDetection: true,
+        showNotifications: true
+    });
+&lt;/script&gt;
+        </div>
+    </div>
+
+    <!-- Load the SDK -->
+    <script src="../sui-points-adapter.js"></script>
+    
+    <!-- Initialize SDK with demo configuration -->
+    <script>
+        // Demo configuration
+        const adapter = new SuiPointsAdapter({
+            packageId: '0x123456789abcdef',
+            partnerCapId: '0xabcdef123456789',
+            enableAutoDetection: true,
+            showNotifications: true,
+            enableDebugMode: true,
+            allowedOrigins: [window.location.origin]
+        });
+
+        // Event logging
+        const eventLog = document.getElementById('event-log');
+        
+        function logEvent(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            eventLog.innerHTML += `[${timestamp}] ${message}\n`;
+            eventLog.scrollTop = eventLog.scrollHeight;
+        }
+
+        // Listen for SDK events
+        window.addEventListener('suiPointsReady', (event) => {
+            logEvent('✅ Sui Points Adapter ready!');
+            checkStatus();
+        });
+
+        window.addEventListener('suiPointsEarned', (event) => {
+            const { eventType, points } = event.detail;
+            logEvent(`🎉 Earned ${points} points for ${eventType}`);
+        });
+
+        // Demo functions
+        function checkStatus() {
+            const status = adapter.getStatus();
+            document.getElementById('sdk-status').innerHTML = `
+                <strong>Version:</strong> ${status.version}<br>
+                <strong>Initialized:</strong> ${status.isInitialized ? '✅' : '❌'}<br>
+                <strong>Wallet Connected:</strong> ${status.hasWallet ? '✅' : '❌'}<br>
+                <strong>Queued Events:</strong> ${status.queuedEvents}
+            `;
+        }
+
+        async function connectWallet() {
+            const connected = await adapter.connectWallet();
+            logEvent(connected ? '✅ Wallet connected' : '❌ Wallet connection failed');
+            checkStatus();
+        }
+
+        function handleFormSubmit(event) {
+            event.preventDefault();
+            logEvent(`📝 Form submitted: ${event.target.className}`);
+        }
+
+        function simulatePurchase() {
+            logEvent('🛒 Purchase button clicked');
+        }
+
+        function simulateAddToCart() {
+            logEvent('🛒 Add to cart clicked');
+        }
+
+        function simulateCheckout() {
+            logEvent('💳 Checkout clicked');
+        }
+
+        function shareOnTwitter() {
+            logEvent('🐦 Twitter share clicked');
+        }
+
+        function shareOnFacebook() {
+            logEvent('📘 Facebook share clicked');
+        }
+
+        function shareGeneric() {
+            logEvent('📤 Generic share clicked');
+        }
+
+        function trackCustomEvent(eventType) {
+            logEvent(`🎯 Manually tracking: ${eventType}`);
+            adapter.trackEvent(eventType, {
+                source: 'manual_demo',
+                timestamp: Date.now()
+            });
+        }
+
+        function trackReferral() {
+            logEvent('👥 Manually tracking referral');
+            window.dispatchEvent(new CustomEvent('referralCompleted', {
+                detail: {
+                    userId: 'demo_user_123',
+                    referralData: {
+                        referredUserId: 'demo_user_456',
+                        campaign: 'demo_campaign'
+                    }
+                }
+            }));
+        }
+
+        function clearLog() {
+            eventLog.innerHTML = 'Events will appear here...\n';
+        }
+    </script>
+</body>
+</html> 

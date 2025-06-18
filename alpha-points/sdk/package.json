@@ -1,0 +1,53 @@
+{
+  "name": "@alphapoints/sui-points-adapter",
+  "version": "1.0.0",
+  "description": "Universal Zero-Dev JavaScript SDK for blockchain points integration with automatic event detection",
+  "main": "sui-points-adapter.js",
+  "types": "types/index.d.ts",
+  "files": [
+    "sui-points-adapter.js",
+    "sui-points-adapter.min.js",
+    "types/",
+    "examples/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run minify",
+    "minify": "terser sui-points-adapter.js -o sui-points-adapter.min.js --compress --mangle --source-map",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "serve": "http-server . -p 8080 -c-1",
+    "example": "npm run serve"
+  },
+  "keywords": [
+    "sui",
+    "blockchain",
+    "points",
+    "rewards",
+    "sdk",
+    "zero-dev",
+    "integration",
+    "web3",
+    "automatic",
+    "event-detection"
+  ],
+  "author": "Alpha Points Team",
+  "license": "MIT",
+  "homepage": "https://github.com/alphapoints/sui-points-adapter",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alphapoints/sui-points-adapter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alphapoints/sui-points-adapter/issues"
+  },
+  "devDependencies": {
+    "terser": "^5.16.0",
+    "http-server": "^14.1.1"
+  },
+  "peerDependencies": {
+    "@mysten/sui": ">=0.50.0"
+  },
+  "cdn": "https://cdn.alphapoints.com/sui-points-adapter.js",
+  "unpkg": "sui-points-adapter.js",
+  "jsdelivr": "sui-points-adapter.js"
+} 

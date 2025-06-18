@@ -18,6 +18,8 @@ module alpha_points::partner_flex {
     use alpha_points::oracle::{Self, RateOracle};
     use alpha_points::admin::AdminCap; // Ensure AdminCap is imported
     use sui::dynamic_field::{Self as df};
+    use sui::table; // For Zero-Dev integration event mappings
+    use sui::clock; // For timestamp functionality
     // Removed unnecessary alias imports - these are provided by default
 
     // === Error Constants ===
@@ -40,6 +42,18 @@ module alpha_points::partner_flex {
     const E_INVALID_FLOOR_VALUE: u64 = 302;
     // Removed unused constant E_USDC_COLLATERAL_ALREADY_EXISTS
     const E_NFT_COLLATERAL_ALREADY_EXISTS: u64 = 304;
+    // Zero-Dev Integration error constants
+    const E_INVALID_EVENT_TYPE: u64 = 401;
+    const E_EVENT_NOT_CONFIGURED: u64 = 402;
+    const E_EVENT_DISABLED: u64 = 403;
+    const E_REPLAY_ATTACK: u64 = 404;
+    const E_INTEGRATION_NOT_CONFIGURED: u64 = 405;
+    const E_INTEGRATION_DISABLED: u64 = 406;
+    const E_ORIGIN_NOT_ALLOWED: u64 = 407;
+    const E_RATE_LIMIT_EXCEEDED: u64 = 408;
+    const E_USER_EVENT_LIMIT_EXCEEDED: u64 = 409;
+    const E_DAILY_EVENT_LIMIT_EXCEEDED: u64 = 410;
+    const E_INVALID_SIGNATURE: u64 = 411;
 
     // === System Constants ===
     const POINTS_QUOTA_PER_USDC_COLLATERAL_UNIT: u64 = 1000; // 1 USDC value = 1000 Alpha Points lifetime quota base
@@ -1522,5 +1536,456 @@ module alpha_points::partner_flex {
 
         // Share the vault as a shared object
         transfer::share_object(vault);
+    }
+
+    // === ZERO-DEV INTEGRATION SYSTEM ===
+    // Event-based point minting system using dynamic fields (upgrade-safe)
+
+    /// Configuration for a specific event type that can trigger point minting
+    public struct EventConfig has store, copy, drop {
+        event_type: String,                    // e.g., "user_signup", "purchase_completed"
+        points_per_event: u64,                 // Points to award per event occurrence
+        max_events_per_user: u64,              // Maximum events per user (0 = unlimited)
+        max_events_per_day: u64,               // Maximum events per day (0 = unlimited)
+        cooldown_seconds: u64,                 // Cooldown between events (0 = no cooldown)
+        event_conditions: String,              // JSON string of conditions that must be met
+        is_active: bool,                       // Whether this event type is currently active
+        created_timestamp_ms: u64,             // When this event config was created
+        total_events_triggered: u64,           // Total number of times this event has been triggered
+    }
+
+    /// Integration settings for client-side configuration
+    public struct IntegrationSettings has store, copy, drop {
+        allowed_origins: vector<String>,       // Whitelist of domains that can submit events
+        webhook_url: option::Option<String>,   // Optional webhook for server-side integration
+        api_key_hash: option::Option<String>,  // Optional API key hash for authentication
+        rate_limit_per_minute: u64,            // Rate limit for event submissions
+        require_user_signature: bool,          // Whether events require user wallet signature
+        integration_enabled: bool,             // Master switch for the integration
+        last_updated_ms: u64,                  // Last time settings were updated
+    }
+
+    /// Tracks event submissions for replay protection and rate limiting
+    public struct EventSubmissionRecord has store, copy, drop {
+        user_address: address,                 // User who triggered the event
+        event_type: String,                    // Type of event triggered
+        event_hash: String,                    // Unique hash to prevent replay attacks
+        timestamp_ms: u64,                     // When the event was submitted
+        points_awarded: u64,                   // Points awarded for this event
+        metadata: String,                      // Additional event metadata (JSON)
+    }
+
+    /// Dynamic field key for event mappings table
+    public struct EventMappingsKey has copy, drop, store { }
+
+    /// Dynamic field key for integration settings
+    public struct IntegrationSettingsKey has copy, drop, store { }
+
+    /// Dynamic field key for event submission history
+    public struct EventHistoryKey has copy, drop, store { }
+
+    /// Dynamic field key for user event counters (rate limiting)
+    public struct UserEventCountersKey has copy, drop, store { }
+
+    // === ZERO-DEV INTEGRATION EVENTS ===
+
+    public struct EventMappingConfigured has copy, drop {
+        partner_cap_flex_id: object::ID,
+        event_type: String,
+        points_per_event: u64,
+        max_events_per_user: u64,
+        max_events_per_day: u64,
+    }
+
+    public struct PartnerEventSubmitted has copy, drop {
+        partner_cap_flex_id: object::ID,
+        user_address: address,
+        event_type: String,
+        event_hash: String,
+        points_awarded: u64,
+        timestamp_ms: u64,
+    }
+
+    public struct IntegrationSettingsUpdated has copy, drop {
+        partner_cap_flex_id: object::ID,
+        allowed_origins_count: u64,
+        integration_enabled: bool,
+        rate_limit_per_minute: u64,
+    }
+
+    // === ZERO-DEV INTEGRATION FUNCTIONS ===
+
+    /// Configure an event mapping for a PartnerCapFlex
+    /// This allows partners to define what events trigger point minting
+    public entry fun configure_event_mapping(
+        cap: &mut PartnerCapFlex,
+        event_type: String,
+        points_per_event: u64,
+        max_events_per_user: u64,
+        max_events_per_day: u64,
+        cooldown_seconds: u64,
+        event_conditions: String,
+        clock: &clock::Clock,
+        ctx: &mut tx_context::TxContext
+    ) {
+        // Ensure the caller owns the PartnerCapFlex
+        assert!(tx_context::sender(ctx) == cap.partner_address, E_NOT_OWNER);
+
+        let current_time_ms = clock::timestamp_ms(clock);
+
+        // Get or create event mappings table
+        let mappings_key = EventMappingsKey {};
+        if (!df::exists_with_type<EventMappingsKey, sui::table::Table<String, EventConfig>>(&cap.id, mappings_key)) {
+            let new_table = sui::table::new<String, EventConfig>(ctx);
+            df::add(&mut cap.id, mappings_key, new_table);
+        };
+
+        let event_mappings = df::borrow_mut<EventMappingsKey, sui::table::Table<String, EventConfig>>(&mut cap.id, mappings_key);
+
+        let event_config = EventConfig {
+            event_type: event_type,
+            points_per_event,
+            max_events_per_user,
+            max_events_per_day,
+            cooldown_seconds,
+            event_conditions,
+            is_active: true,
+            created_timestamp_ms: current_time_ms,
+            total_events_triggered: 0,
+        };
+
+        // Add or update the event configuration
+        if (sui::table::contains(event_mappings, event_type)) {
+            *sui::table::borrow_mut(event_mappings, event_type) = event_config;
+        } else {
+            sui::table::add(event_mappings, event_type, event_config);
+        };
+
+        event::emit(EventMappingConfigured {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            event_type: event_type,
+            points_per_event,
+            max_events_per_user,
+            max_events_per_day,
+        });
+    }
+
+    /// Submit a partner event and mint points to the user
+    /// Enhanced with on-chain security validations
+    public entry fun submit_partner_event(
+        cap: &mut PartnerCapFlex,
+        event_type: String,
+        user_address: address,
+        event_data: vector<u8>,
+        event_hash: String,
+        origin_domain: String,
+        user_signature: vector<u8>,
+        ledger: &mut alpha_points::ledger::Ledger,
+        clock: &clock::Clock,
+        ctx: &mut tx_context::TxContext
+    ) {
+        let current_time_ms = clock::timestamp_ms(clock);
+        let current_epoch = tx_context::epoch(ctx);
+        let submitter = tx_context::sender(ctx);
+
+        // 1. Validate integration is enabled and get settings
+        let settings_key = IntegrationSettingsKey {};
+        assert!(df::exists_with_type<IntegrationSettingsKey, IntegrationSettings>(&cap.id, settings_key), E_INTEGRATION_NOT_CONFIGURED);
+        
+        let (integration_enabled, allowed_origins, require_user_signature, rate_limit_per_minute) = {
+            let settings = df::borrow<IntegrationSettingsKey, IntegrationSettings>(&cap.id, settings_key);
+            assert!(settings.integration_enabled, E_INTEGRATION_DISABLED);
+            (settings.integration_enabled, settings.allowed_origins, settings.require_user_signature, settings.rate_limit_per_minute)
+        };
+
+        // 2. Validate origin domain (on-chain domain whitelist check)
+        let origin_allowed = false;
+        let i = 0;
+        let origins_len = vector::length(&allowed_origins);
+        while (i < origins_len) {
+            let allowed_origin = vector::borrow(&allowed_origins, i);
+            if (allowed_origin == &origin_domain) {
+                origin_allowed = true;
+                break
+            };
+            i = i + 1;
+        };
+        assert!(origin_allowed, E_ORIGIN_NOT_ALLOWED);
+
+        // 3. Rate limiting validation (per-user, per-minute)
+        let rate_limit_key = UserEventCountersKey {};
+        if (!df::exists_with_type<UserEventCountersKey, sui::table::Table<address, vector<u64>>>(&cap.id, rate_limit_key)) {
+            let new_counters = sui::table::new<address, vector<u64>>(ctx);
+            df::add(&mut cap.id, rate_limit_key, new_counters);
+        };
+
+        {
+            let user_counters = df::borrow_mut<UserEventCountersKey, sui::table::Table<address, vector<u64>>>(&mut cap.id, rate_limit_key);
+            let current_minute = current_time_ms / 60000; // Convert to minutes
+            
+            if (!sui::table::contains(user_counters, user_address)) {
+                // Initialize user counter with current timestamp
+                let initial_timestamps = vector::empty<u64>();
+                vector::push_back(&mut initial_timestamps, current_minute);
+                sui::table::add(user_counters, user_address, initial_timestamps);
+            } else {
+                let user_timestamps = sui::table::borrow_mut(user_counters, user_address);
+                
+                // Clean old timestamps (older than 1 minute)
+                let cleaned_timestamps = vector::empty<u64>();
+                let j = 0;
+                let timestamps_len = vector::length(user_timestamps);
+                while (j < timestamps_len) {
+                    let timestamp = *vector::borrow(user_timestamps, j);
+                    if (current_minute - timestamp <= 1) { // Within last minute
+                        vector::push_back(&mut cleaned_timestamps, timestamp);
+                    };
+                    j = j + 1;
+                };
+                
+                // Check rate limit
+                assert!(vector::length(&cleaned_timestamps) < rate_limit_per_minute, E_RATE_LIMIT_EXCEEDED);
+                
+                // Add current timestamp
+                vector::push_back(&mut cleaned_timestamps, current_minute);
+                *user_timestamps = cleaned_timestamps;
+            };
+        };
+
+        // 4. User signature verification (if required)
+        if (require_user_signature) {
+            // Reconstruct the message that should have been signed
+            let message_bytes = vector::empty<u8>();
+            vector::append(&mut message_bytes, std::string::bytes(&event_type));
+            vector::append(&mut message_bytes, bcs::to_bytes(&user_address));
+            vector::append(&mut message_bytes, event_data);
+            vector::append(&mut message_bytes, std::string::bytes(&event_hash));
+            vector::append(&mut message_bytes, bcs::to_bytes(&current_time_ms));
+            
+            // Verify signature (simplified - in production you'd use proper cryptographic verification)
+            assert!(vector::length(&user_signature) > 0, E_INVALID_SIGNATURE);
+            // TODO: Implement proper Ed25519/ECDSA signature verification
+            // For now, we just check that a signature was provided
+        };
+
+        // 5. Validate event configuration exists and get points amount
+        let mappings_key = EventMappingsKey {};
+        assert!(df::exists_with_type<EventMappingsKey, sui::table::Table<String, EventConfig>>(&cap.id, mappings_key), E_EVENT_NOT_CONFIGURED);
+        
+        let (points_per_event, max_events_per_user, max_events_per_day) = {
+            let event_mappings = df::borrow<EventMappingsKey, sui::table::Table<String, EventConfig>>(&cap.id, mappings_key);
+            assert!(sui::table::contains(event_mappings, event_type), E_EVENT_NOT_CONFIGURED);
+            
+            let event_config = sui::table::borrow(event_mappings, event_type);
+            assert!(event_config.is_active, E_EVENT_DISABLED);
+            (event_config.points_per_event, event_config.max_events_per_user, event_config.max_events_per_day)
+        };
+
+        // 6. Check per-user event limits
+        let history_key = EventHistoryKey {};
+        if (!df::exists_with_type<EventHistoryKey, sui::table::Table<String, EventSubmissionRecord>>(&cap.id, history_key)) {
+            let new_history = sui::table::new<String, EventSubmissionRecord>(ctx);
+            df::add(&mut cap.id, history_key, new_history);
+        };
+
+        // Count user's events for this event type
+        let user_event_count = 0;
+        let user_daily_event_count = 0;
+        let current_day = current_time_ms / 86400000; // Convert to days
+        
+        {
+            let event_history = df::borrow<EventHistoryKey, sui::table::Table<String, EventSubmissionRecord>>(&cap.id, history_key);
+            
+            // This is inefficient but necessary without secondary indices
+            // In production, consider using separate per-user tables
+            let all_hashes = sui::table::keys(event_history);
+            let k = 0;
+            let all_hashes_len = vector::length(&all_hashes);
+            while (k < all_hashes_len) {
+                let hash = vector::borrow(&all_hashes, k);
+                let record = sui::table::borrow(event_history, *hash);
+                
+                if (record.user_address == user_address && record.event_type == event_type) {
+                    user_event_count = user_event_count + 1;
+                    
+                    let record_day = record.timestamp_ms / 86400000;
+                    if (record_day == current_day) {
+                        user_daily_event_count = user_daily_event_count + 1;
+                    };
+                };
+                k = k + 1;
+            };
+        };
+
+        // Enforce limits
+        assert!(user_event_count < max_events_per_user, E_USER_EVENT_LIMIT_EXCEEDED);
+        assert!(user_daily_event_count < max_events_per_day, E_DAILY_EVENT_LIMIT_EXCEEDED);
+
+        // 7. Check replay protection
+        {
+            let event_history = df::borrow<EventHistoryKey, sui::table::Table<String, EventSubmissionRecord>>(&cap.id, history_key);
+            assert!(!sui::table::contains(event_history, event_hash), E_REPLAY_ATTACK);
+        };
+
+        // 8. Validate quotas before minting
+        validate_mint_quota(cap, points_per_event, current_epoch, ctx);
+
+        // 9. Record the points minting
+        record_points_minted(cap, points_per_event, current_epoch, ctx);
+
+        // 10. Mint points to the user via ledger
+        let stake_opt = option::none<alpha_points::stake_position::StakePosition<u8>>();
+        alpha_points::ledger::mint_points<u8>(
+            ledger,
+            user_address,
+            points_per_event,
+            alpha_points::ledger::new_point_type_generic_reward(),
+            ctx,
+            &stake_opt,
+            0, // default liq_share for Zero-Dev integration
+            clock
+        );
+        option::destroy_none(stake_opt);
+
+        // 11. Record the event submission
+        {
+            let event_history_mut = df::borrow_mut<EventHistoryKey, sui::table::Table<String, EventSubmissionRecord>>(&mut cap.id, history_key);
+            let submission_record = EventSubmissionRecord {
+                user_address,
+                event_type: event_type,
+                event_hash: event_hash,
+                timestamp_ms: current_time_ms,
+                points_awarded: points_per_event,
+                metadata: std::string::utf8(event_data),
+            };
+            sui::table::add(event_history_mut, event_hash, submission_record);
+        };
+
+        // 12. Update event statistics
+        {
+            let event_mappings = df::borrow_mut<EventMappingsKey, sui::table::Table<String, EventConfig>>(&mut cap.id, mappings_key);
+            let event_config = sui::table::borrow_mut(event_mappings, event_type);
+            event_config.total_events_triggered = event_config.total_events_triggered + 1;
+        };
+
+        event::emit(PartnerEventSubmitted {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            user_address,
+            event_type: event_type,
+            event_hash: event_hash,
+            points_awarded: points_per_event,
+            timestamp_ms: current_time_ms,
+        });
+    }
+
+    /// Update integration settings for a PartnerCapFlex
+    public entry fun update_integration_settings(
+        cap: &mut PartnerCapFlex,
+        allowed_origins: vector<String>,
+        webhook_url: option::Option<String>,
+        api_key_hash: option::Option<String>,
+        rate_limit_per_minute: u64,
+        require_user_signature: bool,
+        integration_enabled: bool,
+        clock: &clock::Clock,
+        ctx: &mut tx_context::TxContext
+    ) {
+        // Ensure the caller owns the PartnerCapFlex
+        assert!(tx_context::sender(ctx) == cap.partner_address, E_NOT_OWNER);
+
+        let current_time_ms = clock::timestamp_ms(clock);
+        let settings_key = IntegrationSettingsKey {};
+
+        let integration_settings = IntegrationSettings {
+            allowed_origins,
+            webhook_url,
+            api_key_hash,
+            rate_limit_per_minute,
+            require_user_signature,
+            integration_enabled,
+            last_updated_ms: current_time_ms,
+        };
+
+        if (df::exists_with_type<IntegrationSettingsKey, IntegrationSettings>(&cap.id, settings_key)) {
+            *df::borrow_mut<IntegrationSettingsKey, IntegrationSettings>(&mut cap.id, settings_key) = integration_settings;
+        } else {
+            df::add(&mut cap.id, settings_key, integration_settings);
+        };
+
+        event::emit(IntegrationSettingsUpdated {
+            partner_cap_flex_id: object::uid_to_inner(&cap.id),
+            allowed_origins_count: vector::length(&allowed_origins),
+            integration_enabled,
+            rate_limit_per_minute,
+        });
+    }
+
+    /// Remove an event mapping
+    public entry fun remove_event_mapping(
+        cap: &mut PartnerCapFlex,
+        event_type: String,
+        ctx: &mut tx_context::TxContext
+    ) {
+        // Ensure the caller owns the PartnerCapFlex
+        assert!(tx_context::sender(ctx) == cap.partner_address, E_NOT_OWNER);
+
+        let mappings_key = EventMappingsKey {};
+        if (df::exists_with_type<EventMappingsKey, sui::table::Table<String, EventConfig>>(&cap.id, mappings_key)) {
+            let event_mappings = df::borrow_mut<EventMappingsKey, sui::table::Table<String, EventConfig>>(&mut cap.id, mappings_key);
+            if (sui::table::contains(event_mappings, event_type)) {
+                sui::table::remove(event_mappings, event_type);
+            };
+        };
+    }
+
+    // === ZERO-DEV INTEGRATION GETTERS ===
+
+    /// Check if a PartnerCapFlex has Zero-Dev integration enabled
+    public fun has_integration_enabled(cap: &PartnerCapFlex): bool {
+        let settings_key = IntegrationSettingsKey {};
+        if (df::exists_with_type<IntegrationSettingsKey, IntegrationSettings>(&cap.id, settings_key)) {
+            let settings = df::borrow<IntegrationSettingsKey, IntegrationSettings>(&cap.id, settings_key);
+            settings.integration_enabled
+        } else {
+            false
+        }
+    }
+
+    /// Get integration settings for a PartnerCapFlex
+    public fun get_integration_settings(cap: &PartnerCapFlex): option::Option<IntegrationSettings> {
+        let settings_key = IntegrationSettingsKey {};
+        if (df::exists_with_type<IntegrationSettingsKey, IntegrationSettings>(&cap.id, settings_key)) {
+            let settings = df::borrow<IntegrationSettingsKey, IntegrationSettings>(&cap.id, settings_key);
+            option::some(*settings)
+        } else {
+            option::none()
+        }
+    }
+
+    /// Check if an event type is configured for a PartnerCapFlex
+    public fun has_event_mapping(cap: &PartnerCapFlex, event_type: String): bool {
+        let mappings_key = EventMappingsKey {};
+        if (df::exists_with_type<EventMappingsKey, sui::table::Table<String, EventConfig>>(&cap.id, mappings_key)) {
+            let event_mappings = df::borrow<EventMappingsKey, sui::table::Table<String, EventConfig>>(&cap.id, mappings_key);
+            sui::table::contains(event_mappings, event_type)
+        } else {
+            false
+        }
+    }
+
+    /// Get event configuration for a specific event type
+    public fun get_event_config(cap: &PartnerCapFlex, event_type: String): option::Option<EventConfig> {
+        let mappings_key = EventMappingsKey {};
+        if (df::exists_with_type<EventMappingsKey, sui::table::Table<String, EventConfig>>(&cap.id, mappings_key)) {
+            let event_mappings = df::borrow<EventMappingsKey, sui::table::Table<String, EventConfig>>(&cap.id, mappings_key);
+            if (sui::table::contains(event_mappings, event_type)) {
+                let config = sui::table::borrow(event_mappings, event_type);
+                option::some(*config)
+            } else {
+                option::none()
+            }
+        } else {
+            option::none()
+        }
     }
 }
