@@ -49,6 +49,55 @@ export const LoanPanel: React.FC = () => {
     }
   };
 
+  // Handle loan repayment
+  const handleRepayLoan = async (loanId: string, stakeId: string, estimatedRepayment: string) => {
+    try {
+      setRepayInProgress(loanId);
+      setTransactionLoading(true);
+
+      const transaction = buildRepayLoanTransaction(loanId, stakeId);
+      
+      const result = await signAndExecuteTransaction({
+        transaction,
+        options: {
+          showObjectChanges: true,
+          showEvents: true,
+        },
+      });
+
+      if (result.effects?.status?.status === 'success') {
+        toast.success(
+          <div>
+            <div>✅ Loan repaid successfully!</div>
+            <div className="text-sm text-gray-300 mt-1">Your collateral has been unlocked</div>
+            <a 
+              href={`https://suiexplorer.com/txblock/${result.digest}?network=testnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-300 hover:text-blue-200 underline text-sm"
+            >
+              View transaction
+            </a>
+          </div>
+        );
+        
+        // Refresh data after successful repayment
+        await refreshLoansData();
+        await refreshData();
+      } else {
+        const errorMessage = getTransactionResponseError(result) || 'Loan repayment failed';
+        toast.error(errorMessage);
+      }
+    } catch (error: any) {
+      console.error('Loan repayment error:', error);
+      const errorMessage = getTransactionErrorMessage(error) || 'Failed to repay loan';
+      toast.error(errorMessage);
+    } finally {
+      setRepayInProgress(null);
+      setTransactionLoading(false);
+    }
+  };
+
   return (
     <div className="h-full">
       <div className="p-2 h-full">

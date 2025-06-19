@@ -47,6 +47,7 @@ import {
 import { formatSui } from '../utils/format';
 import suiLogo from '../assets/sui-logo.jpg';
 import { GenerationsTab } from './GenerationsTab';
+import { SDKConfigurationDashboard } from './SDKConfigurationDashboard';
 
 // Import Swiper React components
 import { Swiper, SwiperSlide } from 'swiper/react';
