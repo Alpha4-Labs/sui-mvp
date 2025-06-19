@@ -155,6 +155,7 @@ export const LoanPanel: React.FC = () => {
                         </span>
                       </div>
                     </div>
+                  </div>
                 );
               })}
             </div>
