@@ -55,7 +55,7 @@ export const LoanPanel: React.FC = () => {
       setRepayInProgress(loanId);
       setTransactionLoading(true);
 
-      const transaction = buildRepayLoanTransaction(loanId, stakeId);
+      const transaction = buildRepayLoanTransaction(loanId, stakeId, estimatedRepayment);
       
       const result = await signAndExecuteTransaction({
         transaction,
