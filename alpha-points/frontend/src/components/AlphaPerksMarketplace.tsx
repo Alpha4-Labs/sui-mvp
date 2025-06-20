@@ -753,7 +753,8 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       console.log('⚡ Using QUOTA-FREE perk claiming (no PartnerPerkStatsV2 needed)');
 
       // Hash the Discord ID for privacy
-      const hashedDiscordId = hashMetadata(discordId, import.meta.env['VITE_DISCORD_SALT'] || 'alpha4-default-salt-2024');
+      const salt = import.meta.env['VITE_METADATA_SALT'] ?? 'alpha4-default-salt-2024';
+      const hashedDiscordId = hashMetadata(discordId, salt);
 
       // Build the QUOTA-FREE perk claiming transaction
       // This bypasses the quota validation that was causing Error 110

@@ -18,7 +18,16 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
 
   // Load stake positions when component mounts
   useEffect(() => {
+    if (isConnected && !loading.positions) {
+      // Always refresh stake positions when component mounts to ensure we have fresh data
+      refreshStakePositions();
+    }
+  }, [isConnected, refreshStakePositions]);
+
+  // Additional effect to ensure positions are loaded after connection is established
+  useEffect(() => {
     if (isConnected && stakePositions.length === 0 && !loading.positions) {
+      // Force refresh if we're connected but have no positions and not currently loading
       refreshStakePositions();
     }
   }, [isConnected, stakePositions.length, loading.positions, refreshStakePositions]);
@@ -140,7 +149,7 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
           </div>
         </div>
 
-        {loading.positions ? (
+        {loading.positions || (isConnected && stakePositions.length === 0) ? (
           <div className="text-center py-6">
             <div className="w-12 h-12 bg-blue-600/20 rounded-full flex items-center justify-center mx-auto mb-3 animate-spin">
               <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -159,6 +168,12 @@ export const LoanManagementCards: React.FC<LoanManagementCardsProps> = ({ classN
             </div>
             <p className="text-gray-400 text-sm">No eligible stake positions for collateral</p>
             <p className="text-gray-500 text-xs mt-1">Need active, unencumbered stakes to borrow against</p>
+            <button 
+              onClick={() => refreshStakePositions()}
+              className="mt-3 px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 text-sm font-medium rounded-lg transition-all duration-200"
+            >
+              Refresh Positions
+            </button>
           </div>
         ) : (
           <div className="space-y-2">
