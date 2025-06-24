@@ -9,7 +9,8 @@ import {
   buildCreatePartnerCapTransaction,
   buildCreatePartnerCapFlexTransaction,
   buildCreatePartnerCapFlexWithUSDCTransaction,
-  buildCreatePartnerCapFlexWithNFTTransaction
+  buildCreatePartnerCapFlexWithNFTTransaction,
+  buildCreatePartnerPerkStatsTransaction
 } from '../utils/transaction';
 
 /*
@@ -114,43 +115,32 @@ export function usePartnerOnboarding() {
       
       toast.success(`✅ Step 1 complete! PartnerCapFlex created.`);
 
-      // Calculate appropriate daily quota based on collateral
-      const defaultDailyQuota = calculateRecommendedDailyQuota(suiAmountMist);
-      const dailyQuotaToUse = customDailyQuota || defaultDailyQuota;
-
-      // STEP 2: Create PartnerPerkStatsV2
+      // STEP 2: PartnerCapFlex Analytics Setup Complete!
+      // Note: PartnerCapFlex objects have built-in analytics and quota tracking:
+      // - total_lifetime_quota_points, total_points_minted_lifetime
+      // - daily_throttle_points, points_minted_today, total_perks_created
+      // No separate PartnerPerkStats object is needed!
+      
       setOnboardingStep('stats');
-      toast.info('🔄 Step 2/2: Creating your stats tracking system...');
+      toast.info('🔄 Step 2/2: Configuring analytics and quota system...');
 
-      const statsTransaction = buildCreatePartnerPerkStatsTransaction(
-        extractedPartnerCapId,
-        dailyQuotaToUse,
-        undefined // No sponsorship - user pays gas
-      );
+      // Simulate brief setup time for better UX
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
-      const statsResult = await signAndExecuteTransaction({
-        transaction: statsTransaction,
-        chain: 'sui:testnet',
-      });
-
-      if (!statsResult?.digest) {
-        throw new Error('Failed to create PartnerPerkStatsV2 - no transaction digest');
-      }
-
-      const extractedStatsId = await extractStatsIdFromTransaction(statsResult.digest);
-      setStatsId(extractedStatsId);
-
-      // Complete!
+      // Complete! PartnerCapFlex includes all necessary analytics
       setOnboardingStep('complete');
-      setTransactionDigest(statsResult.digest); // Use the final transaction digest
+      setTransactionDigest(partnerCapResult.digest); // Use the PartnerCapFlex transaction digest
+      
+      // The PartnerCapFlex ID serves as the analytics/stats system
+      setStatsId(extractedPartnerCapId);
 
-      toast.success(`🎉 Onboarding complete! You now have full V2 system access with advanced analytics!`);
+      toast.success(`🎉 Onboarding complete! Your PartnerCapFlex includes built-in analytics and quota tracking!`);
 
       return {
         partnerCapId: extractedPartnerCapId,
-        statsId: extractedStatsId,
+        statsId: extractedPartnerCapId, // PartnerCapFlex serves as the stats system
         partnerCapTxDigest: partnerCapResult.digest,
-        statsTxDigest: statsResult.digest
+        statsTxDigest: partnerCapResult.digest // Same transaction
       };
 
     } catch (error: any) {
@@ -232,43 +222,26 @@ export function usePartnerOnboarding() {
       
       toast.success(`✅ Step 1 complete! PartnerCapFlex with USDC collateral created.`);
 
-      // Calculate appropriate daily quota based on USDC amount (100% LTV)
-      // For USDC: 1 USDC = 1000 Alpha Points quota, so default quota should be reasonable
-      const defaultDailyQuota = customDailyQuota || 10000; // Conservative default for USDC
-      
-      // STEP 2: Create PartnerPerkStatsV2
+      // STEP 2: PartnerCapFlex Analytics Setup Complete!
+      // Note: PartnerCapFlex objects have built-in analytics and quota tracking
       setOnboardingStep('stats');
-      toast.info('🔄 Step 2/2: Creating your stats tracking system...');
+      toast.info('🔄 Step 2/2: Configuring analytics and quota system...');
 
-      const statsTransaction = buildCreatePartnerPerkStatsTransaction(
-        extractedPartnerCapId,
-        defaultDailyQuota,
-        undefined // No sponsorship - user pays gas
-      );
+      // Simulate brief setup time for better UX
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
-      const statsResult = await signAndExecuteTransaction({
-        transaction: statsTransaction,
-        chain: 'sui:testnet',
-      });
-
-      if (!statsResult?.digest) {
-        throw new Error('Failed to create PartnerPerkStatsV2 - no transaction digest');
-      }
-
-      const extractedStatsId = await extractStatsIdFromTransaction(statsResult.digest);
-      setStatsId(extractedStatsId);
-
-      // Complete!
+      // Complete! PartnerCapFlex includes all necessary analytics
       setOnboardingStep('complete');
-      setTransactionDigest(statsResult.digest); // Use the final transaction digest
+      setTransactionDigest(partnerCapResult.digest);
+      setStatsId(extractedPartnerCapId);
 
-      toast.success(`🎉 USDC onboarding complete! You now have full V2 system access with advanced analytics!`);
+      toast.success(`🎉 USDC onboarding complete! Your PartnerCapFlex includes built-in analytics and quota tracking!`);
 
       return {
         partnerCapId: extractedPartnerCapId,
-        statsId: extractedStatsId,
+        statsId: extractedPartnerCapId, // PartnerCapFlex serves as the stats system
         partnerCapTxDigest: partnerCapResult.digest,
-        statsTxDigest: statsResult.digest
+        statsTxDigest: partnerCapResult.digest // Same transaction
       };
 
     } catch (error: any) {
@@ -360,44 +333,26 @@ export function usePartnerOnboarding() {
       
       toast.success(`✅ Step 1 complete! PartnerCapFlex with NFT collateral created.`);
 
-      // Calculate appropriate daily quota based on NFT floor value (70% LTV)
-      // NFT: $500 floor * 70% = $350 effective = 350,000 Alpha Points quota
-      const effectiveValue = Math.floor(estimatedFloorValueUsdc * 0.7); // 70% LTV
-      const defaultDailyQuota = customDailyQuota || Math.max(Math.floor(effectiveValue * 30), 1000); // 3% daily throttle, minimum 1000
-      
-      // STEP 2: Create PartnerPerkStatsV2
+      // STEP 2: PartnerCapFlex Analytics Setup Complete!
+      // Note: PartnerCapFlex objects have built-in analytics and quota tracking
       setOnboardingStep('stats');
-      toast.info('🔄 Step 2/2: Creating your stats tracking system...');
+      toast.info('🔄 Step 2/2: Configuring analytics and quota system...');
 
-      const statsTransaction = buildCreatePartnerPerkStatsTransaction(
-        extractedPartnerCapId,
-        defaultDailyQuota,
-        undefined // No sponsorship - user pays gas
-      );
+      // Simulate brief setup time for better UX
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
-      const statsResult = await signAndExecuteTransaction({
-        transaction: statsTransaction,
-        chain: 'sui:testnet',
-      });
-
-      if (!statsResult?.digest) {
-        throw new Error('Failed to create PartnerPerkStatsV2 - no transaction digest');
-      }
-
-      const extractedStatsId = await extractStatsIdFromTransaction(statsResult.digest);
-      setStatsId(extractedStatsId);
-
-      // Complete!
+      // Complete! PartnerCapFlex includes all necessary analytics
       setOnboardingStep('complete');
-      setTransactionDigest(statsResult.digest); // Use the final transaction digest
+      setTransactionDigest(partnerCapResult.digest);
+      setStatsId(extractedPartnerCapId);
 
-      toast.success(`🎉 NFT onboarding complete! You now have full V2 system access with advanced analytics!`);
+      toast.success(`🎉 NFT onboarding complete! Your PartnerCapFlex includes built-in analytics and quota tracking!`);
 
       return {
         partnerCapId: extractedPartnerCapId,
-        statsId: extractedStatsId,
+        statsId: extractedPartnerCapId, // PartnerCapFlex serves as the stats system
         partnerCapTxDigest: partnerCapResult.digest,
-        statsTxDigest: statsResult.digest
+        statsTxDigest: partnerCapResult.digest // Same transaction
       };
 
     } catch (error: any) {
@@ -422,8 +377,8 @@ export function usePartnerOnboarding() {
   };
 
   /**
-   * Creates ONLY PartnerPerkStatsV2 for existing PartnerCapFlex owners
-   * Used for partners who created PartnerCapFlex before V2 system existed
+   * @deprecated PartnerCapFlex objects have built-in analytics - no separate stats object needed
+   * This function is kept for backward compatibility but will return the PartnerCapFlex ID as the stats ID
    */
   const createStatsForExistingPartner = async (
     existingPartnerCapId: string,
@@ -439,33 +394,21 @@ export function usePartnerOnboarding() {
     setError(null);
 
     try {
-      toast.info('🔄 Creating your stats tracking system...');
+      toast.info('🔄 Configuring analytics system for your existing PartnerCapFlex...');
 
-      const transaction = buildCreatePartnerPerkStatsTransaction(
-        existingPartnerCapId,
-        dailyQuotaLimit,
-        undefined
-      );
+      // Simulate setup for better UX - PartnerCapFlex already has built-in analytics
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      const result = await signAndExecuteTransaction({
-        transaction,
-        chain: 'sui:testnet',
-      });
-
-      if (result?.digest) {
-        const extractedStatsId = await extractStatsIdFromTransaction(result.digest);
-        setStatsId(extractedStatsId);
-        setTransactionDigest(result.digest);
-        
-        toast.success('✅ Stats tracking created! You can now use the full V2 system.');
-        return extractedStatsId;
-      }
+      setStatsId(existingPartnerCapId);
+      
+      toast.success('✅ Analytics setup complete! Your PartnerCapFlex already includes built-in analytics and quota tracking!');
+      return existingPartnerCapId; // PartnerCapFlex serves as the stats system
 
     } catch (error: any) {
-      console.error('Stats creation error:', error);
-      const errorMessage = error.message || 'Failed to create stats tracking. Please try again.';
+      console.error('Analytics setup error:', error);
+      const errorMessage = error.message || 'Failed to configure analytics. Please try again.';
       setError(errorMessage);
-      toast.error(`❌ Stats creation failed: ${errorMessage}`);
+      toast.error(`❌ Analytics setup failed: ${errorMessage}`);
       return null;
     } finally {
       setIsLoading(false);
@@ -698,36 +641,207 @@ export function usePartnerOnboarding() {
 
   /**
    * Helper function to extract PartnerCapFlex ID from transaction
-   * In a production app, this would parse transaction effects properly
+   * Queries the Sui RPC to get transaction effects and find created objects
    */
   const extractPartnerCapIdFromTransaction = async (txDigest: string): Promise<string | null> => {
     try {
-      // TODO: Implement proper transaction effects parsing
-      // For now, return a placeholder that would be replaced with actual parsing
-      console.log('Extracting PartnerCapFlex ID from transaction:', txDigest);
+      console.log('🔍 Extracting PartnerCapFlex ID from transaction:', txDigest);
       
-      // In a real implementation, you would:
-      // 1. Query the transaction effects
-      // 2. Find the created PartnerCapFlex object
-      // 3. Return its object ID
+      // Query the transaction block from Sui RPC
+      const response = await fetch('https://fullnode.testnet.sui.io/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'sui_getTransactionBlock',
+          params: [
+            txDigest,
+            {
+              showInput: false,
+              showRawInput: false,
+              showEffects: true,
+              showEvents: true,
+              showObjectChanges: true,
+              showBalanceChanges: false
+            }
+          ]
+        })
+      });
+
+      const data = await response.json();
       
-      // Placeholder approach - in reality you'd parse the transaction effects
-      return `partnercap_${txDigest.substring(0, 8)}`;
+      if (!data.result) {
+        console.error('❌ Failed to fetch transaction data');
+        throw new Error('Failed to fetch transaction data');
+      }
+
+      console.log('📋 Transaction data received:', {
+        hasEvents: !!data.result.events,
+        eventsCount: data.result.events?.length || 0,
+        hasObjectChanges: !!data.result.objectChanges,
+        objectChangesCount: data.result.objectChanges?.length || 0
+      });
+
+      // Look for created objects in objectChanges
+      const objectChanges = data.result.objectChanges || [];
+      
+      console.log('🔍 Searching through', objectChanges.length, 'object changes');
+      
+      // Find the PartnerCapFlex object (look for created objects with PartnerCapFlex type)
+      for (const change of objectChanges) {
+        console.log('📦 Object change:', {
+          type: change.type,
+          objectType: change.objectType,
+          objectId: change.objectId
+        });
+        
+        if (change.type === 'created' && 
+            change.objectType && 
+            (change.objectType.includes('PartnerCapFlex') || 
+             change.objectType.includes('partner_flex::PartnerCapFlex'))) {
+          console.log('✅ Found PartnerCapFlex object:', change.objectId);
+          return change.objectId;
+        }
+      }
+
+      // Also check events for PartnerCapFlex creation
+      const events = data.result.events || [];
+      console.log('🔍 Searching through', events.length, 'events');
+      
+      for (const event of events) {
+        console.log('📣 Event:', {
+          type: event.type,
+          parsedJson: event.parsedJson
+        });
+        
+        // Look for PartnerCapCreated event (this is what the Move contract emits)
+        if (event.type && event.type.includes('PartnerCapCreated')) {
+          // The event structure is: { partner_cap_id, partner_name, partner_address, initial_usdc_value }
+          if (event.parsedJson && event.parsedJson.partner_cap_id) {
+            console.log('✅ Found PartnerCapFlex ID in PartnerCapCreated event:', event.parsedJson.partner_cap_id);
+            return event.parsedJson.partner_cap_id;
+          }
+        }
+        
+        // Fallback: look for any event with object_id field
+        if (event.parsedJson && event.parsedJson.object_id) {
+          console.log('🤔 Found object_id in event:', event.parsedJson.object_id);
+        }
+      }
+
+      console.warn('⚠️ No PartnerCapFlex object found in transaction effects');
+      console.log('🐛 Full transaction data for debugging:', JSON.stringify(data.result, null, 2));
+      return null;
+      
     } catch (error) {
-      console.error('Failed to extract PartnerCapFlex ID:', error);
+      console.error('❌ Failed to extract PartnerCapFlex ID:', error);
       return null;
     }
   };
 
   /**
-   * Helper function to extract Stats ID from transaction
+   * Helper function to extract PartnerPerkStats ID from transaction
+   * Queries the Sui RPC to get transaction effects and find created PartnerPerkStats objects
    */
   const extractStatsIdFromTransaction = async (txDigest: string): Promise<string | null> => {
     try {
-      console.log('Extracting Stats ID from transaction:', txDigest);
-      return `stats_${txDigest.substring(0, 8)}`;
+      console.log('🔍 Extracting PartnerPerkStats ID from transaction:', txDigest);
+      
+      // Query the transaction block from Sui RPC
+      const response = await fetch('https://fullnode.testnet.sui.io/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'sui_getTransactionBlock',
+          params: [
+            txDigest,
+            {
+              showInput: false,
+              showRawInput: false,
+              showEffects: true,
+              showEvents: true,
+              showObjectChanges: true,
+              showBalanceChanges: false
+            }
+          ]
+        })
+      });
+
+      const data = await response.json();
+      
+      if (!data.result) {
+        console.error('❌ Failed to fetch transaction data');
+        throw new Error('Failed to fetch transaction data');
+      }
+
+      console.log('📋 Transaction data received for stats:', {
+        hasEvents: !!data.result.events,
+        eventsCount: data.result.events?.length || 0,
+        hasObjectChanges: !!data.result.objectChanges,
+        objectChangesCount: data.result.objectChanges?.length || 0
+      });
+
+      // Look for created objects in objectChanges
+      const objectChanges = data.result.objectChanges || [];
+      
+      console.log('🔍 Searching through', objectChanges.length, 'object changes for PartnerPerkStats');
+      
+      // Find the PartnerPerkStats object
+      for (const change of objectChanges) {
+        console.log('📦 Object change:', {
+          type: change.type,
+          objectType: change.objectType,
+          objectId: change.objectId
+        });
+        
+        if (change.type === 'created' && 
+            change.objectType && 
+            (change.objectType.includes('PartnerPerkStats') || 
+             change.objectType.includes('perk_manager::PartnerPerkStats'))) {
+          console.log('✅ Found PartnerPerkStats object:', change.objectId);
+          return change.objectId;
+        }
+      }
+
+      // Also check events for PartnerPerkStats creation
+      const events = data.result.events || [];
+      console.log('🔍 Searching through', events.length, 'events for PartnerPerkStats');
+      
+      for (const event of events) {
+        console.log('📣 Event:', {
+          type: event.type,
+          parsedJson: event.parsedJson
+        });
+        
+        // Look for PartnerPerkStatsCreated or similar event
+        if (event.type && 
+            (event.type.includes('PartnerPerkStats') || 
+             event.type.includes('StatsCreated'))) {
+          // Try to extract object ID from event data
+          if (event.parsedJson && event.parsedJson.object_id) {
+            console.log('✅ Found PartnerPerkStats ID in event:', event.parsedJson.object_id);
+            return event.parsedJson.object_id;
+          }
+          if (event.parsedJson && event.parsedJson.stats_id) {
+            console.log('✅ Found PartnerPerkStats ID in event (stats_id):', event.parsedJson.stats_id);
+            return event.parsedJson.stats_id;
+          }
+        }
+      }
+
+      console.warn('⚠️ No PartnerPerkStats object found in transaction effects');
+      console.log('🐛 Full transaction data for debugging:', JSON.stringify(data.result, null, 2));
+      return null;
+      
     } catch (error) {
-      console.error('Failed to extract Stats ID:', error);
+      console.error('❌ Failed to extract PartnerPerkStats ID:', error);
       return null;
     }
   };

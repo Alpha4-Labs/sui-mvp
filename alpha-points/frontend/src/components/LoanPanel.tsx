@@ -12,9 +12,23 @@ import {
   getTransactionResponseError,
 } from '../utils/transaction-adapter';
 
+// Import Swiper React components
+import { Swiper, SwiperSlide } from 'swiper/react';
+import { Navigation, Pagination, A11y } from 'swiper/modules';
+
+// Import Swiper styles
+// @ts-ignore
+import 'swiper/css';
+// @ts-ignore
+import 'swiper/css/navigation';
+// @ts-ignore
+import 'swiper/css/pagination';
+
 export const LoanPanel: React.FC = () => {
   const { loans, stakePositions, refreshData, refreshLoansData, setTransactionLoading } = useAlphaContext();
   const [repayInProgress, setRepayInProgress] = useState<string | null>(null);
+  const [loanSwiperInstance, setLoanSwiperInstance] = useState<any>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
   const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const { registerRefreshCallback } = useTransactionSuccess();
 
@@ -81,9 +95,14 @@ export const LoanPanel: React.FC = () => {
           </div>
         );
         
-        // Refresh data after successful repayment
-        await refreshLoansData();
-        await refreshData();
+        // Refresh data after successful repayment - wrapped in try-catch to prevent error popup on success
+        try {
+          await refreshLoansData();
+          await refreshData();
+        } catch (refreshError) {
+          console.error('Error refreshing data after successful loan repayment:', refreshError);
+          // Don't show error toast here since the transaction was successful
+        }
       } else {
         const errorMessage = getTransactionResponseError(result) || 'Loan repayment failed';
         toast.error(errorMessage);
@@ -110,103 +129,123 @@ export const LoanPanel: React.FC = () => {
                 {loans.length} loan{loans.length !== 1 ? 's' : ''}
               </div>
             </div>
+
+
             
             {/* Loans List */}
             <div className="space-y-1 flex-1 overflow-y-auto">
-              {loans.map((loan) => {
-                const stakeDetails = getStakeDetails(loan.stakeId);
-                const principalSui = stakeDetails ? convertMistToSui(stakeDetails.principal) : 0;
-                const timeSinceOpened = getTimeSinceOpened(loan.openedTimeMs);
-                const isRepaying = repayInProgress === loan.id;
-                
-                return (
-                  <div
-                    key={loan.id}
-                    className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-lg p-2 shadow-xl hover:shadow-purple-500/10 transition-all duration-300"
-                  >
-                    {/* Header with link to Suiscan */}
-                    <a
-                      href={`https://suiscan.xyz/testnet/object/${loan.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block hover:bg-black/10 rounded p-1 -m-1 mb-1 transition-colors duration-200"
-                      title="View Loan on Suiscan"
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center space-x-2">
-                          <div className="status-indicator-warning"></div>
-                          <div>
-                            <span className="text-gray-300 font-mono text-xs block">
-                              Loan Position
-                            </span>
-                            <span className="text-gray-500 text-xs">
-                              {formatAddress(loan.id)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xs text-gray-400">{timeSinceOpened}</div>
-                          <div className="px-2 py-1 bg-yellow-900/50 text-yellow-300 border border-yellow-700/50 rounded text-xs font-medium">
-                            Active
-                          </div>
-                        </div>
-                      </div>
-                    </a>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-400 text-sm">Borrowed</span>
-                        <div className="text-right">
-                          <span className="text-white font-semibold">{formatPoints(loan.principalPoints)}</span>
-                          <span className="text-purple-400 text-sm ml-1">αP</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-400 text-sm">Collateral</span>
-                        <div className="text-right">
-                          <span className="text-white">{principalSui.toFixed(3)}</span>
-                          <span className="text-blue-400 text-sm ml-1">SUI</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-400 text-sm">Interest</span>
-                        <span className="text-orange-400 text-sm font-medium">
-                          {formatPoints(loan.interestOwedPoints)} αP
-                        </span>
-                      </div>
-                      {/* 3-column layout with button in middle */}
-                      <div className="grid grid-cols-3 items-center gap-2">
-                        <span className="text-gray-400 text-sm">Est. Repayment</span>
-                        <div className="flex justify-center">
-                          <button
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleRepayLoan(loan.id, loan.stakeId, loan.estimatedRepayment);
-                            }}
-                            disabled={isRepaying}
-                            className="px-2 py-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-600 disabled:to-gray-600 text-white text-xs font-medium rounded transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                            title={`Repay ${formatPoints(loan.estimatedRepayment)} αP to unlock your collateral`}
-                          >
-                                                      {isRepaying ? (
-                            <div className="flex items-center">
-                              <div className="animate-spin h-3 w-3 mr-1 border border-white border-t-transparent rounded-full"></div>
-                              <span className="text-xs">Repaying...</span>
+                              <Swiper
+                  spaceBetween={10}
+                  slidesPerView={1}
+                  onSwiper={(swiper) => {
+                    setLoanSwiperInstance(swiper);
+                    // Store swiper instance globally for header access
+                    (window as any).loanSwiperInstance = swiper;
+                  }}
+                  onSlideChange={(swiper) => {
+                    setActiveIndex(swiper.realIndex);
+                    // Update global active index
+                    (window as any).loanActiveIndex = swiper.realIndex;
+                  }}
+                  modules={[Navigation, Pagination, A11y]}
+                  className="h-full loan-swiper"
+                >
+                {loans.map((loan) => {
+                  const stakeDetails = getStakeDetails(loan.stakeId);
+                  const principalSui = stakeDetails ? convertMistToSui(stakeDetails.principal) : 0;
+                  const timeSinceOpened = getTimeSinceOpened(loan.openedTimeMs);
+                  const isRepaying = repayInProgress === loan.id;
+                  
+                  return (
+                    <SwiperSlide key={loan.id}>
+                      <div
+                        className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-lg p-2 shadow-xl hover:shadow-purple-500/10 transition-all duration-300"
+                      >
+                        {/* Header with link to Suiscan */}
+                        <a
+                          href={`https://suiscan.xyz/testnet/object/${loan.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block hover:bg-black/10 rounded p-1 -m-1 mb-1 transition-colors duration-200"
+                          title="View Loan on Suiscan"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center space-x-2">
+                              <div className="status-indicator-warning"></div>
+                              <div>
+                                <span className="text-gray-300 font-mono text-xs block">
+                                  Loan Position
+                                </span>
+                                <span className="text-gray-500 text-xs">
+                                  {formatAddress(loan.id)}
+                                </span>
+                              </div>
                             </div>
-                          ) : (
-                            <span className="text-xs">💰 Repay</span>
-                          )}
-                          </button>
+                            <div className="text-right">
+                              <div className="text-xs text-gray-400">{timeSinceOpened}</div>
+                              <div className="px-2 py-1 bg-yellow-900/50 text-yellow-300 border border-yellow-700/50 rounded text-xs font-medium">
+                                Active
+                              </div>
+                            </div>
+                          </div>
+                        </a>
+
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-400 text-sm">Borrowed</span>
+                            <div className="text-right">
+                              <span className="text-white font-semibold">{formatPoints(loan.principalPoints)}</span>
+                              <span className="text-purple-400 text-sm ml-1">αP</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-400 text-sm">Collateral</span>
+                            <div className="text-right">
+                              <span className="text-white">{principalSui.toFixed(3)}</span>
+                              <span className="text-blue-400 text-sm ml-1">SUI</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-400 text-sm">Interest</span>
+                            <span className="text-orange-400 text-sm font-medium">
+                              {formatPoints(loan.interestOwedPoints)} αP
+                            </span>
+                          </div>
+                          {/* 3-column layout with button in middle */}
+                          <div className="grid grid-cols-3 items-center gap-2">
+                            <span className="text-gray-400 text-sm">Est. Repayment</span>
+                            <div className="flex justify-center">
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleRepayLoan(loan.id, loan.stakeId, loan.estimatedRepayment);
+                                }}
+                                disabled={isRepaying}
+                                className="px-2 py-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:from-gray-600 disabled:to-gray-600 text-white text-xs font-medium rounded transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                                title={`Repay ${formatPoints(loan.estimatedRepayment)} αP to unlock your collateral`}
+                              >
+                                {isRepaying ? (
+                                  <div className="flex items-center">
+                                    <div className="animate-spin h-3 w-3 mr-1 border border-white border-t-transparent rounded-full"></div>
+                                    <span className="text-xs">Repaying...</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs">💰 Repay</span>
+                                )}
+                              </button>
+                            </div>
+                            <span className="text-red-400 text-sm font-medium text-right">
+                              {formatPoints(loan.estimatedRepayment)} αP
+                            </span>
+                          </div>
                         </div>
-                        <span className="text-red-400 text-sm font-medium text-right">
-                          {formatPoints(loan.estimatedRepayment)} αP
-                        </span>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    </SwiperSlide>
+                  );
+                })}
+              </Swiper>
             </div>
           </div>
         ) : (

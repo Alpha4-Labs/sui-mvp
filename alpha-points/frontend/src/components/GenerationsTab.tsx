@@ -1,122 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { PartnerCapInfo } from '../hooks/usePartnerDetection';
 import { Button } from './ui/Button';
 import { GenerationBuilder } from './GenerationBuilder';
+import { usePartnerGenerations, GenerationDefinition } from '../hooks/usePartnerGenerations';
+import { useCurrentWallet, useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
+import { buildSetGenerationActiveStatusTransaction } from '../utils/transaction';
+import { toast } from 'react-hot-toast';
 
 interface GenerationsTabProps {
   partnerCap: PartnerCapInfo;
   selectedPartnerCapId: string;
 }
 
-interface GenerationDefinition {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  executionType: 'embedded_code' | 'external_url' | 'hybrid';
-  quotaCostPerExecution: number;
-  maxExecutionsPerUser: number | null;
-  maxTotalExecutions: number | null;
-  totalExecutionsCount: number;
-  isActive: boolean;
-  approved: boolean;
-  expirationTimestamp: number | null;
-  createdTimestamp: number;
-  tags: string[];
-  icon: string | null;
-  estimatedCompletionMinutes: number | null;
-  targetUrl?: string;
-  walrusBlobId?: string;
-  safetyScore?: number;
-}
+// GenerationDefinition interface now imported from usePartnerGenerations hook
 
 export const GenerationsTab: React.FC<GenerationsTabProps> = ({
   partnerCap,
   selectedPartnerCapId
 }) => {
   const [showBuilder, setShowBuilder] = useState(false);
-  const [generations, setGenerations] = useState<GenerationDefinition[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'active' | 'pending' | 'inactive'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Mock data for now - in real implementation, this would fetch from blockchain
-  useEffect(() => {
-    const fetchGenerations = async () => {
-      setLoading(true);
-      try {
-        // Mock generations data
-        const mockGenerations: GenerationDefinition[] = [
-          {
-            id: '0x123...',
-            name: 'Daily Check-in Rewards',
-            description: 'Users earn points for daily check-ins on our platform',
-            category: 'points_campaign',
-            executionType: 'external_url',
-            quotaCostPerExecution: 100,
-            maxExecutionsPerUser: 1,
-            maxTotalExecutions: null,
-            totalExecutionsCount: 1247,
-            isActive: true,
-            approved: true,
-            expirationTimestamp: null,
-            createdTimestamp: Date.now() - 86400000 * 7, // 7 days ago
-            tags: ['daily', 'rewards', 'engagement'],
-            icon: '🎯',
-            estimatedCompletionMinutes: 2,
-            targetUrl: 'https://partner-site.com/checkin'
-          },
-          {
-            id: '0x456...',
-            name: 'NFT Collection Quiz',
-            description: 'Interactive quiz about our NFT collection with bonus points',
-            category: 'learn_to_earn',
-            executionType: 'embedded_code',
-            quotaCostPerExecution: 250,
-            maxExecutionsPerUser: 1,
-            maxTotalExecutions: 1000,
-            totalExecutionsCount: 342,
-            isActive: false,
-            approved: false,
-            expirationTimestamp: Date.now() + 86400000 * 30, // 30 days from now
-            createdTimestamp: Date.now() - 86400000 * 2, // 2 days ago
-            tags: ['quiz', 'nft', 'education'],
-            icon: '🧠',
-            estimatedCompletionMinutes: 10,
-            walrusBlobId: 'blob_123',
-            safetyScore: 85
-          },
-          {
-            id: '0x789...',
-            name: 'Social Share Challenge',
-            description: 'Share our latest announcement and earn bonus points',
-            category: 'social_share',
-            executionType: 'external_url',
-            quotaCostPerExecution: 150,
-            maxExecutionsPerUser: 3,
-            maxTotalExecutions: 5000,
-            totalExecutionsCount: 2891,
-            isActive: true,
-            approved: true,
-            expirationTimestamp: Date.now() + 86400000 * 14, // 14 days from now
-            createdTimestamp: Date.now() - 86400000 * 5, // 5 days ago
-            tags: ['social', 'viral', 'marketing'],
-            icon: '📱',
-            estimatedCompletionMinutes: 3,
-            targetUrl: 'https://partner-site.com/share'
-          }
-        ];
-        
-        setGenerations(mockGenerations);
-      } catch (error) {
-        console.error('Failed to fetch generations:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchGenerations();
-  }, [selectedPartnerCapId]);
+  // Use the new hook for blockchain integration
+  const { 
+    generations, 
+    isLoading: loading, 
+    error, 
+    refreshGenerations, 
+    createGeneration, 
+    toggleGenerationStatus 
+  } = usePartnerGenerations(selectedPartnerCapId);
 
   const filteredGenerations = generations.filter(gen => {
     // Apply status filter
@@ -138,21 +52,49 @@ export const GenerationsTab: React.FC<GenerationsTabProps> = ({
     return true;
   });
 
-  const handleGenerationCreated = () => {
-    // Refresh generations list
-    setGenerations(prev => [...prev]); // Trigger re-fetch in real implementation
+  const handleGenerationCreated = (newGeneration: GenerationDefinition) => {
+    createGeneration(newGeneration);
     setShowBuilder(false);
   };
 
-  const handleToggleActive = async (generationId: string) => {
-    // Mock toggle - in real implementation, this would call the blockchain
-    setGenerations(prev => 
-      prev.map(gen => 
-        gen.id === generationId 
-          ? { ...gen, isActive: !gen.isActive }
-          : gen
-      )
-    );
+  // Move hooks to top level
+  const { currentWallet } = useCurrentWallet();
+  const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
+
+  const handleManageGeneration = async (generation: GenerationDefinition) => {
+    if (!currentWallet) {
+      toast.error('Please connect your wallet first');
+      return;
+    }
+
+    try {
+      // Build transaction to toggle generation status
+      const tx = buildSetGenerationActiveStatusTransaction(
+        generation.id,
+        partnerCap.id,  
+        !generation.isActive // Toggle the current status
+      );
+
+      await signAndExecuteTransaction(
+        { transaction: tx },
+        {
+          onSuccess: (result) => {
+            console.log('✅ Generation status updated:', result);
+            toast.success(`Generation ${!generation.isActive ? 'activated' : 'deactivated'} successfully!`);
+            
+            // Update local state
+            toggleGenerationStatus(generation.id);
+          },
+          onError: (error) => {
+            console.error('❌ Failed to update generation status:', error);
+            toast.error('Failed to update generation status. Please try again.');
+          },
+        }
+      );
+    } catch (error) {
+      console.error('❌ Generation status update error:', error);
+      toast.error('Failed to update generation status. Please try again.');
+    }
   };
 
   const getStatusBadge = (generation: GenerationDefinition) => {
@@ -187,6 +129,22 @@ export const GenerationsTab: React.FC<GenerationsTabProps> = ({
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
         <p className="text-gray-400 mt-4">Loading generations...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-red-400 text-6xl mb-4">⚠️</div>
+        <h4 className="text-xl font-semibold text-white mb-2">Error Loading Generations</h4>
+        <p className="text-gray-400 mb-6">{error}</p>
+        <Button
+          onClick={refreshGenerations}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          Try Again
+        </Button>
       </div>
     );
   }
@@ -288,8 +246,11 @@ export const GenerationsTab: React.FC<GenerationsTabProps> = ({
                   }`}>
                     {generation.isActive ? 'Active' : !generation.approved ? 'Pending Approval' : 'Inactive'}
                   </span>
-                  <Button className="text-xs px-3 py-1">
-                    Manage
+                  <Button 
+                    className="text-xs px-3 py-1"
+                    onClick={() => handleManageGeneration(generation)}
+                  >
+                    {generation.isActive ? 'Deactivate' : 'Activate'}
                   </Button>
                 </div>
               </div>
@@ -303,10 +264,7 @@ export const GenerationsTab: React.FC<GenerationsTabProps> = ({
         <GenerationBuilder
           partnerCap={partnerCap}
           onClose={() => setShowBuilder(false)}
-          onSuccess={(newGeneration) => {
-            setGenerations(prev => [...prev, newGeneration]);
-            setShowBuilder(false);
-          }}
+          onSuccess={handleGenerationCreated}
         />
       )}
     </div>
