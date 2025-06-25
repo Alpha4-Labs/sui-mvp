@@ -8,6 +8,9 @@
 import { Transaction, TransactionArgument, TransactionObjectArgument } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { PACKAGE_ID, PACKAGE_ID_V4, SHARED_OBJECTS, SUI_TYPE, CLOCK_ID } from '../config/contract';
+
+// Add commonly used shared object IDs for easier access
+const LEDGER_ID = SHARED_OBJECTS.ledger;
 import { SuinsClient, SuinsTransaction } from '@mysten/suins'; // Import actual SuiNS SDK components
 import { 
   usdToMicroUSDC, 
@@ -124,10 +127,12 @@ export const buildUnstakeTransaction = (
 };
 
 /**
- * Builds a transaction for early unstaking (before maturity) to receive Alpha Points
- * User gets Alpha Points as a loan against their stake position
+ * Builds a transaction for converting a mature stake to Alpha Points
+ * User gets Alpha Points equal to their stake value (1 SUI = 3,280 αP) 
+ * Also receives a SUI withdrawal ticket that can be claimed after cooldown
+ * Note: Stake must be mature (reached unlock time) and not encumbered
  * 
- * @param stakeId Object ID of the stake position
+ * @param stakeId Object ID of the mature stake position
  * @returns Transaction object ready for execution
  */
 export const buildEarlyUnstakeTransaction = (
@@ -141,7 +146,7 @@ export const buildEarlyUnstakeTransaction = (
       tx.object(SHARED_OBJECTS.config),        // Config
       tx.object(SHARED_OBJECTS.loanConfig),    // LoanConfig
       tx.object(SHARED_OBJECTS.ledger),        // Ledger for minting Alpha Points
-      tx.object(stakeId),                      // StakePosition to early unstake
+      tx.object(stakeId),                      // StakePosition to convert
       tx.object(CLOCK_ID),                     // Clock for timestamp
       tx.object(SHARED_OBJECTS.stakingManager), // StakingManager
       tx.object('0x5')                         // SuiSystemState
@@ -317,26 +322,41 @@ export const buildCreateProxyCapTransaction = (
 };
 
 /**
- * Builds a transaction for creating a TVL-backed PartnerCapFlex with collateral
- * This is the new recommended way to create partner capabilities
+ * Builds a transaction for creating a basic PartnerCap (legacy)
+ * @deprecated Use buildCreatePartnerCapFlexTransaction for the V2 system
  * 
- * @param partnerName Partner name string
- * @param suiAmountMist Amount of SUI to lock as collateral (in MIST)
- * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
+ * @param partnerName Name of the partner
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePartnerCapTransaction = (
+  partnerName: string
+): Transaction => {
+  const tx = new Transaction();
+
+  // Call the legacy PartnerCap creation function
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner::create_partner_cap`,
+    arguments: [
+      tx.pure.string(partnerName),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for creating a PartnerCapFlex with SUI collateral
+ * This is the advanced V2 partner system with flexible collateral management
+ * 
+ * @param partnerName Name of the partner
+ * @param suiAmountMist Amount of SUI collateral in MIST (1 SUI = 1,000,000,000 MIST)
  * @returns Transaction object ready for execution
  */
 export const buildCreatePartnerCapFlexTransaction = (
   partnerName: string,
-  suiAmountMist: bigint,
-  sponsorAddress?: string
-) => {
+  suiAmountMist: bigint
+): Transaction => {
   const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided (typically deployer/admin wallet)
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored PartnerCapFlex creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
-  }
 
   // Split SUI from gas coin for collateral
   const [collateralCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(suiAmountMist.toString())]);
@@ -355,1312 +375,72 @@ export const buildCreatePartnerCapFlexTransaction = (
 };
 
 /**
- * Builds a transaction for earning points using PartnerCapFlex with TVL-backed quota validation
- * This is the new recommended way for partners to mint points
+ * Builds a transaction for creating a PartnerCapFlex with USDC collateral
+ * This allows partners to use USDC instead of SUI for their collateral requirements
  * 
- * @param userAddress Address to mint points for
- * @param pointsAmount Amount of Alpha Points to mint
- * @param partnerCapFlexId Object ID of the PartnerCapFlex
- * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
- * @returns Transaction object ready for execution
- */
-export const buildEarnPointsByPartnerFlexTransaction = (
-  userAddress: string,
-  pointsAmount: bigint,
-  partnerCapFlexId: string,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored points minting: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
-  }
-
-  tx.moveCall({
-    target: `${PACKAGE_ID}::integration::earn_points_by_partner_flex`,
-    arguments: [
-      tx.pure.address(userAddress),
-      tx.pure.u64(pointsAmount.toString()),
-      tx.object(partnerCapFlexId),
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.object(CLOCK_ID),
-      tx.object(SHARED_OBJECTS.config),
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Builds a transaction for creating a loan using PartnerCapFlex with TVL-backed quota validation
- * This is the new recommended way for partners to facilitate loans
- * 
- * @param stakeId Object ID of the stake position to use as collateral
- * @param pointsAmount Amount of Alpha Points to borrow
- * @param partnerCapFlexId Object ID of the PartnerCapFlex
- * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
- * @returns Transaction object ready for execution
- */
-export const buildCreateLoanWithPartnerFlexTransaction = (
-  stakeId: string,
-  pointsAmount: number,
-  partnerCapFlexId: string,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored loan creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
-  }
-  
-  tx.moveCall({
-    target: `${PACKAGE_ID}::loan::open_loan_with_partner_flex`,
-    typeArguments: ['0x3::staking_pool::StakedSui'],
-    arguments: [
-      tx.object(SHARED_OBJECTS.config),
-      tx.object(SHARED_OBJECTS.loanConfig),
-      tx.object(partnerCapFlexId),
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.object(stakeId),
-      tx.object(SHARED_OBJECTS.oracle),
-      tx.pure.u64(BigInt(pointsAmount)),
-      tx.object(CLOCK_ID)
-    ]
-  });
-  
-  return tx;
-};
-
-/**
- * Builds a transaction to check PartnerCapFlex quota status
- * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex
- * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
- * @returns Transaction object ready for execution (view function)
- */
-export const buildCheckPartnerQuotaTransaction = (
-  partnerCapFlexId: string,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored quota check: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
-  }
-  
-  // This would be a view function to check quotas
-  tx.moveCall({
-    target: `${PACKAGE_ID}::partner_flex::get_available_mint_quota_today`,
-    arguments: [
-      tx.object(partnerCapFlexId),
-    ],
-  });
-  
-  return tx;
-};
-
-/**
- * Builds a transaction for creating a PartnerCapFlex with USDC stable collateral
- * Provides 100% LTV ratio for stable collateral backing
- * 
- * @param partnerName Partner name string
+ * @param partnerName Name of the partner
  * @param usdcCoinId Object ID of the USDC coin to use as collateral
- * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
  * @returns Transaction object ready for execution
  */
 export const buildCreatePartnerCapFlexWithUSDCTransaction = (
   partnerName: string,
-  usdcCoinId: string,
-  sponsorAddress?: string
-) => {
+  usdcCoinId: string
+): Transaction => {
   const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored PartnerCapFlex USDC creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
-  }
-  
-  // Use the provided USDC coin object directly
-  const usdcCoin = tx.object(usdcCoinId);
-  
-  // Call the PartnerCapFlex creation function with USDC collateral
+
+  // Call the USDC collateral PartnerCapFlex creation function
   tx.moveCall({
     target: `${PACKAGE_ID}::partner_flex::create_partner_cap_flex_with_usdc_collateral`,
-    typeArguments: ['0x2::coin::Coin<0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN>'], // USDC type
     arguments: [
-      usdcCoin,
+      tx.object(usdcCoinId),
       tx.object(SHARED_OBJECTS.oracle),
       tx.pure.string(partnerName),
     ],
   });
-  
+
   return tx;
 };
 
 /**
- * Builds a transaction for creating a PartnerCapFlex with NFT bundle collateral
- * Provides 70% LTV ratio for NFT collection backing with kiosk owner capabilities
+ * Builds a transaction for creating a PartnerCapFlex with NFT collateral
+ * This allows partners to use valuable NFTs as collateral for their partnership
  * 
- * @param partnerName Partner name string
- * @param kioskId Object ID of the kiosk containing NFTs
+ * @param partnerName Name of the partner
+ * @param kioskId Object ID of the kiosk containing the NFT
  * @param collectionType Type identifier for the NFT collection
- * @param estimatedFloorValueUsdc Estimated floor value in USDC for risk assessment
- * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
+ * @param estimatedFloorValueUsdc Estimated floor value of the NFT in USDC cents
  * @returns Transaction object ready for execution
  */
 export const buildCreatePartnerCapFlexWithNFTTransaction = (
   partnerName: string,
   kioskId: string,
   collectionType: string,
-  estimatedFloorValueUsdc: number,
-  sponsorAddress?: string
-) => {
+  estimatedFloorValueUsdc: number
+): Transaction => {
   const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored PartnerCapFlex NFT creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
-  }
-  
-  // Reference the kiosk object
-  const kiosk = tx.object(kioskId);
-  
-  // Call the PartnerCapFlex creation function with NFT collateral
+
+  // Call the NFT collateral PartnerCapFlex creation function
   tx.moveCall({
     target: `${PACKAGE_ID}::partner_flex::create_partner_cap_flex_with_nft_collateral`,
-    typeArguments: [collectionType], // Dynamic NFT collection type
     arguments: [
-      kiosk,
+      tx.object(kioskId),
+      tx.pure.string(collectionType),
+      tx.pure.u64(estimatedFloorValueUsdc.toString()),
       tx.object(SHARED_OBJECTS.oracle),
       tx.pure.string(partnerName),
-      tx.pure.u64(BigInt(estimatedFloorValueUsdc * 1_000_000)), // Convert to USDC micro units
     ],
   });
-  
+
   return tx;
 };
 
-// === Collateral Management Functions ===
-
 /**
- * Builds a transaction for adding additional SUI collateral to an existing PartnerCapFlex
- * This increases the TVL backing and expands minting quotas
+ * Builds a transaction for creating a TVL-backed PartnerCapFlex with collateral
+ * This is the new recommended way to create partner capabilities
  * 
- * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
- * @param vaultId Object ID of the CollateralVault associated with the PartnerCapFlex
- * @param additionalSuiAmountMist Amount of additional SUI to add (in MIST)
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildAddSuiCollateralTransaction = (
-  partnerCapFlexId: string,
-  vaultId: string,
-  additionalSuiAmountMist: bigint,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored SUI collateral addition: Gas fees will be paid by ${sponsorAddress}`);
-  }
-  
-  // Split additional SUI from gas coin
-  const [additionalCollateral] = tx.splitCoins(tx.gas, [tx.pure.u64(additionalSuiAmountMist.toString())]);
-  
-  // Call the add collateral function with all required parameters
-  tx.moveCall({
-    target: `${PACKAGE_ID}::partner_flex::add_sui_collateral`,
-    arguments: [
-      tx.object(partnerCapFlexId),  // cap: &mut PartnerCapFlex
-      tx.object(vaultId),           // vault: &mut CollateralVault
-      additionalCollateral,         // additional_sui_coin: Coin<SUI>
-      tx.object(SHARED_OBJECTS.oracle), // rate_oracle: &RateOracle
-    ],
-  });
-  
-  return tx;
-};
-
-/**
- * Builds a transaction for creating an initial SUI vault for existing PartnerCapFlex without one
- * This is for partners who were created without SUI collateral (admin-granted, USDC-only, NFT-only)
- * 
- * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
- * @param initialSuiAmountMist Amount of initial SUI to add (in MIST)
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildCreateInitialSuiVaultTransaction = (
-  partnerCapFlexId: string,
-  initialSuiAmountMist: bigint,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored initial SUI vault creation: Gas fees will be paid by ${sponsorAddress}`);
-  }
-  
-  // Split initial SUI from gas coin
-  const [initialCollateral] = tx.splitCoins(tx.gas, [tx.pure.u64(initialSuiAmountMist.toString())]);
-  
-  // Call the create_initial_sui_vault function
-  tx.moveCall({
-    target: `${PACKAGE_ID}::partner_flex::create_initial_sui_vault`,
-    arguments: [
-      tx.object(partnerCapFlexId),      // cap: &mut PartnerCapFlex
-      initialCollateral,               // initial_sui_coin: Coin<SUI>
-      tx.object(SHARED_OBJECTS.oracle), // rate_oracle: &RateOracle
-    ],
-  });
-  
-  return tx;
-};
-
-/**
- * Builds a transaction for adding USDC collateral to an existing PartnerCapFlex
- * This diversifies the collateral base and provides stable backing
- * 
- * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
- * @param usdcCoinId Object ID of the USDC coin to add as collateral
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildAddUsdcCollateralTransaction = (
-  partnerCapFlexId: string,
-  usdcCoinId: string,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored USDC collateral addition: Gas fees will be paid by ${sponsorAddress}`);
-  }
-  
-  // Use the provided USDC coin object
-  const usdcCoin = tx.object(usdcCoinId);
-  
-  // Call the add USDC collateral function
-  tx.moveCall({
-    target: `${PACKAGE_ID}::partner_flex::add_usdc_collateral`,
-    typeArguments: ['0x2::coin::Coin<0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN>'], // USDC type
-    arguments: [
-      tx.object(partnerCapFlexId),
-      usdcCoin,
-      tx.object(SHARED_OBJECTS.oracle),
-    ],
-  });
-  
-  return tx;
-};
-
-/**
- * Builds a transaction for adding NFT collateral to an existing PartnerCapFlex
- * This diversifies the collateral base with NFT collection backing
- * 
- * @param partnerCapFlexId Object ID of the existing PartnerCapFlex
- * @param kioskId Object ID of the kiosk containing NFTs
- * @param collectionType Type identifier for the NFT collection
- * @param estimatedFloorValueUsdc Estimated floor value in USDC for risk assessment
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildAddNftCollateralTransaction = (
-  partnerCapFlexId: string,
-  kioskId: string,
-  collectionType: string,
-  estimatedFloorValueUsdc: number,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored NFT collateral addition: Gas fees will be paid by ${sponsorAddress}`);
-  }
-  
-  // Reference the kiosk object
-  const kiosk = tx.object(kioskId);
-  
-  // Call the add NFT collateral function
-  tx.moveCall({
-    target: `${PACKAGE_ID}::partner_flex::add_nft_collateral`,
-    typeArguments: [collectionType], // Dynamic NFT collection type
-    arguments: [
-      tx.object(partnerCapFlexId),
-      kiosk,
-      tx.object(SHARED_OBJECTS.oracle),
-      tx.pure.u64(BigInt(estimatedFloorValueUsdc * 1_000_000)), // Convert to USDC micro units
-    ],
-  });
-  
-  return tx;
-};
-
-/**
- * Builds a transaction for withdrawing collateral from a PartnerCapFlex
- * This reduces TVL backing and may affect minting quotas
- * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex
- * @param collateralType Type of collateral to withdraw ('SUI' | 'USDC' | 'NFT')
- * @param amountToWithdraw Amount to withdraw (for SUI/USDC) or empty for NFT
- * @param nftCollectionType Optional NFT collection type for NFT withdrawals
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildWithdrawCollateralTransaction = (
-  partnerCapFlexId: string,
-  collateralType: 'SUI' | 'USDC' | 'NFT',
-  amountToWithdraw?: bigint,
-  nftCollectionType?: string,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-  
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored collateral withdrawal: Gas fees will be paid by ${sponsorAddress}`);
-  }
-  
-  switch (collateralType) {
-    case 'SUI':
-      if (!amountToWithdraw) {
-        throw new Error("Amount to withdraw is required for SUI collateral");
-      }
-      tx.moveCall({
-        target: `${PACKAGE_ID}::partner_flex::withdraw_sui_collateral`,
-        arguments: [
-          tx.object(partnerCapFlexId),
-          tx.pure.u64(amountToWithdraw.toString()),
-          tx.object(SHARED_OBJECTS.oracle),
-        ],
-      });
-      break;
-      
-    case 'USDC':
-      if (!amountToWithdraw) {
-        throw new Error("Amount to withdraw is required for USDC collateral");
-      }
-      tx.moveCall({
-        target: `${PACKAGE_ID}::partner_flex::withdraw_usdc_collateral`,
-        typeArguments: ['0x2::coin::Coin<0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN>'], // USDC type
-        arguments: [
-          tx.object(partnerCapFlexId),
-          tx.pure.u64(amountToWithdraw.toString()),
-          tx.object(SHARED_OBJECTS.oracle),
-        ],
-      });
-      break;
-      
-    case 'NFT':
-      if (!nftCollectionType) {
-        throw new Error("NFT collection type is required for NFT collateral withdrawal");
-      }
-      tx.moveCall({
-        target: `${PACKAGE_ID}::partner_flex::withdraw_nft_collateral`,
-        typeArguments: [nftCollectionType],
-        arguments: [
-          tx.object(partnerCapFlexId),
-          tx.object(SHARED_OBJECTS.oracle),
-        ],
-      });
-      break;
-      
-    default:
-      throw new Error(`Unsupported collateral type: ${collateralType}`);
-  }
-  
-  return tx;
-};
-
-// === Legacy Functions (Deprecated but maintained for backward compatibility) ===
-
-/**
- * @deprecated Use buildCreatePartnerCapFlexTransaction for TVL-backed quotas
- * Builds a transaction for creating a legacy PartnerCap
  * @param partnerName Partner name string
  * @param suiAmountMist Amount of SUI to lock as collateral (in MIST)
  * @param sponsorAddress Optional sponsor address to pay for gas fees (typically deployer/admin)
- * @returns Transaction object ready for execution
- */
-export const buildCreatePartnerCapTransaction = (
-  partnerName: string,
-  suiAmountMist: bigint,
-  sponsorAddress?: string
-) => {
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored legacy PartnerCap creation: Gas fees will be paid by deployer/admin ${sponsorAddress}`);
-  }
-
-  const [collateralCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(suiAmountMist.toString())]);
-
-  tx.moveCall({
-    target: `${PACKAGE_ID}::partner::create_partner_cap_with_collateral`,
-    arguments: [
-      collateralCoin,
-      tx.object(SHARED_OBJECTS.oracle),
-      tx.pure.string(partnerName),
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * @deprecated Use buildCreateLoanWithPartnerFlexTransaction for TVL-backed quotas  
- * Builds a transaction for creating a loan against a staked position (legacy)
- */
-
-// === Perk Management Functions ===
-
-/**
- * Builds a transaction for creating a perk definition
- * Now uses upgrade-safe version with Config parameter
- * 
- * @param partnerCapId Object ID of the partner capability
- * @param perkData Perk definition data
- * @returns Transaction object ready for execution
- */
-/**
- * Builds a transaction for creating partner perk stats tracking object (V2)
- * Businesses need to create this shared object to enable user-friendly perk claiming
- * 
- * @param partnerCapFlexId Object ID of business's PartnerCapFlex
- * @param dailyQuotaLimit Daily quota limit for perk claims (in Alpha Points)
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildCreatePartnerPerkStatsTransaction = (
-  partnerCapFlexId: string,
-  dailyQuotaLimit: number,
-  sponsorAddress?: string
-): Transaction => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID not configured");
-  }
-
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
-  }
-
-  tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::create_partner_perk_stats_v2`,
-    arguments: [
-      tx.object(partnerCapFlexId),
-      tx.pure.u64(BigInt(dailyQuotaLimit)),
-    ],
-  });
-
-  return tx;
-};
-
-export const buildCreatePerkDefinitionTransaction = (
-  partnerCapId: string,
-  perkData: {
-    name: string;
-    description: string;
-    perkType: string;
-    usdcPrice: number;
-    partnerSharePercentage: number;
-    maxUsesPerClaim?: number;
-    expirationTimestampMs?: number;
-    generatesUniqueClaimMetadata: boolean;
-    tags: string[];
-    maxClaims?: number;
-    initialDefinitionMetadataKeys: string[];
-    initialDefinitionMetadataValues: string[];
-    isActive: boolean;
-  }
-): Transaction => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.config) {
-    throw new Error("Alpha Points package or config ID is not configured.");
-  }
-
-  const tx = new Transaction();
-
-  tx.moveCall({
-    // UPDATED: Use upgrade-safe version that takes Config parameter
-    target: `${PACKAGE_ID}::perk_manager::create_perk_definition_deployer_fixed`,
-    arguments: [
-      tx.object(SHARED_OBJECTS.config), // Config parameter for deployer address
-      tx.object(partnerCapId),
-      tx.pure.string(perkData.name),
-      tx.pure.string(perkData.description),
-      tx.pure.string(perkData.perkType),
-      tx.pure.u64(BigInt(perkData.usdcPrice)),
-      tx.pure.u8(perkData.partnerSharePercentage),
-      perkData.maxUsesPerClaim ? tx.pure.option("u64", BigInt(perkData.maxUsesPerClaim)) : tx.pure.option("u64", null),
-      perkData.expirationTimestampMs ? tx.pure.option("u64", BigInt(perkData.expirationTimestampMs)) : tx.pure.option("u64", null),
-      tx.pure.bool(perkData.generatesUniqueClaimMetadata),
-      tx.pure.vector("string", perkData.tags),
-      perkData.maxClaims ? tx.pure.option("u64", BigInt(perkData.maxClaims)) : tx.pure.option("u64", null),
-      tx.pure.vector("string", perkData.initialDefinitionMetadataKeys),
-      tx.pure.vector("string", perkData.initialDefinitionMetadataValues),
-      tx.pure.bool(perkData.isActive),
-      tx.object(CLOCK_ID)
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Find the PartnerPerkStatsV2 object ID for a given PartnerCapFlex ID
- * This function queries the blockchain to find the correct stats object
- * 
- * @param suiClient SUI client instance for blockchain queries
- * @param partnerCapId Object ID of the PartnerCapFlex
- * @returns Promise resolving to the PartnerPerkStatsV2 object ID
- */
-export const findPartnerStatsId = async (
-  suiClient: any,
-  partnerCapId: string
-): Promise<string> => {
-  try {
-    console.log('🔍 ===== SEARCHING FOR PARTNERPERKSTATSV2 =====');
-    console.log('🔍 Partner Cap ID:', partnerCapId);
-    console.log('🔍 Package ID:', PACKAGE_ID);
-    console.log('🔍 Expected object type:', `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`);
-
-    if (!PACKAGE_ID) {
-      throw new Error('PACKAGE_ID not configured');
-    }
-
-    const allFoundStatsIds: string[] = [];
-
-    // Multi-approach search strategy for PartnerPerkStatsV2 objects
-    const objectType = `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`;
-    console.log('🔍 Looking for objects of type:', objectType);
-    
-    // Approach 1: Search via transaction history (most reliable)
-    console.log('🔍 Approach 1: Searching via transaction history...');
-    try {
-      // Search for recent transactions that created PartnerPerkStatsV2 objects
-      const recentTxs = await suiClient.queryTransactionBlocks({
-        filter: {
-          MoveFunction: {
-            package: PACKAGE_ID,
-            module: 'perk_manager',
-            function: 'create_partner_perk_stats_v2'
-          }
-        },
-        limit: 50,
-        order: 'descending'
-      });
-      
-      console.log('🔍 Found', recentTxs.data.length, 'recent PartnerPerkStatsV2 creation transactions');
-      
-      for (const tx of recentTxs.data) {
-        try {
-          const txResponse = await suiClient.getTransactionBlock({
-            digest: tx.digest,
-            options: {
-              showObjectChanges: true,
-              showEvents: true
-            }
-          });
-          
-          // Check object changes for created PartnerPerkStatsV2 objects
-          if (txResponse.objectChanges) {
-            for (const change of txResponse.objectChanges) {
-              if (change.type === 'created' && 
-                  change.objectType && 
-                  change.objectType.includes('PartnerPerkStatsV2')) {
-                
-                console.log('🔍 Found PartnerPerkStatsV2 object:', change.objectId);
-                
-                // Check if this object belongs to our partner cap
-                try {
-                  const objectResponse = await suiClient.getObject({
-                    id: change.objectId,
-                    options: { showContent: true }
-                  });
-                  
-                  if (objectResponse.data?.content?.dataType === 'moveObject') {
-                    const fields = (objectResponse.data.content as any).fields;
-                    console.log('🔍 Object fields:', fields);
-                    
-                    if (fields.partner_cap_id === partnerCapId) {
-                      console.log('✅ Found matching PartnerPerkStatsV2:', change.objectId);
-                      allFoundStatsIds.push(change.objectId);
-                    }
-                  }
-                } catch (error) {
-                  console.log('❌ Error accessing object:', change.objectId, error);
-                }
-              }
-            }
-          }
-          
-          // Also check events as fallback
-          if (txResponse.events) {
-            for (const event of txResponse.events) {
-              if (event.type && event.type.includes('PartnerPerkStatsCreated')) {
-                console.log('🔍 Found PartnerPerkStatsCreated event:', event);
-                if (event.parsedJson && 
-                    event.parsedJson.partner_cap_id === partnerCapId &&
-                    event.parsedJson.stats_id) {
-                  console.log('✅ Found matching stats ID from event:', event.parsedJson.stats_id);
-                  if (!allFoundStatsIds.includes(event.parsedJson.stats_id)) {
-                    allFoundStatsIds.push(event.parsedJson.stats_id);
-                  }
-                }
-              }
-            }
-          }
-        } catch (txError) {
-          console.log('❌ Error processing transaction:', tx.digest, txError);
-        }
-      }
-    } catch (searchError) {
-      console.log('🔍 Transaction-based search failed:', (searchError as Error).message);
-    }
-
-    // Approach 2: Fallback event search (in case transaction search missed something)
-    console.log('🔍 Approach 2: Fallback event search...');
-    try {
-      // Try different event type variations
-      const eventTypes = [
-        `${PACKAGE_ID}::perk_manager::PartnerPerkStatsCreatedV2`,
-        `${PACKAGE_ID}::perk_manager::PartnerPerkStatsCreated`,
-        `${PACKAGE_ID}::perk_manager::StatsCreated`
-      ];
-      
-      for (const eventType of eventTypes) {
-        try {
-          console.log('🔍 Trying event type:', eventType);
-          const eventsResponse = await suiClient.queryEvents({
-            query: {
-              MoveEventType: eventType
-            },
-            limit: 100,
-            order: 'descending'
-          });
-          
-          console.log('🔍 Found', eventsResponse.data.length, 'events for', eventType);
-          
-          for (const event of eventsResponse.data) {
-            if (event.parsedJson && event.parsedJson.partner_cap_id === partnerCapId) {
-              const statsId = event.parsedJson.stats_id;
-              if (statsId && !allFoundStatsIds.includes(statsId)) {
-                console.log('✅ Found matching stats ID from event:', statsId);
-                
-                // Verify the object exists
-                try {
-                  const objectResponse = await suiClient.getObject({
-                    id: statsId,
-                    options: { showContent: true }
-                  });
-                  
-                  if (objectResponse.data?.content) {
-                    console.log('✅ Verified stats object exists:', statsId);
-                    allFoundStatsIds.push(statsId);
-                  }
-                } catch (verifyError) {
-                  console.log('❌ Stats object from event no longer exists:', statsId);
-                }
-              }
-            }
-          }
-          
-          // If we found events with this type, no need to try others
-          if (eventsResponse.data.length > 0) {
-            break;
-          }
-        } catch (eventError) {
-          console.log('🔍 Event type', eventType, 'failed:', (eventError as Error).message);
-        }
-      }
-    } catch (searchError) {
-      console.log('🔍 Fallback event search failed:', (searchError as Error).message);
-    }
-
-    // Handle results - check for duplicates and return appropriate response
-    if (allFoundStatsIds.length === 0) {
-      console.error('❌ No PartnerPerkStatsV2 found for partner cap:', partnerCapId);
-      throw new Error(`No PartnerPerkStatsV2 found for partner cap ${partnerCapId}. The partner needs to create their stats object first using the partner dashboard.`);
-    } else if (allFoundStatsIds.length === 1) {
-      const statsId = allFoundStatsIds[0];
-      if (statsId) {
-        console.log('✅ Found exactly one PartnerPerkStatsV2:', statsId);
-        return statsId;
-      }
-    } else {
-      console.warn('⚠️ DUPLICATE STATS OBJECTS DETECTED!');
-      console.warn('⚠️ Found', allFoundStatsIds.length, 'PartnerPerkStatsV2 objects for partner cap:', partnerCapId);
-      console.warn('⚠️ Stats IDs:', allFoundStatsIds);
-      console.warn('⚠️ This should not happen - each partner should have only one stats object!');
-      console.warn('⚠️ Using the first one found, but this needs to be resolved.');
-      
-      // Return the first one but log the issue
-      const firstStatsId = allFoundStatsIds[0];
-      if (firstStatsId) {
-        return firstStatsId;
-      }
-    }
-    
-    // Fallback if somehow we get here
-    console.error('❌ Unexpected error: Found stats IDs but none are valid');
-    throw new Error(`Found ${allFoundStatsIds.length} stats objects but none are accessible for partner cap ${partnerCapId}`);
-    
-  } catch (error) {
-    console.error('Error finding partner stats ID:', error);
-    throw new Error(`Failed to find partner stats for cap ${partnerCapId}: ${error}`);
-  }
-};
-
-/**
- * Creates a PartnerPerkStatsV2 object for a partner if one doesn't exist
- * This is a fallback function to ensure partners have the required stats object
- * 
- * @param partnerCapId Object ID of the PartnerCapFlex
- * @param dailyQuotaLimit Daily quota limit for the partner
- * @returns Transaction object ready for execution
- */
-export const buildCreatePartnerStatsIfNeededTransaction = (
-  partnerCapId: string,
-  dailyQuotaLimit: number = 10000 // Default quota
-): Transaction => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID not configured");
-  }
-
-  const tx = new Transaction();
-
-  tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::create_partner_perk_stats_v2`,
-    arguments: [
-      tx.object(partnerCapId), // PartnerCapFlex object
-      tx.pure.u64(dailyQuotaLimit), // Daily quota limit
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Comprehensive function to find or create PartnerPerkStatsV2 object
- * First tries to find existing stats, if not found, suggests creating one
- * 
- * @param suiClient SUI client instance
- * @param partnerCapId Object ID of the PartnerCapFlex
- * @returns Promise with stats ID or instructions for creation
- */
-export const findOrSuggestCreatePartnerStats = async (
-  suiClient: any,
-  partnerCapId: string
-): Promise<{ statsId?: string; needsCreation?: boolean; createTransaction?: Transaction }> => {
-  try {
-    const statsId = await findPartnerStatsId(suiClient, partnerCapId);
-    return { statsId };
-  } catch (error) {
-    console.warn('PartnerPerkStatsV2 not found, suggesting creation for partner:', partnerCapId);
-    
-    // Create a transaction that the partner can execute to create their stats object
-    const createTransaction = buildCreatePartnerStatsIfNeededTransaction(partnerCapId);
-    
-    return { 
-      needsCreation: true, 
-      createTransaction,
-    };
-  }
-};
-
-/**
- * ENHANCED: Automatically handle PartnerPerkStatsV2 creation during perk claiming
- * This eliminates the need for users to manually create stats objects
- * 
- * @param suiClient SUI client instance
- * @param partnerCapId Object ID of the PartnerCapFlex
- * @param signAndExecuteTransaction Function to execute transactions (optional)
- * @returns Promise with stats ID (creates if needed and possible)
- */
-export const ensurePartnerStatsExists = async (
-  suiClient: any,
-  partnerCapId: string,
-  signAndExecuteTransaction?: any
-): Promise<string> => {
-  try {
-    // First, try to find existing stats
-    const statsId = await findPartnerStatsId(suiClient, partnerCapId);
-    console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
-    return statsId;
-  } catch (error) {
-    console.log('⚡ PartnerPerkStatsV2 not found...');
-    
-    // Only attempt auto-creation if signAndExecuteTransaction is available
-    if (!signAndExecuteTransaction) {
-      console.log('❌ Cannot auto-create PartnerPerkStatsV2 - no transaction function available');
-      throw new Error(
-        `No PartnerPerkStatsV2 found for partner cap ${partnerCapId}. ` +
-        `The partner needs to create their stats object first using the partner dashboard.`
-      );
-    }
-    
-    console.log('⚡ Attempting auto-creation of PartnerPerkStatsV2...');
-    
-    // Calculate appropriate daily quota based on partner collateral
-    // This should match the partner's actual quota from their PartnerCapFlex
-    const defaultDailyQuota = 50000; // Conservative default - partners can adjust later
-    
-    try {
-      // Create the stats object automatically
-      const createTransaction = buildCreatePartnerStatsIfNeededTransaction(partnerCapId, defaultDailyQuota);
-      
-      const result = await signAndExecuteTransaction({
-        transaction: createTransaction,
-        chain: 'sui:testnet',
-      });
-      
-      if (result?.digest) {
-        console.log('✅ PartnerPerkStatsV2 created automatically:', result.digest);
-        
-        // Extract the newly created stats ID from the transaction
-        const newStatsId = await extractStatsIdFromCreationTransaction(suiClient, result.digest);
-        if (newStatsId) {
-          console.log('✅ Extracted new stats ID:', newStatsId);
-          return newStatsId;
-        } else {
-          throw new Error('Failed to extract stats ID from creation transaction');
-        }
-      } else {
-        throw new Error('Failed to create PartnerPerkStatsV2 - no transaction digest');
-      }
-    } catch (creationError) {
-      console.error('❌ Failed to auto-create PartnerPerkStatsV2:', creationError);
-      throw new Error(
-        `Unable to create required PartnerPerkStatsV2 object. ` +
-        `The partner needs to create their stats object first using the partner dashboard. ` +
-        `Error: ${creationError instanceof Error ? creationError.message : 'Unknown error'}`
-      );
-    }
-  }
-};
-
-/**
- * Extract PartnerPerkStatsV2 ID from a creation transaction
- * Parses transaction effects to find the newly created stats object
- */
-export const extractStatsIdFromCreationTransaction = async (
-  suiClient: any,
-  txDigest: string
-): Promise<string | null> => {
-  try {
-    console.log('🔍 Extracting stats ID from transaction:', txDigest);
-    
-    // Get transaction details including effects
-    const txResponse = await suiClient.getTransactionBlock({
-      digest: txDigest,
-      options: {
-        showEffects: true,
-        showEvents: true,
-        showObjectChanges: true,
-      },
-    });
-    
-    // Method 1: Check events for PartnerPerkStatsCreatedV2
-    if (txResponse.events) {
-      for (const event of txResponse.events) {
-        if (event.type.includes('::perk_manager::PartnerPerkStatsCreatedV2') && event.parsedJson) {
-          const statsId = event.parsedJson.stats_id;
-          console.log('✅ Found stats ID from creation event:', statsId);
-          return statsId;
-        }
-      }
-    }
-    
-    // Method 2: Check object changes for created shared objects
-    if (txResponse.objectChanges) {
-      for (const change of txResponse.objectChanges) {
-        if (change.type === 'created' && 
-            change.objectType && 
-            change.objectType.includes('::perk_manager::PartnerPerkStatsV2')) {
-          const statsId = change.objectId;
-          console.log('✅ Found stats ID from object changes:', statsId);
-          return statsId;
-        }
-      }
-    }
-    
-    console.warn('⚠️ Could not extract stats ID from transaction');
-    return null;
-  } catch (error) {
-    console.error('❌ Error extracting stats ID:', error);
-    return null;
-  }
-};
-
-/**
- * Builds a transaction for claiming a perk (V2 - with partner stats)
- * Uses the new claim_perk_by_user_v2 function with full partner stats tracking
- * 
- * @param perkDefinitionId Object ID of the perk definition
- * @param partnerStatsId Object ID of the PartnerPerkStatsV2 tracking object
- * @returns Transaction object ready for execution
- */
-export const buildClaimPerkTransaction = (
-  perkDefinitionId: string,
-  partnerStatsId: string
-): Transaction => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
-    throw new Error("Alpha Points package or shared objects are not configured.");
-  }
-
-  const tx = new Transaction();
-
-  tx.moveCall({
-    // V2: Use function with proper partner stats tracking
-    target: `${PACKAGE_ID}::perk_manager::claim_perk_by_user_v2`,
-    arguments: [
-      tx.object(SHARED_OBJECTS.config),
-      tx.object(perkDefinitionId),
-      tx.object(partnerStatsId), // Now using the correct PartnerPerkStatsV2 object ID
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.object(CLOCK_ID)
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Builds a transaction for claiming a perk with metadata (V2 - with partner stats)
- * Uses the new claim_perk_with_metadata_by_user_v2 function with full partner stats tracking
- * 
- * @param perkDefinitionId Object ID of the perk definition
- * @param partnerStatsId Object ID of the PartnerPerkStatsV2 tracking object
- * @param metadataKey Key for the claim-specific metadata
- * @param metadataValue Value for the claim-specific metadata
- * @returns Transaction object ready for execution
- */
-export const buildClaimPerkWithMetadataTransaction = (
-  perkDefinitionId: string,
-  partnerStatsId: string,
-  metadataKey: string,
-  metadataValue: string
-): Transaction => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
-    throw new Error("Alpha Points package or shared objects are not configured.");
-  }
-
-  const tx = new Transaction();
-
-  tx.moveCall({
-    // V2: Use function with proper partner stats tracking
-    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_by_user_v2`,
-    arguments: [
-      tx.object(SHARED_OBJECTS.config),
-      tx.object(perkDefinitionId),
-      tx.object(partnerStatsId), // Now using the correct PartnerPerkStatsV2 object ID
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.pure.string(metadataKey),
-      tx.pure.string(metadataValue),
-      tx.object(CLOCK_ID)
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Builds a transaction for updating perk definition activity status
- * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex (must be perk creator)
- * @param perkDefinitionId Object ID of the PerkDefinition to update
- * @param isActive New active status
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildSetPerkActiveStatusTransaction = (
-  partnerCapFlexId: string,
-  perkDefinitionId: string,
-  isActive: boolean,
-  sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID not configured");
-  }
-
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
-  }
-
-  tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::set_perk_definition_active_status`,
-    arguments: [
-      tx.object(partnerCapFlexId),
-      tx.object(perkDefinitionId),
-      tx.pure.bool(isActive),
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Builds a transaction for updating perk definition settings
- * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex (must be perk creator)
- * @param perkDefinitionId Object ID of the PerkDefinition to update
- * @param maxUsesPerClaim Optional new max uses per claim
- * @param expirationTimestampMs Optional new expiration timestamp
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildUpdatePerkSettingsTransaction = (
-  partnerCapFlexId: string,
-  perkDefinitionId: string,
-  maxUsesPerClaim?: number,
-  expirationTimestampMs?: number,
-  sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID not configured");
-  }
-
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
-  }
-
-  const maxUsesOption = maxUsesPerClaim 
-    ? bcs.option(bcs.u64()).serialize(BigInt(maxUsesPerClaim))
-    : bcs.option(bcs.u64()).serialize(undefined);
-
-  const expirationOption = expirationTimestampMs
-    ? bcs.option(bcs.u64()).serialize(BigInt(expirationTimestampMs))
-    : bcs.option(bcs.u64()).serialize(undefined);
-
-  tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::update_perk_definition_settings`,
-    arguments: [
-      tx.object(partnerCapFlexId),
-      tx.object(perkDefinitionId),
-      tx.pure(maxUsesOption),
-      tx.pure(expirationOption),
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Builds a transaction for updating perk tags
- * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex (must be perk creator)
- * @param perkDefinitionId Object ID of the PerkDefinition to update
- * @param newTags Array of new tag strings
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildUpdatePerkTagsTransaction = (
-  partnerCapFlexId: string,
-  perkDefinitionId: string,
-  newTags: string[],
-  sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID not configured");
-  }
-
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
-  }
-
-  tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::update_perk_tags`,
-    arguments: [
-      tx.object(partnerCapFlexId),
-      tx.object(perkDefinitionId),
-      tx.pure(bcs.vector(bcs.String).serialize(newTags)),
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Builds a transaction for updating perk price (Alpha Points conversion)
- * 
- * 🚨 WORKAROUND NOTE: This function now includes a fix for the contract pricing bug.
- * The contract incorrectly uses oracle conversion for USDC→Alpha Points, so we need
- * to transform the stored USDC price to make the buggy conversion produce correct results.
- * 
- * @param perkDefinitionId Object ID of the PerkDefinition to update
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildUpdatePerkPriceTransaction = (
-  perkDefinitionId: string,
-  sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.oracle || !CLOCK_ID) {
-    throw new Error("Required contract objects not configured");
-  }
-
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
-  }
-
-  // 🚨 IMPORTANT: The buildUpdatePerkPriceTransaction function only triggers a price recalculation
-  // based on the existing stored usdc_price in the contract. Since existing perks have the 
-  // original USDC values stored, the contract will apply the buggy oracle conversion to those.
-  //
-  // To fix existing perks, we would need to:
-  // 1. Read the current perk data
-  // 2. Calculate the correct transformed USDC value  
-  // 3. Update the stored usdc_price field (if such a function exists)
-        // 4. Then call update_perk_price_fixed()
-  //
-  // Since there's no direct way to update the stored usdc_price, this function will
-  // still produce buggy results for existing perks. The real fix requires contract deployment.
-
-  console.log(`⚠️  WARNING: Price update for existing perks will still use buggy oracle conversion!`);
-  console.log(`   This function can only fix the pricing when the contract is updated.`);
-  console.log(`   For immediate fix: Create new perks with the corrected frontend workaround.`);
-
-  tx.moveCall({
-            target: `${PACKAGE_ID}::perk_manager::update_perk_price_fixed`,
-    arguments: [
-      tx.object(perkDefinitionId),
-      tx.object(SHARED_OBJECTS.oracle),
-      tx.object(CLOCK_ID),
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * Builds a transaction for updating partner perk control settings
- * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex
- * @param maxPerksPerPartner Maximum number of perks this partner can create
- * @param maxClaimsPerPerk Maximum number of claims allowed per perk
- * @param maxCostPerPerk Maximum USDC cost allowed per perk (user inputs $1000, we convert to micro-USDC)
- * @param minPartnerSharePercentage Minimum revenue share percentage for partner (0-100)
- * @param maxPartnerSharePercentage Maximum revenue share percentage for partner (0-100)
- * @param allowConsumablePerks Whether partner can create consumable perks
- * @param allowExpiringPerks Whether partner can create perks with expiration
- * @param allowUniqueMetadata Whether partner can create perks with unique metadata
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildUpdatePerkControlSettingsTransaction = (
-  partnerCapFlexId: string,
-  maxPerksPerPartner: number,
-  maxClaimsPerPerk: number,
-  maxCostPerPerk: number,
-  minPartnerSharePercentage: number,
-  maxPartnerSharePercentage: number,
-  allowConsumablePerks: boolean,
-  allowExpiringPerks: boolean,
-  allowUniqueMetadata: boolean,
-  sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID not configured");
-  }
-
-  // Validate inputs
-  if (!partnerCapFlexId || partnerCapFlexId.length < 10) {
-    throw new Error(`Invalid partnerCapFlexId: ${partnerCapFlexId}`);
-  }
-  
-  if (maxPerksPerPartner < 0 || maxClaimsPerPerk < 0 || maxCostPerPerk < 0) {
-    throw new Error("Quota values cannot be negative");
-  }
-  
-  if (minPartnerSharePercentage < 0 || minPartnerSharePercentage > 100 ||
-      maxPartnerSharePercentage < 0 || maxPartnerSharePercentage > 100) {
-    throw new Error("Share percentages must be between 0 and 100");
-  }
-  
-  if (minPartnerSharePercentage > maxPartnerSharePercentage) {
-    throw new Error("Min share percentage cannot be greater than max share percentage");
-  }
-
-  // FIXED: Use oracle conversion to match smart contract validation
-  // Smart contract: converts USD → oracle → Alpha Points for validation
-  // Settings: should store the same Alpha Points the smart contract expects
-  const maxCostPerPerkAlphaPoints = usdToAlphaPointsForSettingsViaOracle(maxCostPerPerk);
-  
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-  }
-
-  try {
-    tx.moveCall({
-      target: `${PACKAGE_ID}::partner_flex::update_perk_control_settings_v2_entry`,
-      arguments: [
-        tx.object(partnerCapFlexId),
-        tx.pure.u64(BigInt(maxPerksPerPartner)),
-        tx.pure.u64(BigInt(maxClaimsPerPerk)),
-        tx.pure.u64(BigInt(maxCostPerPerkAlphaPoints)), // FIXED: Pass Alpha Points to match smart contract expectation
-        tx.pure.u8(minPartnerSharePercentage),
-        tx.pure.u8(maxPartnerSharePercentage),
-        tx.pure.bool(allowConsumablePerks),
-        tx.pure.bool(allowExpiringPerks),
-        tx.pure.bool(allowUniqueMetadata),
-      ],
-    });
-  } catch (error) {
-    console.error('[ERROR] Failed to build transaction:', error);
-    throw new Error(`Failed to build transaction: ${error}`);
-  }
-
-  return tx;
-};
-
-/**
- * Builds a sponsored transaction for creating a TVL-backed PartnerCapFlex with collateral
- * This is the new recommended way to create partner capabilities with sponsorship
- * 
- * @param partnerName Partner name string
- * @param suiAmountMist Amount of SUI to lock as collateral (in MIST)
- * @param sponsorAddress Optional sponsor address to pay for gas fees
  * @returns Transaction object ready for execution
  */
 export const buildCreatePartnerCapFlexTransactionSponsored = (
@@ -1693,234 +473,113 @@ export const buildCreatePartnerCapFlexTransactionSponsored = (
 };
 
 /**
- * Builds a transaction for updating partner perk type allowlists/blocklists
+ * Builds a consolidated transaction for updating all perk settings at once
+ * This replaces the need for separate calls to update control settings, perk types, and tags
  * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex
- * @param allowedPerkTypes Array of allowed perk type strings
- * @param blacklistedPerkTypes Array of blacklisted perk type strings
+ * @param partnerCapId Partner Cap ID to update settings for
+ * @param settings Object containing all the settings to update
+ * @param allowedPerkTypes Array of allowed perk types
+ * @param allowedTags Array of allowed tags
  * @param sponsorAddress Optional sponsor address to pay for gas fees
  * @returns Transaction object ready for execution
  */
-export const buildUpdatePerkTypeListsTransaction = (
-  partnerCapFlexId: string,
-  allowedPerkTypes: string[],
-  blacklistedPerkTypes: string[],
+export const buildUpdateAllPerkSettingsTransaction = (
+  partnerCapId: string,
+  settings: {
+    maxPerksPerPartner?: number;
+    maxClaimsPerPerk?: number;
+    maxCostPerPerkUsd?: number;
+    minPartnerSharePercentage?: number;
+    maxPartnerSharePercentage?: number;
+    allowConsumablePerks?: boolean;
+    allowExpiringPerks?: boolean;
+    allowUniqueMetadata?: boolean;
+  },
+  allowedPerkTypes: string[] = [],
+  allowedTags: string[] = [],
   sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID not configured");
-  }
-
+): Transaction => {
   const tx = new Transaction();
 
   // Set up sponsorship if sponsor address is provided
   if (sponsorAddress) {
     tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+    console.log(`🎁 Sponsored settings update: Gas fees will be paid by ${sponsorAddress}`);
   }
 
+  // 1. Update perk control settings
   tx.moveCall({
-    target: `${PACKAGE_ID}::partner_flex::update_perk_type_lists_entry`,
+    target: `${PACKAGE_ID}::partner_flex::update_perk_control_settings_v2_entry`,
     arguments: [
-      tx.object(partnerCapFlexId),
-      tx.pure(bcs.vector(bcs.String).serialize(allowedPerkTypes)),
-      tx.pure(bcs.vector(bcs.String).serialize(blacklistedPerkTypes)),
+      tx.object(partnerCapId),
+      tx.pure.u64(settings.maxPerksPerPartner || 100),
+      tx.pure.u64(settings.maxClaimsPerPerk || 1000),
+      tx.pure.u64(Math.floor((settings.maxCostPerPerkUsd || 100) * 100)), // FIXED: Convert USD to cents, not micro-USDC
+      tx.pure.u8(settings.minPartnerSharePercentage || 50),
+      tx.pure.u8(settings.maxPartnerSharePercentage || 90),
+      tx.pure.bool(settings.allowConsumablePerks || true),
+      tx.pure.bool(settings.allowExpiringPerks || true),
+      tx.pure.bool(settings.allowUniqueMetadata || true)
     ],
   });
 
-  return tx;
-};
-
-/**
- * Builds a transaction for updating partner perk tag allowlists/blocklists
- * 
- * @param partnerCapFlexId Object ID of the PartnerCapFlex
- * @param allowedTags Array of allowed tag strings
- * @param blacklistedTags Array of blacklisted tag strings
- * @param sponsorAddress Optional sponsor address to pay for gas fees
- * @returns Transaction object ready for execution
- */
-export const buildUpdatePerkTagListsTransaction = (
-  partnerCapFlexId: string,
-  allowedTags: string[],
-  blacklistedTags: string[],
-  sponsorAddress?: string
-) => {
-  if (!PACKAGE_ID) {
-    throw new Error("PACKAGE_ID not configured");
-  }
-
-  const tx = new Transaction();
-
-  // Set up sponsorship if sponsor address is provided
-  if (sponsorAddress) {
-    tx.setSender(sponsorAddress);
-    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
-  }
-
-  tx.moveCall({
-    target: `${PACKAGE_ID}::partner_flex::update_perk_tag_lists_entry`,
-    arguments: [
-      tx.object(partnerCapFlexId),
-      tx.pure(bcs.vector(bcs.String).serialize(allowedTags)),
-      tx.pure(bcs.vector(bcs.String).serialize(blacklistedTags)),
-    ],
-  });
-
-  return tx;
-};
-
-/**
- * DIAGNOSTIC: Check partner quota status for debugging Error 110 issues
- * Shows current quota usage, limits, and remaining capacity
- * 
- * @param suiClient SUI client instance
- * @param partnerCapId Object ID of the PartnerCapFlex
- * @returns Promise with detailed quota information
- */
-export const checkPartnerQuotaStatus = async (
-  suiClient: any,
-  partnerCapId: string
-): Promise<{
-  statsId?: string;
-  dailyQuotaLimit?: number;
-  dailyPointsMinted?: number;
-  remainingQuota?: number;
-  totalPointsMinted?: number;
-  totalPerksClaimedToday?: number;
-  currentEpoch?: number;
-  lastResetEpoch?: number;
-  needsEpochReset?: boolean;
-  error?: string;
-}> => {
-  try {
-    console.log('🔍 DIAGNOSTIC: Checking partner quota status for:', partnerCapId);
-    
-    // Find the PartnerPerkStatsV2 object
-    const statsId = await findPartnerStatsId(suiClient, partnerCapId);
-    console.log('✅ Found PartnerPerkStatsV2:', statsId);
-    
-    // Get the object details
-    const objectResponse = await suiClient.getObject({
-      id: statsId,
-      options: {
-        showContent: true,
-        showType: true
-      }
+  // 2. Update perk type lists
+  if (allowedPerkTypes.length > 0) {
+    tx.moveCall({
+      target: `${PACKAGE_ID}::partner_flex::update_perk_type_lists_entry`,
+      arguments: [
+        tx.object(partnerCapId),
+        tx.pure(bcs.vector(bcs.String).serialize(allowedPerkTypes)),
+        tx.pure(bcs.vector(bcs.String).serialize([])) // No blacklisted types
+      ],
     });
-    
-    if (!objectResponse.data?.content || !('fields' in objectResponse.data.content)) {
-      return { error: 'Could not read PartnerPerkStatsV2 object content' };
-    }
-    
-    const fields = objectResponse.data.content.fields as any;
-    
-    // Extract quota information
-    const dailyQuotaLimit = parseInt(fields.daily_quota_limit);
-    const dailyPointsMinted = parseInt(fields.daily_points_minted);
-    const totalPointsMinted = parseInt(fields.total_points_minted);
-    const totalPerksClaimedToday = parseInt(fields.total_perks_claimed);
-    const lastResetEpoch = parseInt(fields.daily_reset_epoch);
-    
-    const remainingQuota = Math.max(0, dailyQuotaLimit - dailyPointsMinted);
-    
-    // Get current epoch for comparison
-    let currentEpoch = 0;
-    try {
-      // This would need to be implemented based on how you get current epoch
-      // For now, we'll estimate based on timestamp
-      currentEpoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000)); // Rough daily epoch
-    } catch (epochError) {
-      console.warn('Could not determine current epoch');
-    }
-    
-    const needsEpochReset = currentEpoch > lastResetEpoch;
-    
-    const quotaStatus = {
-      statsId,
-      dailyQuotaLimit,
-      dailyPointsMinted,
-      remainingQuota: needsEpochReset ? dailyQuotaLimit : remainingQuota,
-      totalPointsMinted,
-      totalPerksClaimedToday,
-      currentEpoch,
-      lastResetEpoch,
-      needsEpochReset
-    };
-    
-    console.log('🔍 QUOTA STATUS:', quotaStatus);
-    
-    // Provide diagnostic information
-    if (dailyQuotaLimit === 0) {
-      console.log('❌ ISSUE: Daily quota limit is 0 - partner needs to set a quota');
-    } else if (dailyQuotaLimit < 1000) {
-      console.log('⚠️ WARNING: Daily quota limit is very low:', dailyQuotaLimit);
-    }
-    
-    if (!needsEpochReset && remainingQuota <= 0) {
-      console.log('❌ ISSUE: Partner has exhausted daily quota');
-    }
-    
-    if (needsEpochReset) {
-      console.log('⚠️ INFO: Daily stats need epoch reset - quota should refresh');
-    }
-    
-    return quotaStatus;
-    
-  } catch (error) {
-    console.error('❌ Error checking partner quota status:', error);
-    return { 
-      error: `Failed to check quota status: ${error instanceof Error ? error.message : 'Unknown error'}` 
-    };
   }
+
+  // 3. Update perk tag lists
+  if (allowedTags.length > 0) {
+    tx.moveCall({
+      target: `${PACKAGE_ID}::partner_flex::update_perk_tag_lists_entry`,
+      arguments: [
+        tx.object(partnerCapId),
+        tx.pure(bcs.vector(bcs.String).serialize(allowedTags)),
+        tx.pure(bcs.vector(bcs.String).serialize([])) // No blacklisted tags
+      ],
+    });
+  }
+
+  return tx;
 };
 
 /**
- * DIAGNOSTIC: Calculate expected partner share for a perk purchase
- * Helps determine what quota amount will be consumed
+ * Builds a transaction for adding SUI collateral to a partner's vault
  * 
- * @param perkCostAlphaPoints Cost of the perk in Alpha Points
- * @param partnerSharePercentage Partner's revenue share percentage (default 80%)
- * @returns Expected partner share that will be deducted from quota
- */
-export const calculateExpectedPartnerShare = (
-  perkCostAlphaPoints: number,
-  partnerSharePercentage: number = 80
-): number => {
-  const partnerShare = Math.floor((perkCostAlphaPoints * partnerSharePercentage) / 100);
-  console.log('🔍 QUOTA IMPACT CALCULATION:', {
-    perkCost: perkCostAlphaPoints,
-    partnerSharePercentage,
-    expectedPartnerShare: partnerShare
-  });
-  return partnerShare;
-};
-
-/**
- * Builds a transaction for claiming a perk (QUOTA-FREE VERSION)
- * Uses the claim_perk_by_user function which bypasses quota validation
- * This treats perk sales as REVENUE, not quota-limited minting
- * 
- * @param perkDefinitionId Object ID of the perk definition
+ * @param partnerCapId Partner Cap ID to add collateral for
+ * @param suiAmountMist Amount of SUI to add in MIST
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
  * @returns Transaction object ready for execution
  */
-export const buildClaimPerkQuotaFreeTransaction = (
-  perkDefinitionId: string
+export const buildAddSuiCollateralTransaction = (
+  partnerCapId: string,
+  suiAmountMist: bigint,
+  sponsorAddress?: string
 ): Transaction => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
-    throw new Error("Alpha Points package or shared objects are not configured.");
-  }
-
   const tx = new Transaction();
 
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored SUI collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  // Split SUI from gas coin for collateral
+  const [collateralCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(suiAmountMist.toString())]);
+
   tx.moveCall({
-    // QUOTA-FREE: Use function that treats perk sales as revenue, not quota consumption
-    target: `${PACKAGE_ID}::perk_manager::claim_perk_by_user`,
+    target: `${PACKAGE_ID}::partner_flex::add_sui_collateral`,
     arguments: [
-      tx.object(SHARED_OBJECTS.config),
-      tx.object(perkDefinitionId),
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.object(CLOCK_ID)
+      tx.object(partnerCapId),
+      collateralCoin,
+      tx.object(SHARED_OBJECTS.oracle)
     ],
   });
 
@@ -1928,36 +587,140 @@ export const buildClaimPerkQuotaFreeTransaction = (
 };
 
 /**
- * Builds a transaction for claiming a perk with metadata (QUOTA-FREE VERSION)
- * Uses the claim_perk_with_metadata_by_user function which bypasses quota validation
- * This treats perk sales as REVENUE, not quota-limited minting
+ * Builds a transaction for creating an initial SUI vault for a partner
  * 
- * @param perkDefinitionId Object ID of the perk definition
- * @param metadataKey Key for the claim-specific metadata
- * @param metadataValue Value for the claim-specific metadata
+ * @param partnerCapId Partner Cap ID to create vault for
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
  * @returns Transaction object ready for execution
  */
-export const buildClaimPerkWithMetadataQuotaFreeTransaction = (
-  perkDefinitionId: string,
-  metadataKey: string,
-  metadataValue: string
+export const buildCreateInitialSuiVaultTransaction = (
+  partnerCapId: string,
+  sponsorAddress?: string
 ): Transaction => {
-  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
-    throw new Error("Alpha Points package or shared objects are not configured.");
-  }
-
   const tx = new Transaction();
 
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored vault creation: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
   tx.moveCall({
-    // QUOTA-FREE: Use function that treats perk sales as revenue, not quota consumption
-    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_by_user`,
+    target: `${PACKAGE_ID}::partner_flex::create_initial_sui_vault`,
     arguments: [
-      tx.object(SHARED_OBJECTS.config),
-      tx.object(perkDefinitionId),
-      tx.object(SHARED_OBJECTS.ledger),
-      tx.pure.string(metadataKey),
-      tx.pure.string(metadataValue),
-      tx.object(CLOCK_ID)
+      tx.object(partnerCapId),
+      tx.object(SHARED_OBJECTS.oracle)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for adding USDC collateral to a partner's vault
+ * 
+ * @param partnerCapId Partner Cap ID to add collateral for
+ * @param usdcCoinId USDC coin object ID to use as collateral
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildAddUsdcCollateralTransaction = (
+  partnerCapId: string,
+  usdcCoinId: string,
+  sponsorAddress?: string
+): Transaction => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored USDC collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::add_usdc_collateral`,
+    arguments: [
+      tx.object(partnerCapId),
+      tx.object(usdcCoinId),
+      tx.object(SHARED_OBJECTS.oracle)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for adding NFT collateral to a partner's vault
+ * 
+ * @param partnerCapId Partner Cap ID to add collateral for
+ * @param kioskId Kiosk object ID containing the NFT
+ * @param nftId NFT object ID
+ * @param estimatedValueCents Estimated value of the NFT in USDC cents
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildAddNftCollateralTransaction = (
+  partnerCapId: string,
+  kioskId: string,
+  nftId: string,
+  estimatedValueCents: number,
+  sponsorAddress?: string
+): Transaction => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored NFT collateral addition: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::add_nft_collateral`,
+    arguments: [
+      tx.object(partnerCapId),
+      tx.object(kioskId),
+      tx.object(nftId),
+      tx.pure.u64(estimatedValueCents.toString()),
+      tx.object(SHARED_OBJECTS.oracle)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for withdrawing collateral from a partner's vault
+ * 
+ * @param partnerCapId Partner Cap ID to withdraw collateral from
+ * @param withdrawAmountMist Amount to withdraw in MIST (for SUI) or base units
+ * @param collateralType Type of collateral to withdraw ('sui', 'usdc', 'nft')
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildWithdrawCollateralTransaction = (
+  partnerCapId: string,
+  withdrawAmountMist: bigint,
+  collateralType: 'sui' | 'usdc' | 'nft' = 'sui',
+  sponsorAddress?: string
+): Transaction => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored collateral withdrawal: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  const targetFunction = collateralType === 'sui' ? 'withdraw_sui_collateral' :
+                       collateralType === 'usdc' ? 'withdraw_usdc_collateral' :
+                       'withdraw_nft_collateral';
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::${targetFunction}`,
+    arguments: [
+      tx.object(partnerCapId),
+      tx.pure.u64(withdrawAmountMist.toString()),
+      tx.object(SHARED_OBJECTS.oracle)
     ],
   });
 
@@ -2255,13 +1018,14 @@ export function calculateRecoveryAlphaPoints(principalMist: string): string {
 }
 
 /**
- * Safely creates a PartnerPerkStatsV2 object only if one doesn't already exist
- * This prevents duplicate stats objects for the same partner cap
+ * ENHANCED SAFE: Creates a PartnerPerkStatsV2 object only if one doesn't already exist
+ * This prevents duplicate creation by checking for existing stats first
+ * Used by the Partner Dashboard to safely create stats objects
  * 
- * @param suiClient SUI client instance
- * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param suiClient SUI client instance for querying the blockchain
+ * @param partnerCapId Partner Cap ID to create stats for
  * @param dailyQuotaLimit Daily quota limit for the partner
- * @returns Transaction object ready for execution, or null if stats already exist
+ * @returns Object containing transaction (if needed) and existence status
  */
 export const buildCreatePartnerStatsIfNotExistsTransaction = async (
   suiClient: any,
@@ -2269,10 +1033,14 @@ export const buildCreatePartnerStatsIfNotExistsTransaction = async (
   dailyQuotaLimit: number = 10000
 ): Promise<{ transaction: Transaction | null; alreadyExists: boolean; existingStatsId?: string; duplicateCount?: number }> => {
   try {
-    // First check if stats already exist
+    console.log('🔍 Checking for existing PartnerPerkStatsV2 before creation...');
+    
+    // First check if stats already exist - this prevents duplicate creation
     const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
     
-    console.log('⚠️ PartnerPerkStatsV2 already exists for this partner cap:', existingStatsId);
+    console.log('⚠️ DUPLICATE PREVENTION: PartnerPerkStatsV2 already exists for this partner cap:', existingStatsId);
+    console.log('⚠️ Skipping creation to prevent duplicate objects');
+    
     return { 
       transaction: null, 
       alreadyExists: true, 
@@ -2280,13 +1048,238 @@ export const buildCreatePartnerStatsIfNotExistsTransaction = async (
     };
   } catch (error) {
     // Stats don't exist, safe to create
-    console.log('✅ No existing PartnerPerkStatsV2 found, creating new one...');
+    console.log('✅ No existing PartnerPerkStatsV2 found, safe to create new one...');
     
     const transaction = buildCreatePartnerStatsIfNeededTransaction(partnerCapId, dailyQuotaLimit);
     return { 
       transaction, 
       alreadyExists: false 
     };
+  }
+};
+
+/**
+ * Finds the PartnerPerkStatsV2 object ID for a given partner cap
+ * Searches through blockchain events and transactions to locate existing stats objects
+ * 
+ * @param suiClient SUI client instance for querying the blockchain
+ * @param partnerCapId Partner Cap ID to find stats for
+ * @returns String containing the stats object ID
+ * @throws Error if no stats object is found
+ */
+export const findPartnerStatsId = async (
+  suiClient: any,
+  partnerCapId: string
+): Promise<string> => {
+  try {
+    console.log('🔍 Searching for PartnerPerkStatsV2 for partner cap:', partnerCapId);
+    
+    // Method 1: Search through PartnerPerkStatsCreatedV2 events
+    const eventsResponse = await suiClient.queryEvents({
+      query: {
+        MoveEventType: `${PACKAGE_ID}::perk_manager::PartnerPerkStatsCreatedV2`
+      },
+      limit: 100,
+      order: 'descending'
+    });
+    
+    console.log('🔍 Found', eventsResponse.data.length, 'PartnerPerkStatsCreatedV2 events');
+    
+    const matchingStatsIds: string[] = [];
+    
+    for (const event of eventsResponse.data) {
+      if (event.parsedJson && 
+          event.parsedJson.partner_cap_id === partnerCapId && 
+          event.parsedJson.stats_id) {
+        
+        // Verify the object still exists
+        try {
+          const objectResponse = await suiClient.getObject({
+            id: event.parsedJson.stats_id,
+            options: { showContent: true }
+          });
+          
+          if (objectResponse.data && objectResponse.data.content) {
+            matchingStatsIds.push(event.parsedJson.stats_id);
+            console.log('✅ Found valid PartnerPerkStatsV2:', event.parsedJson.stats_id);
+          }
+        } catch (error) {
+          console.log('❌ Stats object no longer exists:', event.parsedJson.stats_id);
+        }
+      }
+    }
+    
+    if (matchingStatsIds.length === 0) {
+      throw new Error(`No PartnerPerkStatsV2 found for partner cap: ${partnerCapId}`);
+    }
+    
+    if (matchingStatsIds.length > 1) {
+      console.warn('⚠️ DUPLICATE STATS OBJECTS DETECTED for partner cap:', partnerCapId);
+      console.warn('⚠️ Found', matchingStatsIds.length, 'stats objects:', matchingStatsIds);
+      console.warn('⚠️ Using the first one found, but this should be investigated');
+    }
+    
+    return matchingStatsIds[0];
+  } catch (error) {
+    console.error('❌ Error searching for PartnerPerkStatsV2:', error);
+    throw error;
+  }
+};
+
+/**
+ * Builds a transaction to create a PartnerPerkStatsV2 object
+ * This is the core function that creates the actual Move transaction
+ * 
+ * @param partnerCapId Partner Cap ID to create stats for
+ * @param dailyQuotaLimit Daily quota limit for the partner
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePartnerStatsIfNeededTransaction = (
+  partnerCapId: string,
+  dailyQuotaLimit: number = 10000
+): Transaction => {
+  const tx = new Transaction();
+  
+  console.log('🔨 Building create PartnerPerkStatsV2 transaction for partner cap:', partnerCapId);
+  console.log('🔨 Daily quota limit:', dailyQuotaLimit);
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::perk_manager::create_partner_perk_stats_v2`,
+    arguments: [
+      tx.object(partnerCapId),           // Partner Cap object
+      tx.pure.u64(BigInt(dailyQuotaLimit)), // Daily quota limit
+      tx.object(CLOCK_ID)                // Clock for timestamp
+    ]
+  });
+  
+  return tx;
+};
+
+/**
+ * Builds a transaction for creating a PartnerPerkStatsV2 object
+ * This creates the quota tracking and analytics system for a partner
+ * 
+ * @param partnerCapId Partner Cap ID to create stats for
+ * @param dailyQuotaLimit Daily quota limit for the partner (default: 10000)
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePartnerPerkStatsTransaction = (
+  partnerCapId: string,
+  dailyQuotaLimit: number = 10000,
+  sponsorAddress?: string
+): Transaction => {
+  const tx = new Transaction();
+  
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored PartnerPerkStats creation: Gas fees will be paid by ${sponsorAddress}`);
+  }
+  
+  console.log('🔨 Building create PartnerPerkStatsV2 transaction for partner cap:', partnerCapId);
+  console.log('🔨 Daily quota limit:', dailyQuotaLimit);
+  
+  tx.moveCall({
+    target: `${PACKAGE_ID}::perk_manager::create_partner_perk_stats_v2`,
+    arguments: [
+      tx.object(partnerCapId),           // Partner Cap object
+      tx.pure.u64(BigInt(dailyQuotaLimit)), // Daily quota limit
+      tx.object(CLOCK_ID)                // Clock for timestamp
+    ]
+  });
+  
+  return tx;
+};
+
+/**
+ * Ensures PartnerPerkStatsV2 exists for a partner, creating it if necessary
+ * This is an auto-creation helper used by the marketplace to ensure stats objects exist
+ * 
+ * @param suiClient SUI client instance for querying the blockchain
+ * @param partnerCapId Partner Cap ID to ensure stats for
+ * @param signAndExecuteTransaction Function to sign and execute transactions
+ * @param dailyQuotaLimit Daily quota limit for new stats objects
+ * @returns Promise with the stats object ID
+ * @throws Error if stats cannot be found or created
+ */
+export const ensurePartnerStatsExists = async (
+  suiClient: any,
+  partnerCapId: string,
+  signAndExecuteTransaction: any,
+  dailyQuotaLimit: number = 10000
+): Promise<string> => {
+  try {
+    console.log('🔍 Ensuring PartnerPerkStatsV2 exists for partner:', partnerCapId);
+    
+    // First, try to find existing stats
+    try {
+      const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
+      console.log('✅ Found existing PartnerPerkStatsV2:', existingStatsId);
+      return existingStatsId;
+    } catch (error) {
+      console.log('❌ No existing PartnerPerkStatsV2 found, need to create one');
+    }
+    
+    // Stats don't exist, try to create them automatically
+    console.log('🔨 Auto-creating PartnerPerkStatsV2 for partner...');
+    
+    const result = await buildCreatePartnerStatsIfNotExistsTransaction(
+      suiClient,
+      partnerCapId,
+      dailyQuotaLimit
+    );
+    
+    if (result.alreadyExists && result.existingStatsId) {
+      console.log('✅ Stats object was already created by another process:', result.existingStatsId);
+      return result.existingStatsId;
+    }
+    
+    if (!result.transaction) {
+      throw new Error('Failed to build stats creation transaction');
+    }
+    
+    console.log('📝 Executing PartnerPerkStatsV2 creation transaction...');
+    
+    const txResult = await signAndExecuteTransaction({
+      transaction: result.transaction,
+      chain: 'sui:testnet',
+    });
+    
+    if (!txResult?.digest) {
+      throw new Error('Transaction execution failed - no digest returned');
+    }
+    
+    console.log('✅ PartnerPerkStatsV2 creation transaction successful:', txResult.digest);
+    
+    // Wait briefly for the transaction to be indexed
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Try to find the newly created stats object
+    try {
+      const newStatsId = await findPartnerStatsId(suiClient, partnerCapId);
+      console.log('✅ Successfully created and found new PartnerPerkStatsV2:', newStatsId);
+      return newStatsId;
+    } catch (error) {
+      console.error('❌ Failed to find newly created stats object:', error);
+      throw new Error('Stats object was created but could not be located. Please try again in a moment.');
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Error ensuring PartnerPerkStatsV2 exists:', error);
+    
+    if (error.message?.includes('already exists')) {
+      // Try one more time to find the existing stats
+      try {
+        const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
+        console.log('✅ Found stats object on retry:', existingStatsId);
+        return existingStatsId;
+      } catch (retryError) {
+        throw new Error('Unable to create required PartnerPerkStatsV2 object');
+      }
+    }
+    
+    throw new Error(`Unable to create required PartnerPerkStatsV2 object: ${error.message || 'Unknown error'}`);
   }
 };
 
@@ -2321,15 +1314,15 @@ export function buildOldPackageUnstakeForSuiTransaction(
   
   if (packageInfo.argumentCount === 4) {
     // Package 0xbae3eef has 4 arguments (simpler version)
-          const moveCall: any = {
-        target: `${oldPackageId}::integration::request_unstake_native_sui`,
-        arguments: [
-          tx.object(oldSharedObjects.stakingManager!), // manager
-          tx.object(oldSharedObjects.config!),         // config  
-          tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
-          tx.object(oldStakeObjectId),                 // stake_position
-        ]
-      };
+    const moveCall: any = {
+      target: `${oldPackageId}::integration::request_unstake_native_sui`,
+      arguments: [
+        tx.object(oldSharedObjects.stakingManager!), // manager
+        tx.object(oldSharedObjects.config!),         // config  
+        tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
+        tx.object(oldStakeObjectId),                 // stake_position
+      ]
+    };
     
     if (packageInfo.needsTypeArguments) {
       moveCall.typeArguments = [`${oldPackageId}::stake_position::StakePosition`];
@@ -2342,18 +1335,18 @@ export function buildOldPackageUnstakeForSuiTransaction(
       throw new Error(`Missing ledger for package ${oldPackageId.substring(0, 10)}...`);
     }
     
-          const moveCall: any = {
-        target: `${oldPackageId}::integration::request_unstake_native_sui`,
-        arguments: [
-          tx.object(oldSharedObjects.stakingManager!), // manager
-          tx.object(oldSharedObjects.config!),         // config
-          tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
-          tx.object(oldStakeObjectId),                 // stake_position
-          tx.object(CLOCK_ID),                         // clock
-          tx.object(oldSharedObjects.ledger!),         // ledger
-          // ctx is handled automatically by Sui runtime
-        ]
-      };
+    const moveCall: any = {
+      target: `${oldPackageId}::integration::request_unstake_native_sui`,
+      arguments: [
+        tx.object(oldSharedObjects.stakingManager!), // manager
+        tx.object(oldSharedObjects.config!),         // config
+        tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
+        tx.object(oldStakeObjectId),                 // stake_position
+        tx.object(CLOCK_ID),                         // clock
+        tx.object(oldSharedObjects.ledger!),         // ledger
+        // ctx is handled automatically by Sui runtime
+      ]
+    };
     
     if (packageInfo.needsTypeArguments) {
       moveCall.typeArguments = [`${oldPackageId}::stake_position::StakePosition`];
@@ -2400,15 +1393,15 @@ export function buildOldPackageBatchUnstakeForSuiTransaction(
   for (const stakeObjectId of oldStakeObjectIds) {
     if (packageInfo.argumentCount === 4) {
       // Package 0xbae3eef has 4 arguments (simpler version)
-              const moveCall: any = {
-          target: `${oldPackageId}::integration::request_unstake_native_sui`,
-          arguments: [
-            tx.object(oldSharedObjects.stakingManager!), // manager
-            tx.object(oldSharedObjects.config!),         // config  
-            tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
-            tx.object(stakeObjectId),                    // stake_position
-          ]
-        };
+      const moveCall: any = {
+        target: `${oldPackageId}::integration::request_unstake_native_sui`,
+        arguments: [
+          tx.object(oldSharedObjects.stakingManager!), // manager
+          tx.object(oldSharedObjects.config!),         // config  
+          tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
+          tx.object(stakeObjectId),                    // stake_position
+        ]
+      };
       
       if (packageInfo.needsTypeArguments) {
         moveCall.typeArguments = [`${oldPackageId}::stake_position::StakePosition`];
@@ -2421,17 +1414,17 @@ export function buildOldPackageBatchUnstakeForSuiTransaction(
         throw new Error(`Missing ledger for package ${oldPackageId.substring(0, 10)}...`);
       }
       
-              const moveCall: any = {
-          target: `${oldPackageId}::integration::request_unstake_native_sui`,
-          arguments: [
-            tx.object(oldSharedObjects.stakingManager!), // manager
-            tx.object(oldSharedObjects.config!),         // config
-            tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
-            tx.object(stakeObjectId),                    // stake_position
-            tx.object(CLOCK_ID),                         // clock
-            tx.object(oldSharedObjects.ledger!),         // ledger
-          ]
-        };
+      const moveCall: any = {
+        target: `${oldPackageId}::integration::request_unstake_native_sui`,
+        arguments: [
+          tx.object(oldSharedObjects.stakingManager!), // manager
+          tx.object(oldSharedObjects.config!),         // config
+          tx.object(SUI_SYSTEM_STATE_ID),              // sui_system_state
+          tx.object(stakeObjectId),                    // stake_position
+          tx.object(CLOCK_ID),                         // clock
+          tx.object(oldSharedObjects.ledger!),         // ledger
+        ]
+      };
       
       if (packageInfo.needsTypeArguments) {
         moveCall.typeArguments = [`${oldPackageId}::stake_position::StakePosition`];
@@ -2529,7 +1522,7 @@ function validateSharedObjectIds(
       throw new Error(`Invalid ${name} ID for package ${packageId.substring(0, 10)}...: ${id}`);
     }
     if (!id.startsWith('0x')) {
-      throw new Error(`${name} ID must start with 0x for package ${packageId.substring(0, 10)}...: ${id}`);
+      throw new Error(`${name} ID must start with 0x for package ${packageId.substring(0, 10)}...: ${id}`);  
     }
   };
 
@@ -2615,7 +1608,7 @@ export const buildClaimWithdrawalTicketTransaction = (
 };
 
 /**
- * Builds a transaction to extract StakedSui from Alpha Points StakePosition wrapper
+ * Builds a transaction for extracting StakedSui from Alpha Points StakePosition wrapper
  * This is needed when users have StakePosition<StakedSui> objects instead of raw StakedSui
  * 
  * @param stakePositionId Object ID of the StakePosition wrapper
@@ -2684,6 +1677,7 @@ export function buildEmergencyUnstakeTransaction(
  */
 export const buildCreateEmbeddedGenerationTransaction = (
   partnerCapId: string,
+  registryId: string, // Add registry parameter
   name: string,
   description: string,
   category: string,
@@ -2711,6 +1705,7 @@ export const buildCreateEmbeddedGenerationTransaction = (
     target: `${PACKAGE_ID}::generation_manager::create_embedded_generation`,
     arguments: [
       tx.object(partnerCapId),
+      tx.object(registryId), // Add registry object
       tx.pure.string(name),
       tx.pure.string(description),
       tx.pure.string(category),
@@ -2754,6 +1749,7 @@ export const buildCreateEmbeddedGenerationTransaction = (
  */
 export const buildCreateExternalGenerationTransaction = (
   partnerCapId: string,
+  registryId: string, // Add registry parameter
   name: string,
   description: string,
   category: string,
@@ -2782,6 +1778,7 @@ export const buildCreateExternalGenerationTransaction = (
     target: `${PACKAGE_ID}::generation_manager::create_external_generation`,
     arguments: [
       tx.object(partnerCapId),
+      tx.object(registryId), // Add registry object
       tx.pure.string(name),
       tx.pure.string(description),
       tx.pure.string(category),
@@ -3077,6 +2074,702 @@ export const validateEventData = (
   } catch (error) {
     return { valid: false, error: 'Invalid event configuration' };
   }
+};
+
+/**
+ * Finds PartnerPerkStatsV2 for a partner or suggests creation if not found
+ * This function provides detailed information about the partner's stats status
+ * Used by the marketplace to provide better error messages and user guidance
+ * 
+ * @param suiClient SUI client instance for querying the blockchain
+ * @param partnerCapId Partner Cap ID to check
+ * @returns Object containing stats status and suggestions
+ */
+export const findOrSuggestCreatePartnerStats = async (
+  suiClient: any,
+  partnerCapId: string
+): Promise<{
+  statsId?: string;
+  needsCreation: boolean;
+  suggestion?: string;
+}> => {
+  try {
+    console.log('🔍 Checking PartnerPerkStatsV2 status for partner:', partnerCapId);
+    
+    // Try to find existing stats
+    const statsId = await findPartnerStatsId(suiClient, partnerCapId);
+    
+    console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
+    return {
+      statsId,
+      needsCreation: false
+    };
+    
+  } catch (error) {
+    console.log('❌ No PartnerPerkStatsV2 found for partner:', partnerCapId);
+    
+    return {
+      needsCreation: true,
+      suggestion: 'This partner needs to create their PartnerPerkStatsV2 object before users can purchase perks. Please contact the partner to complete their setup.'
+    };
+  }
+};
+
+/**
+ * Builds a transaction for updating partner perk type allowlists/blocklists
+ * 
+ * @param partnerCapFlexId Object ID of the PartnerCapFlex
+ * @param allowedPerkTypes Array of allowed perk type strings
+ * @param blacklistedPerkTypes Array of blacklisted perk type strings
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildUpdatePerkTypeListsTransaction = (
+  partnerCapFlexId: string,
+  allowedPerkTypes: string[],
+  blacklistedPerkTypes: string[],
+  sponsorAddress?: string
+) => {
+  if (!PACKAGE_ID) {
+    throw new Error("PACKAGE_ID not configured");
+  }
+
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::update_perk_type_lists_entry`,
+    arguments: [
+      tx.object(partnerCapFlexId),
+      tx.pure(bcs.vector(bcs.String).serialize(allowedPerkTypes)),
+      tx.pure(bcs.vector(bcs.String).serialize(blacklistedPerkTypes)),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for updating partner perk tag allowlists/blocklists
+ * 
+ * @param partnerCapFlexId Object ID of the PartnerCapFlex
+ * @param allowedTags Array of allowed tag strings
+ * @param blacklistedTags Array of blacklisted tag strings
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildUpdatePerkTagListsTransaction = (
+  partnerCapFlexId: string,
+  allowedTags: string[],
+  blacklistedTags: string[],
+  sponsorAddress?: string
+) => {
+  if (!PACKAGE_ID) {
+    throw new Error("PACKAGE_ID not configured");
+  }
+
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored transaction: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::update_perk_tag_lists_entry`,
+    arguments: [
+      tx.object(partnerCapFlexId),
+      tx.pure(bcs.vector(bcs.String).serialize(allowedTags)),
+      tx.pure(bcs.vector(bcs.String).serialize(blacklistedTags)),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * DIAGNOSTIC: Check partner quota status for debugging Error 110 issues
+ * Shows current quota usage, limits, and remaining capacity
+ * 
+ * @param suiClient SUI client instance
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @returns Promise with detailed quota information
+ */
+export const checkPartnerQuotaStatus = async (
+  suiClient: any,
+  partnerCapId: string
+): Promise<{
+  statsId?: string;
+  dailyQuotaLimit?: number;
+  dailyPointsMinted?: number;
+  remainingQuota?: number;
+  totalPointsMinted?: number;
+  totalPerksClaimedToday?: number;
+  currentEpoch?: number;
+  lastResetEpoch?: number;
+  needsEpochReset?: boolean;
+  error?: string;
+}> => {
+  try {
+    console.log('🔍 DIAGNOSTIC: Checking partner quota status for:', partnerCapId);
+    
+    // Find the PartnerPerkStatsV2 object
+    const statsId = await findPartnerStatsId(suiClient, partnerCapId);
+    console.log('✅ Found PartnerPerkStatsV2:', statsId);
+    
+    // Get the object details
+    const objectResponse = await suiClient.getObject({
+      id: statsId,
+      options: {
+        showContent: true,
+        showType: true
+      }
+    });
+    
+    if (!objectResponse.data?.content || !('fields' in objectResponse.data.content)) {
+      return { error: 'Could not read PartnerPerkStatsV2 object content' };
+    }
+    
+    const fields = objectResponse.data.content.fields as any;
+    
+    // Extract quota information
+    const dailyQuotaLimit = parseInt(fields.daily_quota_limit);
+    const dailyPointsMinted = parseInt(fields.daily_points_minted);
+    const totalPointsMinted = parseInt(fields.total_points_minted);
+    const totalPerksClaimedToday = parseInt(fields.total_perks_claimed);
+    const lastResetEpoch = parseInt(fields.daily_reset_epoch);
+    
+    const remainingQuota = Math.max(0, dailyQuotaLimit - dailyPointsMinted);
+    
+    // Get current epoch for comparison
+    let currentEpoch = 0;
+    try {
+      // This would need to be implemented based on how you get current epoch
+      // For now, we'll estimate based on timestamp
+      currentEpoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000)); // Rough daily epoch
+    } catch (epochError) {
+      console.warn('Could not determine current epoch');
+    }
+    
+    const needsEpochReset = currentEpoch > lastResetEpoch;
+    
+    const quotaStatus = {
+      statsId,
+      dailyQuotaLimit,
+      dailyPointsMinted,
+      remainingQuota: needsEpochReset ? dailyQuotaLimit : remainingQuota,
+      totalPointsMinted,
+      totalPerksClaimedToday,
+      currentEpoch,
+      lastResetEpoch,
+      needsEpochReset
+    };
+    
+    console.log('🔍 QUOTA STATUS:', quotaStatus);
+    
+    // Provide diagnostic information
+    if (dailyQuotaLimit === 0) {
+      console.log('❌ ISSUE: Daily quota limit is 0 - partner needs to set a quota');
+    } else if (dailyQuotaLimit < 1000) {
+      console.log('⚠️ WARNING: Daily quota limit is very low:', dailyQuotaLimit);
+    }
+    
+    if (!needsEpochReset && remainingQuota <= 0) {
+      console.log('❌ ISSUE: Partner has exhausted daily quota');
+    }
+    
+    if (needsEpochReset) {
+      console.log('⚠️ INFO: Daily stats need epoch reset - quota should refresh');
+    }
+    
+    return quotaStatus;
+    
+  } catch (error) {
+    console.error('❌ Error checking partner quota status:', error);
+    return { 
+      error: `Failed to check quota status: ${error instanceof Error ? error.message : 'Unknown error'}` 
+    };
+  }
+};
+
+/**
+ * DIAGNOSTIC: Calculate expected partner share for a perk purchase  
+ * Helps determine what quota amount will be consumed
+ * 
+ * @param perkCostAlphaPoints Cost of the perk in Alpha Points
+ * @param partnerSharePercentage Partner's revenue share percentage (default 80%)
+ * @returns Expected partner share that will be deducted from quota
+ */
+export const calculateExpectedPartnerShare = (
+  perkCostAlphaPoints: number,
+  partnerSharePercentage: number = 80
+): number => {
+  const partnerShare = Math.floor((perkCostAlphaPoints * partnerSharePercentage) / 100);
+  console.log('🔍 QUOTA IMPACT CALCULATION:', {
+    perkCost: perkCostAlphaPoints,
+    partnerSharePercentage,
+    expectedPartnerShare: partnerShare
+  });
+  return partnerShare;
+};
+
+/**
+ * Builds a transaction for claiming a perk (QUOTA-FREE VERSION)
+ * Uses the claim_perk_by_user function which bypasses quota validation
+ * This treats perk sales as REVENUE, not quota-limited minting
+ * 
+ * @param perkDefinitionId Object ID of the perk definition
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimPerkQuotaFreeTransaction = (
+  perkDefinitionId: string
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
+    throw new Error("Alpha Points package or shared objects are not configured.");
+  }
+
+  const tx = new Transaction();
+
+  tx.moveCall({
+    // QUOTA-FREE: Use function that treats perk sales as revenue, not quota consumption
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_by_user`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(perkDefinitionId),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(CLOCK_ID)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for claiming a perk with metadata (QUOTA-FREE VERSION)
+ * Uses the claim_perk_with_metadata_by_user function which bypasses quota validation
+ * This treats perk sales as REVENUE, not quota-limited minting
+ * 
+ * @param perkDefinitionId Object ID of the perk definition
+ * @param metadataKey Key for the claim-specific metadata
+ * @param metadataValue Value for the claim-specific metadata
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimPerkWithMetadataQuotaFreeTransaction = (
+  perkDefinitionId: string,
+  metadataKey: string,
+  metadataValue: string
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
+    throw new Error("Alpha Points package or shared objects are not configured.");
+  }
+
+  const tx = new Transaction();
+
+  tx.moveCall({
+    // QUOTA-FREE: Use function that treats perk sales as revenue, not quota consumption
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_by_user`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(perkDefinitionId),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.pure.string(metadataKey),
+      tx.pure.string(metadataValue),
+      tx.object(CLOCK_ID)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for claiming a perk (QUOTA-VALIDATED VERSION)
+ * Uses the claim_perk_with_quota_validation function which checks partner quotas
+ * This treats perk sales as QUOTA consumption and validates against partner limits
+ * 
+ * @param perkDefinitionId Object ID of the perk definition
+ * @param partnerStatsId Object ID of the partner's PartnerPerkStatsV2 object for quota validation
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimPerkTransaction = (
+  perkDefinitionId: string,
+  partnerStatsId: string
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
+    throw new Error("Alpha Points package or shared objects are not configured.");
+  }
+
+  const tx = new Transaction();
+
+  tx.moveCall({
+    // QUOTA-VALIDATED: Use function that validates quota consumption against partner limits
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_quota_validation`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(perkDefinitionId),
+      tx.object(partnerStatsId),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(CLOCK_ID)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for claiming a perk with metadata (QUOTA-VALIDATED VERSION)
+ * Uses the claim_perk_with_metadata_and_quota_validation function which checks partner quotas
+ * This treats perk sales as QUOTA consumption and validates against partner limits
+ * 
+ * @param perkDefinitionId Object ID of the perk definition
+ * @param partnerStatsId Object ID of the partner's PartnerPerkStatsV2 object for quota validation
+ * @param metadataKey Key for the claim-specific metadata
+ * @param metadataValue Value for the claim-specific metadata
+ * @returns Transaction object ready for execution
+ */
+export const buildClaimPerkWithMetadataTransaction = (
+  perkDefinitionId: string,
+  partnerStatsId: string,
+  metadataKey: string,
+  metadataValue: string
+): Transaction => {
+  if (!PACKAGE_ID || !SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger) {
+    throw new Error("Alpha Points package or shared objects are not configured.");
+  }
+
+  const tx = new Transaction();
+
+  tx.moveCall({
+    // QUOTA-VALIDATED: Use function that validates quota consumption against partner limits
+    target: `${PACKAGE_ID}::perk_manager::claim_perk_with_metadata_and_quota_validation`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(perkDefinitionId),
+      tx.object(partnerStatsId),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.pure.string(metadataKey),
+      tx.pure.string(metadataValue),
+      tx.object(CLOCK_ID)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for creating a perk definition
+ * This creates a new perk that partners can offer to users
+ * 
+ * @param partnerCapId Partner Cap ID to create the perk for
+ * @param name Name of the perk
+ * @param description Description of the perk
+ * @param perkType Type of perk (e.g., "Access", "Discount", "Physical", etc.)
+ * @param tags Array of tags for the perk
+ * @param usdcPriceCents Price in USDC cents (100 = $1.00)
+ * @param partnerSharePercentage Percentage of revenue that goes to partner (default: 80)
+ * @param icon Emoji icon for the perk
+ * @param expiryTimestamp Optional expiry timestamp (0 for no expiry)
+ * @param maxUsesPerClaim Optional max uses per claim (0 for unlimited)
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePerkDefinitionTransaction = (
+  partnerCapId: string,
+  name: string,
+  description: string,
+  perkType: string,
+  tags: string[],
+  usdcPriceCents: number,
+  partnerSharePercentage: number = 80,
+  icon: string = '🎁',
+  expiryTimestamp: number = 0,
+  maxUsesPerClaim: number = 0,
+  sponsorAddress?: string
+): Transaction => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored perk creation: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::perk_manager::create_perk_definition`,
+    arguments: [
+      tx.object(partnerCapId),
+      tx.pure.string(name),
+      tx.pure.string(description),
+      tx.pure.string(perkType),
+      tx.pure(bcs.vector(bcs.String).serialize(tags)),
+      tx.pure.u64(usdcPriceCents.toString()),
+      tx.pure.u8(partnerSharePercentage),
+      tx.pure.string(icon),
+      tx.pure.u64(expiryTimestamp.toString()),
+      tx.pure.u64(maxUsesPerClaim.toString())
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for setting a perk's active status
+ * This allows partners to enable or disable their perks
+ * 
+ * @param perkDefinitionId Perk definition ID to update
+ * @param isActive Whether the perk should be active or inactive
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildSetPerkActiveStatusTransaction = (
+  perkDefinitionId: string,
+  isActive: boolean,
+  sponsorAddress?: string
+): Transaction => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored perk status update: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::perk_manager::set_perk_active_status`,
+    arguments: [
+      tx.object(perkDefinitionId),
+      tx.pure.bool(isActive)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for updating perk control settings
+ * This updates various settings for a partner's perk management
+ * 
+ * @param partnerCapId Partner Cap ID to update settings for
+ * @param settings Object containing the settings to update
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildUpdatePerkControlSettingsTransaction = (
+  partnerCapId: string,
+  settings: {
+    maxCostPerPerkCents?: number;
+    requiresMetadata?: boolean;
+    metadataFields?: string[];
+    salt?: string;
+  },
+  sponsorAddress?: string
+): Transaction => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored settings update: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::partner_flex::update_perk_control_settings`,
+    arguments: [
+      tx.object(partnerCapId),
+      tx.pure.u64((settings.maxCostPerPerkCents || 0).toString()),
+      tx.pure.bool(settings.requiresMetadata || false),
+      tx.pure(bcs.vector(bcs.String).serialize(settings.metadataFields || [])),
+      tx.pure.string(settings.salt || '')
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for setting generation active status
+ * 
+ * @param generationId Object ID of the GenerationDefinition
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param isActive Whether the generation should be active
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildSetGenerationActiveStatusTransaction = (
+  generationId: string,
+  partnerCapId: string,
+  isActive: boolean,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored generation status update: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::generation_manager::set_generation_active_status`,
+    arguments: [
+      tx.object(generationId),
+      tx.object(partnerCapId),
+      tx.pure.bool(isActive),
+      tx.object(CLOCK_ID),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for executing a generation and earning points
+ * 
+ * @param generationId Object ID of the GenerationDefinition
+ * @param partnerCapId Object ID of the PartnerCapFlex
+ * @param userAddress Address of the user executing the generation
+ * @param executionMetadata JSON metadata about the execution
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildExecuteGenerationTransaction = (
+  generationId: string,
+  partnerCapId: string,
+  userAddress: string,
+  executionMetadata: string = '{}',
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored generation execution: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::generation_manager::execute_generation`,
+    arguments: [
+      tx.object(generationId),
+      tx.object(partnerCapId),
+      tx.object(LEDGER_ID), // Add ledger object
+      tx.pure.address(userAddress),
+      tx.pure.string(executionMetadata),
+      tx.object(CLOCK_ID),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for approving a generation (admin only)
+ * 
+ * @param generationId Object ID of the GenerationDefinition
+ * @param safetyScore Safety score (0-100, higher = safer)
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildApproveGenerationTransaction = (
+  generationId: string,
+  safetyScore: number,
+  sponsorAddress?: string
+) => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored generation approval: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::generation_manager::approve_generation`,
+    arguments: [
+      tx.object(generationId),
+      tx.pure.u64(BigInt(safetyScore)),
+      tx.object(CLOCK_ID),
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Finds the GenerationRegistry object ID by querying for objects of the generation_manager module
+ * 
+ * @param suiClient Sui client instance
+ * @returns Promise<string> The registry object ID
+ */
+export const findGenerationRegistry = async (suiClient: any): Promise<string> => {
+  try {
+    const response = await suiClient.getOwnedObjects({
+      filter: {
+        StructType: `${PACKAGE_ID}::generation_manager::GenerationRegistry`
+      },
+      options: {
+        showContent: true,
+        showType: true,
+      }
+    });
+
+    if (response.data && response.data.length > 0) {
+      return response.data[0].data.objectId;
+    }
+
+    // If not found, query all objects of this type (since registry is shared)
+    const allRegistries = await suiClient.queryEvents({
+      query: {
+        MoveEventType: `${PACKAGE_ID}::generation_manager::GenerationCreated`
+      },
+      limit: 1,
+      order: 'ascending'
+    });
+
+    // If we have events, we can extract registry from the first generation creation
+    if (allRegistries.data && allRegistries.data.length > 0) {
+      // Registry would be created during module init - we need to query shared objects
+      const sharedObjects = await suiClient.getOwnedObjects({
+        filter: {
+          StructType: `${PACKAGE_ID}::generation_manager::GenerationRegistry`
+        },
+        options: {
+          showContent: true,
+        }
+      });
+
+      if (sharedObjects.data && sharedObjects.data.length > 0) {
+        return sharedObjects.data[0].data.objectId;
+      }
+    }
+
+    throw new Error('GenerationRegistry not found - module may not be initialized');
+  } catch (error) {
+    console.error('Error finding GenerationRegistry:', error);
+    throw error;
+  }
+};
+
+/**
+ * Gets the generation registry ID with caching
+ * 
+ * @param suiClient Sui client instance
+ * @returns Promise<string> The registry object ID
+ */
+let cachedRegistryId: string | null = null;
+export const getGenerationRegistryId = async (suiClient: any): Promise<string> => {
+  if (cachedRegistryId) {
+    return cachedRegistryId;
+  }
+  
+  cachedRegistryId = await findGenerationRegistry(suiClient);
+  return cachedRegistryId;
 };
 
 

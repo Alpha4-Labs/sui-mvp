@@ -153,9 +153,9 @@ export const SDKConfigurationDashboard: React.FC = () => {
       requiresSignature: event.requiresSignature
     }));
 
-    return `<!-- Alpha Points SDK - Enhanced Security Integration -->
+    return `<!-- Alpha4 Onboard SDK - Enhanced Security Integration -->
 <script 
-    src="https://cdn.alphapoints.com/sui-points-adapter-secure.js"
+    src="https://onboard.alpha4.io/sui-points-adapter.js"
     data-package-id="YOUR_PACKAGE_ID"
     data-partner-cap-id="YOUR_PARTNER_CAP_ID"
     data-rpc-url="https://fullnode.testnet.sui.io:443"

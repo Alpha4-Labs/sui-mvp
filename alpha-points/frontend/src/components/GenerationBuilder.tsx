@@ -3,9 +3,14 @@ import { PartnerCapInfo } from '../hooks/usePartnerDetection';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { toast } from 'react-hot-toast';
-import { useCurrentWallet, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
+import { useCurrentWallet, useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { PACKAGE_ID, CLOCK_ID } from '../config/contract';
+import { 
+  buildCreateEmbeddedGenerationTransaction, 
+  buildCreateExternalGenerationTransaction,
+  getGenerationRegistryId 
+} from '../utils/transaction';
 
 interface GenerationBuilderProps {
   partnerCap: PartnerCapInfo;
@@ -75,6 +80,7 @@ export const GenerationBuilder: React.FC<GenerationBuilderProps> = ({
 }) => {
   const { currentWallet } = useCurrentWallet();
   const { mutate: signAndExecuteTransaction } = useSignAndExecuteTransaction();
+  const suiClient = useSuiClient();
   const [isLoading, setIsLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [newTag, setNewTag] = useState('');
@@ -201,66 +207,65 @@ export const GenerationBuilder: React.FC<GenerationBuilderProps> = ({
 
     setIsLoading(true);
     try {
-      const tx = new Transaction();
-
+      const registryId = await getGenerationRegistryId(suiClient);
+      
       // Convert form data for blockchain
       const expirationTimestamp = formData.expirationDate 
         ? new Date(formData.expirationDate).getTime()
         : null;
 
+      let tx: Transaction;
+
       if (formData.executionType === 'embedded_code') {
-        // Create embedded generation
-        tx.moveCall({
-          target: `${PACKAGE_ID}::generation_manager::create_embedded_generation`,
-          arguments: [
-            tx.object(partnerCap.id),
-            tx.pure.string(formData.name),
-            tx.pure.string(formData.description),
-            tx.pure.string(formData.category),
-            tx.pure.string(formData.walrusBlobId),
-            tx.pure.vector('u8', Array.from(new TextEncoder().encode(formData.codeHash))),
-            tx.pure.string(formData.templateType),
-            tx.pure.u64(formData.quotaCostPerExecution),
-            formData.maxExecutionsPerUser ? tx.pure.option('u64', formData.maxExecutionsPerUser) : tx.pure.option('u64', null),
-            formData.maxTotalExecutions ? tx.pure.option('u64', formData.maxTotalExecutions) : tx.pure.option('u64', null),
-            expirationTimestamp ? tx.pure.option('u64', expirationTimestamp) : tx.pure.option('u64', null),
-            tx.pure.vector('string', formData.tags),
-            formData.icon ? tx.pure.option('string', formData.icon) : tx.pure.option('string', null),
-            formData.estimatedCompletionMinutes ? tx.pure.option('u64', formData.estimatedCompletionMinutes) : tx.pure.option('u64', null),
-            tx.object(CLOCK_ID),
-          ],
-        });
+        // Create embedded generation using proper transaction builder
+        tx = buildCreateEmbeddedGenerationTransaction(
+          partnerCap.id,
+          registryId,
+          formData.name,
+          formData.description,
+          formData.category,
+          formData.walrusBlobId,
+          formData.codeHash,
+          formData.templateType,
+          formData.quotaCostPerExecution,
+          formData.maxExecutionsPerUser,
+          formData.maxTotalExecutions,
+          expirationTimestamp,
+          formData.tags,
+          formData.icon || null,
+          formData.estimatedCompletionMinutes
+        );
       } else {
-        // Create external generation
-        tx.moveCall({
-          target: `${PACKAGE_ID}::generation_manager::create_external_generation`,
-          arguments: [
-            tx.object(partnerCap.id),
-            tx.pure.string(formData.name),
-            tx.pure.string(formData.description),
-            tx.pure.string(formData.category),
-            tx.pure.string(formData.targetUrl),
-            tx.pure.string(formData.redirectType),
-            formData.returnCallbackUrl ? tx.pure.option('string', formData.returnCallbackUrl) : tx.pure.option('string', null),
-            tx.pure.bool(formData.requiresAuthentication),
-            tx.pure.u64(formData.quotaCostPerExecution),
-            formData.maxExecutionsPerUser ? tx.pure.option('u64', formData.maxExecutionsPerUser) : tx.pure.option('u64', null),
-            formData.maxTotalExecutions ? tx.pure.option('u64', formData.maxTotalExecutions) : tx.pure.option('u64', null),
-            expirationTimestamp ? tx.pure.option('u64', expirationTimestamp) : tx.pure.option('u64', null),
-            tx.pure.vector('string', formData.tags),
-            formData.icon ? tx.pure.option('string', formData.icon) : tx.pure.option('string', null),
-            formData.estimatedCompletionMinutes ? tx.pure.option('u64', formData.estimatedCompletionMinutes) : tx.pure.option('u64', null),
-            tx.object(CLOCK_ID),
-          ],
-        });
+        // Create external generation using proper transaction builder
+        tx = buildCreateExternalGenerationTransaction(
+          partnerCap.id,
+          registryId,
+          formData.name,
+          formData.description,
+          formData.category,
+          formData.targetUrl,
+          formData.redirectType,
+          formData.returnCallbackUrl || null,
+          formData.requiresAuthentication,
+          formData.quotaCostPerExecution,
+          formData.maxExecutionsPerUser,
+          formData.maxTotalExecutions,
+          expirationTimestamp,
+          formData.tags,
+          formData.icon || null,
+          formData.estimatedCompletionMinutes
+        );
       }
 
       await signAndExecuteTransaction(
         { transaction: tx },
         {
-          onSuccess: () => {
+          onSuccess: (result) => {
+            console.log('✅ Generation created successfully:', result);
+            
+            // Create the generation object for local state update
             const newGeneration = {
-              id: Date.now().toString(),
+              id: result.digest, // We'll get the actual object ID from events later
               name: formData.name,
               description: formData.description,
               category: formData.category,
@@ -272,11 +277,13 @@ export const GenerationBuilder: React.FC<GenerationBuilderProps> = ({
               estimatedCompletionMinutes: formData.estimatedCompletionMinutes,
               expirationTimestamp: expirationTimestamp,
               tags: formData.tags,
-              isActive: false,
-              approved: formData.executionType !== 'embedded_code',
+              isActive: true, // Smart contract sets this to true by default
+              approved: formData.executionType !== 'embedded_code', // External URLs auto-approved
               totalExecutionsCount: 0,
               createdTimestamp: Date.now(),
-              safetyScore: formData.executionType === 'embedded_code' ? Math.floor(Math.random() * 40) + 60 : null
+              safetyScore: formData.executionType === 'embedded_code' ? null : 85, // Set by smart contract
+              walrusBlobId: formData.executionType === 'embedded_code' ? formData.walrusBlobId : undefined,
+              icon: formData.icon || null
             };
             
             toast.success('Generation created successfully!');
@@ -284,13 +291,15 @@ export const GenerationBuilder: React.FC<GenerationBuilderProps> = ({
             onClose();
           },
           onError: (error) => {
-            console.error('Generation creation failed:', error);
+            console.error('❌ Generation creation failed:', error);
+            toast.error('Failed to create generation. Please try again.');
             setErrors({ submit: 'Failed to create generation. Please try again.' });
           },
         }
       );
     } catch (error) {
-      console.error('Generation creation error:', error);
+      console.error('❌ Generation creation error:', error);
+      toast.error('Failed to create generation. Please try again.');
       setErrors({ submit: 'Failed to create generation. Please try again.' });
     } finally {
       setIsLoading(false);

@@ -170,7 +170,7 @@ export const SDKDemo: React.FC = () => {
                   onClick={() => {
                     navigator.clipboard.writeText(`<!-- Add this to your website's HTML -->
 <script 
-    src="https://cdn.alphapoints.com/sui-points-adapter.js"
+    src="https://onboard.alpha4.io/sui-points-adapter.js"
     data-package-id="0x123..."
     data-partner-cap-id="${mockPartnerCap.id}"
     data-rpc-url="https://fullnode.testnet.sui.io:443"

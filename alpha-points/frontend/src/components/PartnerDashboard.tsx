@@ -19,6 +19,7 @@ import {
   buildUpdatePerkControlSettingsTransaction, 
   buildUpdatePerkTypeListsTransaction, 
   buildUpdatePerkTagListsTransaction,
+  buildUpdateAllPerkSettingsTransaction,
   buildAddSuiCollateralTransaction,
   buildCreateInitialSuiVaultTransaction,
   buildAddUsdcCollateralTransaction,
@@ -1314,20 +1315,24 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       const allowedPerkTypes = ['Access', 'Service', 'Digital Asset', 'Physical', 'Event', 'VIP', 'Premium', 'Exclusive', 'Limited', 'Beta', 'Financial', 'Education', 'Digital'];
       const allowedTags = availableTags; // Use all tags from the frontend availableTags array
 
-      // 1. Update perk control settings first
-      toast.info('Step 1/3: Updating perk control settings...');
+      // MERGED TRANSACTION: Update all settings in a single transaction for better reliability
+      toast.info('🔧 Updating all perk settings in a single transaction...');
       
-      const settingsTx = buildUpdatePerkControlSettingsTransaction(
+      // Use the consolidated transaction builder function
+      const settingsTx = buildUpdateAllPerkSettingsTransaction(
         partnerCap.id,
-        perkSettings.maxPerksPerPartner,
-        perkSettings.maxClaimsPerPerk,
-        perkSettings.maxCostPerPerkUsd, // FIXED: Pass USD directly, not micro-USDC
-        perkSettings.minPartnerSharePercentage,
-        perkSettings.maxPartnerSharePercentage,
-        perkSettings.allowConsumablePerks,
-        perkSettings.allowExpiringPerks,
-        perkSettings.allowUniqueMetadata
-        // Note: No sponsorAddress - user pays their own gas for testing
+        {
+          maxPerksPerPartner: perkSettings.maxPerksPerPartner || 100,
+          maxClaimsPerPerk: perkSettings.maxClaimsPerPerk || 1000,
+          maxCostPerPerkUsd: perkSettings.maxCostPerPerkUsd || 100,
+          minPartnerSharePercentage: perkSettings.minPartnerSharePercentage || 50,
+          maxPartnerSharePercentage: perkSettings.maxPartnerSharePercentage || 90,
+          allowConsumablePerks: perkSettings.allowConsumablePerks || true,
+          allowExpiringPerks: perkSettings.allowExpiringPerks || true,
+          allowUniqueMetadata: perkSettings.allowUniqueMetadata || true
+        },
+        allowedPerkTypes,
+        allowedTags
       );
 
       const settingsResult = await signAndExecuteTransaction({
@@ -1338,72 +1343,16 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       if (settingsResult?.digest) {
         toast.success(
           <SuccessToast
-            title="✅ Step 1/3: Control settings updated!"
+            title="🎉 All perk settings updated successfully!"
+            message="✅ Control Settings • ✅ Perk Types • ✅ Tags - All updated in one transaction!"
             txHash={settingsResult.digest}
           />
         );
       }
-
-      // Wait between transactions to avoid object conflicts (reduced delays to prevent 429 errors)
-      toast.info('⏳ Waiting for blockchain state to settle (reduced timing to prevent rate limits)...');
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Reduced from 4 seconds
-
-      // 2. Update perk types allowlist
-      toast.info('Step 2/3: Updating perk types allowlist...');
-      
-      const typesTx = buildUpdatePerkTypeListsTransaction(
-        partnerCap.id,
-        allowedPerkTypes,
-        [] // No blacklisted types
-        // Note: No sponsorAddress - user pays their own gas for testing
-      );
-
-      const typesResult = await signAndExecuteTransaction({
-        transaction: typesTx,
-        chain: 'sui:testnet',
-      });
-
-      if (typesResult?.digest) {
-        toast.success(
-          <SuccessToast
-            title="✅ Step 2/3: Perk types updated!"
-            txHash={typesResult.digest}
-          />
-        );
-      }
-
-      // Wait between transactions (reduced timing)
-      toast.info('⏳ Preparing final update (reduced timing)...');
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Reduced from 5 seconds
-
-      // 3. Update perk tags allowlist
-      toast.info('Step 3/3: Updating perk tags allowlist...');
-      
-      const tagsTx = buildUpdatePerkTagListsTransaction(
-        partnerCap.id,
-        allowedTags,
-        [] // No blacklisted tags
-        // Note: No sponsorAddress - user pays their own gas for testing
-      );
-
-      const tagsResult = await signAndExecuteTransaction({
-        transaction: tagsTx,
-        chain: 'sui:testnet',
-      });
-
-      if (tagsResult?.digest) {
-        toast.success(
-          <SuccessToast
-            title="🎉 All done! Perk creation now enabled!"
-            message="✅ Settings • ✅ Types • ✅ Tags"
-            txHash={tagsResult.digest}
-          />
-        );
-      }
         
-      // Comprehensive refresh after all transactions complete
-      toast.info('🔄 Refreshing partner data (reduced timing to prevent rate limits)...');
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Reduced from 3 seconds
+      // Comprehensive refresh after transaction completes
+      toast.info('🔄 Refreshing partner data...');
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
       // Refresh both local state and parent component data
       if (onRefresh) {

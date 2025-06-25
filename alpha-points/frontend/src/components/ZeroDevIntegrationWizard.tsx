@@ -182,8 +182,8 @@ export const ZeroDevIntegrationWizard: React.FC<ZeroDevIntegrationWizardProps> =
     const enabledMappings = eventMappings.filter(mapping => mapping.enabled);
     
     const script = `
-<!-- Alpha Points Zero-Dev Integration -->
-<script src="https://cdn.alphapoints.io/sui-points-adapter.js"></script>
+<!-- Alpha4 Onboard SDK Integration -->
+<script src="https://onboard.alpha4.io/sui-points-adapter.js"></script>
 <script>
   window.AlphaPointsSDK.init({
     partnerCapId: "${partnerCap.id}",
