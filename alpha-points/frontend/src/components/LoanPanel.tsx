@@ -25,7 +25,7 @@ import 'swiper/css/navigation';
 import 'swiper/css/pagination';
 
 export const LoanPanel: React.FC = () => {
-  const { loans, stakePositions, refreshData, refreshLoansData, setTransactionLoading } = useAlphaContext();
+  const { loans, stakePositions, refreshData, refreshLoansData, refreshStakePositions, setTransactionLoading } = useAlphaContext();
   const [repayInProgress, setRepayInProgress] = useState<string | null>(null);
   const [loanSwiperInstance, setLoanSwiperInstance] = useState<any>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -35,11 +35,15 @@ export const LoanPanel: React.FC = () => {
   // Register refresh callback
   React.useEffect(() => {
     const cleanup = registerRefreshCallback(async () => {
-      await refreshLoansData();
+      // Refresh loans and stake positions in parallel for better performance
+      await Promise.all([
+        refreshLoansData(),
+        refreshStakePositions()
+      ]);
       await refreshData();
     });
     return cleanup;
-  }, [registerRefreshCallback, refreshLoansData, refreshData]);
+  }, [registerRefreshCallback, refreshLoansData, refreshStakePositions, refreshData]);
 
   // Helper function to get stake details for a loan
   const getStakeDetails = (stakeId: string) => {
@@ -97,8 +101,12 @@ export const LoanPanel: React.FC = () => {
         
         // Refresh data after successful repayment - wrapped in try-catch to prevent error popup on success
         try {
-          await refreshLoansData();
-          await refreshData();
+          // Refresh in parallel for faster response, but ensure both critical data sources are updated
+          await Promise.all([
+            refreshLoansData(),
+            refreshStakePositions()
+          ]);
+          await refreshData(); // Refresh general data last
         } catch (refreshError) {
           console.error('Error refreshing data after successful loan repayment:', refreshError);
           // Don't show error toast here since the transaction was successful

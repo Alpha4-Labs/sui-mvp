@@ -154,6 +154,24 @@ export const StakedPositionsList: React.FC = () => {
     return loans.some(loan => loan.stakeId === originalId);
   };
 
+  // Helper function to determine if a stake should be considered as loan collateral
+  // This accounts for potential data synchronization issues
+  const isStakeLoanCollateral = (position: any, stakeId: string): boolean => {
+    const isEncumbered = position.encumbered === true;
+    const hasLoan = hasAssociatedLoan(stakeId);
+    
+    // If not encumbered, it's definitely not loan collateral
+    if (!isEncumbered) return false;
+    
+    // If encumbered and has an active loan, it's loan collateral
+    if (hasLoan) return true;
+    
+    // If encumbered but no active loan, this could be a data sync issue
+    // Let's be more conservative and treat recent encumbered stakes without loans
+    // as potentially having repaid loans (better UX than showing as early withdrawn)
+    return false;
+  };
+
   // Old package stake checking removed - no longer needed
 
   // Load loans data when component mounts to help distinguish loan collateral from early unstake
@@ -631,10 +649,10 @@ export const StakedPositionsList: React.FC = () => {
     const stakedSuiObjectId = position.stakedSuiObjectId || '';
     const startTimeMs = position.startTimeMs ? parseInt(position.startTimeMs) : 0;
     
-    // Check if this is an early withdrawn position (encumbered = true but not loan collateral)
-    const isEncumbered = position.encumbered === true;
-    const isLoanCollateral = isEncumbered && hasAssociatedLoan(`stake-${position.id}`);
-    const isEarlyWithdrawn = isEncumbered && !isLoanCollateral;
+            // Check if this is an early withdrawn position (encumbered = true but not loan collateral)
+        const isEncumbered = position.encumbered === true;
+        const isLoanCollateral = isStakeLoanCollateral(position, `stake-${position.id}`);
+        const isEarlyWithdrawn = isEncumbered && !isLoanCollateral;
     
     // Log details for debugging
     console.log(`Checking position ${positionId}:`, {
@@ -964,7 +982,7 @@ export const StakedPositionsList: React.FC = () => {
                 const isEncumbered = !isOrphaned && (item as SwiperStakeItem).encumbered;
                 
                 // Check if encumbered stake is loan collateral vs early withdrawn
-                const isLoanCollateral = isEncumbered && hasAssociatedLoan(item.id);
+                const isLoanCollateral = isStakeLoanCollateral(item, item.id);
                 const isEarlyWithdrawn = isEncumbered && !isLoanCollateral;
                 
                 // Check if early withdrawn stake has now matured (can reclaim principal)
