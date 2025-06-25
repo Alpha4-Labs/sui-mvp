@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import { useSignAndExecuteTransaction, useCurrentAccount } from '@mysten/dapp-kit';
 import { usePerkData, PerkDefinition } from '../hooks/usePerkData';
 import { useAlphaContext } from '../context/AlphaContext';
-import { buildClaimPerkTransaction, buildClaimPerkWithMetadataTransaction, findPartnerStatsId, findOrSuggestCreatePartnerStats, ensurePartnerStatsExists, checkPartnerQuotaStatus, calculateExpectedPartnerShare, buildClaimPerkQuotaFreeTransaction, buildClaimPerkWithMetadataQuotaFreeTransaction } from '../utils/transaction';
+import { buildClaimPerkQuotaFreeTransaction, buildClaimPerkWithMetadataQuotaFreeTransaction } from '../utils/transaction';
 import { hashMetadata } from '../utils/privacy';
 import { PerkFilterModal } from './PerkFilterModal';
 import { MetadataCollectionModal } from './MetadataCollectionModal';
@@ -11,7 +12,7 @@ import type { MetadataField } from '../hooks/usePartnerSettings';
 import { toast } from 'react-toastify';
 import { requestCache } from '../utils/cache';
 // Removed SuinsClient import - no longer needed
-import { SHARED_OBJECTS } from '../config/contract';
+import { SHARED_OBJECTS, ALL_PACKAGE_IDS } from '../config/contract';
 
 interface AlphaPerksMarketplaceProps {
   userPoints: number;
@@ -20,6 +21,58 @@ interface AlphaPerksMarketplaceProps {
 
 // OPTIMIZATION: Global partner names cache to avoid refetching across component instances
 const globalPartnerNamesCache = new Map<string, string>();
+
+// OPTIMIZATION: LocalStorage cache for persistent marketplace perks
+const MARKETPLACE_CACHE_KEY = 'alpha_marketplace_perks_v1';
+const CACHE_EXPIRY_KEY = 'alpha_marketplace_perks_expiry_v1';
+const CACHE_DURATION_MS = 30 * 60 * 1000; // 30 minutes
+
+const getLocalStorageCache = (): PerkDefinition[] | null => {
+  try {
+    const cached = localStorage.getItem(MARKETPLACE_CACHE_KEY);
+    const expiry = localStorage.getItem(CACHE_EXPIRY_KEY);
+    
+    if (cached && expiry) {
+      const expiryTime = parseInt(expiry);
+      if (Date.now() < expiryTime) {
+        const parsedPerks = JSON.parse(cached) as PerkDefinition[];
+            return parsedPerks;
+      } else {
+        // Cache expired, clean up
+        localStorage.removeItem(MARKETPLACE_CACHE_KEY);
+        localStorage.removeItem(CACHE_EXPIRY_KEY);
+
+      }
+    }
+  } catch (err) {
+
+    // Clean up corrupted cache
+    localStorage.removeItem(MARKETPLACE_CACHE_KEY);
+    localStorage.removeItem(CACHE_EXPIRY_KEY);
+  }
+  return null;
+};
+
+const setLocalStorageCache = (perks: PerkDefinition[]) => {
+  try {
+    const expiryTime = Date.now() + CACHE_DURATION_MS;
+    localStorage.setItem(MARKETPLACE_CACHE_KEY, JSON.stringify(perks));
+    localStorage.setItem(CACHE_EXPIRY_KEY, expiryTime.toString());
+
+  } catch (err) {
+
+    // If localStorage is full, try to clear old cache and retry
+    try {
+      localStorage.removeItem(MARKETPLACE_CACHE_KEY);
+      localStorage.removeItem(CACHE_EXPIRY_KEY);
+      localStorage.setItem(MARKETPLACE_CACHE_KEY, JSON.stringify(perks));
+      localStorage.setItem(CACHE_EXPIRY_KEY, (Date.now() + CACHE_DURATION_MS).toString());
+
+    } catch (retryErr) {
+
+    }
+  }
+};
 
 export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   userPoints,
@@ -44,6 +97,8 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   
   // Simple loading state tracking
   const [loadingStage, setLoadingStage] = useState<'perks' | 'partners' | 'complete'>('perks');
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const [forceRender, setForceRender] = useState(0);
 
   // Track user's claimed perks
   const [claimedPerks, setClaimedPerks] = useState<Set<string>>(new Set());
@@ -84,7 +139,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     try {
       const packageId = import.meta.env['VITE_PACKAGE_ID'];
       if (!packageId) {
-        console.warn('Package ID not configured, cannot fetch claimed perks');
+
         return;
       }
 
@@ -139,7 +194,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       });
       setClaimedPerks(claimedPerkIds);
     } catch (error) {
-      console.error('Failed to fetch claimed perks:', error);
+
       setClaimedPerks(new Set());
     } finally {
       setIsLoadingClaimedPerks(false);
@@ -155,12 +210,12 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     if (uncachedIds.length === 0) {
       // All names already cached, update local state
       setPartnerNames(new Map(globalPartnerNamesCache));
-      setLoadingStage('complete');
+      // DON'T override loadingStage if it's already complete
       return;
     }
 
     setIsLoadingPartnerNames(true);
-    setLoadingStage('partners');
+    // DON'T set loadingStage to 'partners' - keep UI unblocked
     
     try {
       // Use cached requestCache for partner names with 10-minute cache
@@ -232,50 +287,253 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       
       // Update local state with all cached names
       setPartnerNames(new Map(globalPartnerNamesCache));
-      setLoadingStage('complete');
+      // DON'T override loadingStage - partner names are background loading
     } catch (error) {
-      console.warn('Failed to fetch partner names:', error);
+      
       // Set fallback names for failed requests
       uncachedIds.forEach(id => {
         globalPartnerNamesCache.set(id, 'Unknown Partner');
       });
       setPartnerNames(new Map(globalPartnerNamesCache));
-      setLoadingStage('complete');
+      // DON'T override loadingStage - partner names are background loading
     } finally {
       setIsLoadingPartnerNames(false);
     }
   };
 
   // OPTIMIZATION: Progressive loading - load perks first, then partner names in parallel
+  // FAST LOADING: Custom fast perk loader that loads most recent packages first
+  const fastLoadMarketplacePerks = async (): Promise<PerkDefinition[]> => {
+    if (!suiClient) return [];
+    
+    try {
+      // Load from most recent packages first (last 2 packages for speed)
+      const recentPackages = ALL_PACKAGE_IDS.slice(-2);
+  
+      
+      const fastPerks: PerkDefinition[] = [];
+      
+      // AGGRESSIVE TIMEOUT: Don't let any single package take more than 2 seconds
+      const PACKAGE_TIMEOUT_MS = 2000;
+      
+      for (const packageId of recentPackages) {
+        try {
+          // Get only the most recent perks (limit 15 for speed) with aggressive timeout
+          const perkCreatedEvents = await Promise.race([
+            suiClient.queryEvents({
+              query: {
+                MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
+              },
+              order: 'descending',
+              limit: 15, // Much smaller limit for speed
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Package query timeout')), PACKAGE_TIMEOUT_MS)
+            )
+          ]);
+
+          // Extract perk IDs (limit 10 for speed)
+          const perkIds: string[] = [];
+          for (const event of perkCreatedEvents.data.slice(0, 10)) {
+            if (event.parsedJson && typeof event.parsedJson === 'object') {
+              const eventData = event.parsedJson as any;
+              perkIds.push(eventData.perk_definition_id);
+            }
+          }
+
+          // Fast batch fetch with smaller batches
+          if (perkIds.length > 0) {
+            const batchSize = 3; // Very small batches for speed
+            for (let i = 0; i < perkIds.length; i += batchSize) {
+              const batch = perkIds.slice(i, i + batchSize);
+              const batchPromises = batch.map(async (id) => {
+                try {
+                  const result = await Promise.race([
+                    suiClient.getObject({
+                      id,
+                      options: { showContent: true, showType: true },
+                    }),
+                    new Promise((_, reject) => 
+                      setTimeout(() => reject(new Error('Timeout')), 1500) // Very short timeout
+                    )
+                  ]);
+
+                  if (result?.data?.content && result.data.content.dataType === 'moveObject') {
+                    const fields = (result.data.content as any).fields;
+                    const rawUsdcPrice = parseFloat(fields.usdc_price || '0');
+                    const alphaPrice = parseFloat(fields.current_alpha_points_price || '0');
+                    const revenueSplit = fields.revenue_split_policy?.fields || fields.revenue_split_policy || {};
+                    
+                    return {
+                      id: result.data.objectId,
+                      name: fields.name || 'Unknown Perk',
+                      description: fields.description || '',
+                      creator_partner_cap_id: fields.creator_partner_cap_id,
+                      perk_type: fields.perk_type || 'General',
+                      usdc_price: rawUsdcPrice,
+                      current_alpha_points_price: alphaPrice,
+                      last_price_update_timestamp_ms: parseInt(fields.last_price_update_timestamp_ms || '0'),
+                      partner_share_percentage: parseInt(revenueSplit.partner_share_percentage || '70'),
+                      platform_share_percentage: parseInt(revenueSplit.platform_share_percentage || '30'),
+                      max_claims: fields.max_claims ? parseInt(fields.max_claims) : undefined,
+                      total_claims_count: parseInt(fields.total_claims_count || '0'),
+                      is_active: fields.is_active || false,
+                      generates_unique_claim_metadata: fields.generates_unique_claim_metadata || false,
+                      max_uses_per_claim: fields.max_uses_per_claim ? parseInt(fields.max_uses_per_claim) : undefined,
+                      expiration_timestamp_ms: fields.expiration_timestamp_ms ? parseInt(fields.expiration_timestamp_ms) : undefined,
+                      tags: Array.isArray(fields.tags) ? fields.tags : (fields.tags?.length > 0 ? [fields.tags] : []),
+                      icon: fields.icon,
+                      packageId,
+                    } as PerkDefinition;
+                  }
+                } catch (err) {
+                  // Ignore individual failures for speed
+                  return null;
+                }
+              });
+
+              const batchResults = await Promise.all(batchPromises);
+              const validPerks = batchResults.filter((perk): perk is PerkDefinition => 
+                perk !== null && perk.is_active
+              );
+              fastPerks.push(...validPerks);
+              
+              // Small delay between batches
+              if (i + batchSize < perkIds.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+            }
+          }
+        } catch (err) {
+
+        }
+      }
+      
+
+      return fastPerks;
+    } catch (err) {
+
+      return [];
+    }
+  };
+
   useEffect(() => {
+    // Only run on initial mount, not on refresh button clicks
+
+    
     const loadMarketplaceData = async () => {
       try {
+        
         setLoadingStage('perks');
         
-        // Start loading perks immediately
-        const perksPromise = fetchAllMarketplacePerks();
+        // Only set initialized flag after we actually start loading
+        if (!hasInitialized) {
+          setHasInitialized(true);
+        }
         
-        // Get perks first and show immediately
-        const perks = await perksPromise;
-        setMarketplacePerks(perks);
-        setLoadingStage('complete'); // Allow perks to display right away
+        // PRIORITY 1: LocalStorage cache (persistent across sessions)
+        const localStorageCachedPerks = getLocalStorageCache();
+        if (localStorageCachedPerks && localStorageCachedPerks.length > 0) {
 
-        // Load partner names in background without blocking UI
-        if (perks.length > 0) {
-          const uniquePartnerCapIds = [...new Set(perks.map(perk => perk.creator_partner_cap_id))];
-          // Use setTimeout to defer partner name loading to next tick
+          setMarketplacePerks(localStorageCachedPerks);
+          // Immediate completion for cached data
+          setLoadingStage('complete');
+
+          
+          // Load partner names for cached data
+          const uniquePartnerCapIds = [...new Set(localStorageCachedPerks.map(perk => perk.creator_partner_cap_id))];
           setTimeout(() => {
             fetchPartnerNames(uniquePartnerCapIds);
           }, 0);
+          return;
         }
+        
+        // PRIORITY 2: Memory cache (within session)
+        const cacheKey = 'marketplace_perks_all';
+        const memoryCachedPerks = requestCache.get(cacheKey);
+        if (memoryCachedPerks && memoryCachedPerks.length > 0) {
+          
+          setMarketplacePerks(memoryCachedPerks);
+          // Immediate completion for cached data
+          setLoadingStage('complete');
+          
+          setLocalStorageCache(memoryCachedPerks); // Save to localStorage for next visit
+          
+          // Load partner names for cached data
+          const uniquePartnerCapIds = [...new Set(memoryCachedPerks.map(perk => perk.creator_partner_cap_id))];
+          setTimeout(() => {
+            fetchPartnerNames(uniquePartnerCapIds);
+          }, 0);
+          return;
+        }
+        
+        // PRIORITY 3: No cache available - show loading while fetching
+        
+        // Keep loadingStage as 'perks' to show loading animation
+        setMarketplacePerks([]); // Start with empty array
+        
+        // Safety net: Force completion after 4 seconds no matter what (DISABLED FOR DEBUGGING)
+        const safetyTimeout = setTimeout(() => {
+          
+          setLoadingStage('complete');
+        }, 30000); // Increased to 30 seconds to avoid interference
+        
+        // Load data with aggressive timeout - don't wait longer than 3 seconds
+        const fastLoadingPromise = Promise.race([
+          fastLoadMarketplacePerks(),
+          new Promise<PerkDefinition[]>((resolve) => 
+            setTimeout(() => {
+
+              resolve([]);
+            }, 3000) // 3 second timeout
+          )
+        ]);
+        
+        // Load fresh data
+        
+        
+        // Load fresh data with proper error handling
+        fetchAllMarketplacePerks()
+          .then(allPerks => {
+
+            
+            // Update state immediately
+            setMarketplacePerks(allPerks);
+            setLocalStorageCache(allPerks); // Cache the data
+            clearTimeout(safetyTimeout); // Clear safety net
+            
+            // Load partner names in background
+            if (allPerks.length > 0) {
+              const uniquePartnerCapIds = [...new Set(allPerks.map(perk => perk.creator_partner_cap_id))];
+              setTimeout(() => {
+                fetchPartnerNames(uniquePartnerCapIds);
+              }, 0);
+            }
+            
+            // Force immediate re-render using flushSync
+
+            flushSync(() => {
+              setLoadingStage('complete');
+              setForceRender(prev => prev + 1);
+            });
+            
+          })
+          .catch(err => {
+            
+            clearTimeout(safetyTimeout); // Clear safety net
+            setLoadingStage('complete');
+          });
+        
+
       } catch (error) {
-        console.error('Failed to load marketplace perks:', error);
+
         setLoadingStage('complete');
+
       }
     };
 
     loadMarketplaceData();
-  }, [fetchAllMarketplacePerks]);
+  }, []); // REMOVED fetchAllMarketplacePerks dependency to prevent re-runs
 
   // Fetch claimed perks when user connects or changes
   useEffect(() => {
@@ -363,9 +621,13 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
 
     // Filter by owned status
     if (filterByOwned === 'owned') {
-      filtered = filtered.filter(perk => hasPerkClaimed(perk));
+      const ownedPerks = filtered.filter(perk => hasPerkClaimed(perk));
+      
+      filtered = ownedPerks;
     } else if (filterByOwned === 'not-owned') {
-      filtered = filtered.filter(perk => !hasPerkClaimed(perk));
+      const notOwnedPerks = filtered.filter(perk => !hasPerkClaimed(perk));
+      
+      filtered = notOwnedPerks;
     }
 
     // Filter by tags
@@ -430,6 +692,33 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     return userPoints >= getCorrectAlphaPointsPrice(perk);
   };
 
+  // All perks are purchasable since stats objects are no longer required
+  const isPerkPurchasable = (perk: PerkDefinition) => {
+    return true;
+  };
+
+  // Enhanced error detection for unpurchasable perks
+  const getPerkPurchaseError = (perk: PerkDefinition): string | null => {
+    if (!canAffordPerk(perk)) {
+      return 'Insufficient Alpha Points';
+    }
+    
+    if (hasBuggyPricing(perk)) {
+      return 'Pricing issue - contact partner';
+    }
+    
+    if (isPerkExpired(perk)) {
+      return 'Perk has expired';
+    }
+    
+    if (hasPerkClaimed(perk) && !allowsMultipleClaims(perk)) {
+      return 'Already claimed';
+    }
+    
+    // Additional validation will happen during purchase attempt
+    return null;
+  };
+
   // Check if a perk allows multiple claims/uses
   const allowsMultipleClaims = (perk: PerkDefinition) => {
     // If max_claims is undefined (None) or > 1, it allows multiple claims
@@ -482,7 +771,7 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         ]
       };
     } catch (error) {
-      console.error('Failed to fetch partner metadata config:', error);
+
       return {
         salt: 'fallback-salt-' + Date.now(),
         fields: []
@@ -518,42 +807,25 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     setTransactionLoading(true);
 
     try {
-      console.log('🔐 Processing metadata for perk purchase');
-
-      // ENHANCED: Automatically handle PartnerPerkStatsV2 creation if needed
-      if (!suiClient) {
-        throw new Error("SUI client not available");
-      }
-      
-      console.log('⚡ Ensuring PartnerPerkStatsV2 exists for partner...');
-      const statsId = await ensurePartnerStatsExists(
-        suiClient, 
-        selectedPerkForMetadata.creator_partner_cap_id,
-        signAndExecute
-      );
-      
-      console.log('✅ PartnerPerkStatsV2 ready:', statsId);
-
       // Process metadata - currently only handles first metadata field
       const metadataKeys = Object.keys(metadata);
       const metadataValues = Object.values(metadata);
 
-              if (metadataKeys.length === 0) {
-          throw new Error("No metadata provided");
-        }
+      if (metadataKeys.length === 0) {
+        throw new Error("No metadata provided");
+      }
 
-        const metadataValue = metadataValues[0];
-        if (!metadataValue || typeof metadataValue !== 'string') {
-          throw new Error("Metadata value is required and must be a string");
-        }
+      const metadataValue = metadataValues[0];
+      if (!metadataValue || typeof metadataValue !== 'string') {
+        throw new Error("Metadata value is required and must be a string");
+      }
 
-        // Build the perk claiming transaction with metadata
-        const transaction = buildClaimPerkWithMetadataTransaction(
-          selectedPerkForMetadata.id,
-          statsId,
-          metadataKeys[0],
-          metadataValue as string // Type assertion after validation
-        );
+      // Build the quota-free perk claiming transaction with metadata
+      const transaction = buildClaimPerkWithMetadataQuotaFreeTransaction(
+        selectedPerkForMetadata.id,
+        metadataKeys[0],
+        metadataValue as string // Type assertion after validation
+      );
 
       const result = await signAndExecute({
         transaction,
@@ -584,39 +856,15 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         setSelectedPerkForMetadata(null);
       }
     } catch (error: any) {
-      console.error('Failed to purchase perk with metadata:', error);
-      
-      // Provide more specific error messages based on error type
-      if (error.message?.includes('No PartnerPerkStatsV2 found')) {
-        toast.error(
-          `❌ Partner setup incomplete\n\n` +
-          `This partner needs to complete their V2 system setup before users can purchase perks.\n` +
-          `Please contact the partner or try again later.`,
-          {
-            autoClose: 8000,
-            style: { whiteSpace: 'pre-line' }
-          }
-        );
-      } else if (error.message?.includes('EMaxUsesReachedOnPerk')) {
-        toast.error(
-          `❌ Partner quota exceeded\n\n` +
-          `This partner has reached their daily quota limit. Please try again tomorrow or contact the partner.`,
-          {
-            autoClose: 8000,
-            style: { whiteSpace: 'pre-line' }
-          }
-        );
-      } else if (error.message?.includes('Unable to create required PartnerPerkStatsV2')) {
-        toast.error(
-          `❌ Partner setup required\n\n` +
-          `The partner needs to create their analytics system first. Please contact them to complete their setup.`,
-          {
-            autoClose: 8000,
-            style: { whiteSpace: 'pre-line' }
-          }
-        );
+      // Provide clear error messages for quota-free function
+      if (error.message?.includes('EPerkNotActive')) {
+        toast.error('❌ This perk is not currently active. Please contact the partner.');
+      } else if (error.message?.includes('EMaxClaimsReached')) {
+        toast.error('❌ This perk has reached its maximum claims limit.');
+      } else if (error.message?.includes('Insufficient balance')) {
+        toast.error('❌ You don\'t have enough Alpha Points for this perk.');
       } else {
-        toast.error(error.message || 'Failed to purchase perk with metadata.');
+        toast.error(`❌ Failed to purchase perk: ${error.message || 'Unknown error'}`);
       }
     } finally {
       setPerkPurchaseLoading(false);
@@ -639,39 +887,8 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     setTransactionLoading(true);
 
     try {
-      console.log('🔍 DEBUG: Building transaction for perk purchase');
-      console.log('🔍 Current Account:', currentAccount.address);
-      console.log('🔍 Perk ID:', perk.id);
-      console.log('🔍 Partner Cap ID:', perk.creator_partner_cap_id);
-      
-      // Find the correct PartnerPerkStatsV2 object ID
-      if (!suiClient) {
-        throw new Error("SUI client not available");
-      }
-
-      // Use the comprehensive function to find or suggest creating stats
-      const statsResult = await findOrSuggestCreatePartnerStats(suiClient, perk.creator_partner_cap_id);
-      
-      if (statsResult.needsCreation) {
-        toast.error(
-          `❌ This partner hasn't set up their stats tracking yet.\n\n` +
-          `The partner needs to create a PartnerPerkStatsV2 object before users can purchase their perks.\n\n` +
-          `Please contact the partner or try again later.`,
-          {
-            autoClose: 10000,
-            style: { whiteSpace: 'pre-line' }
-          }
-        );
-        return;
-      }
-
-      if (!statsResult.statsId) {
-        throw new Error("Failed to get stats ID");
-      }
-
-      console.log('🔍 Found Partner Stats ID:', statsResult.statsId);
-      
-      const transaction = buildClaimPerkTransaction(perk.id, statsResult.statsId);
+      // Build the quota-free perk claiming transaction
+      const transaction = buildClaimPerkQuotaFreeTransaction(perk.id);
 
       // Set the sender explicitly to match the connected account
       if (currentAccount?.address) {
@@ -703,21 +920,15 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         }
       }
     } catch (error: any) {
-      console.error('Failed to purchase perk:', error);
-      
-      // Provide more specific error messages
-      if (error.message?.includes('No PartnerPerkStatsV2 found')) {
-        toast.error(
-          `❌ Partner setup required\n\n` +
-          `This partner needs to create their stats tracking object before users can purchase perks.\n\n` +
-          `Please contact the partner or try again later.`,
-          {
-            autoClose: 8000,
-            style: { whiteSpace: 'pre-line' }
-          }
-        );
+      // Provide clear error messages for quota-free function
+      if (error.message?.includes('EPerkNotActive')) {
+        toast.error('❌ This perk is not currently active. Please contact the partner.');
+      } else if (error.message?.includes('EMaxClaimsReached')) {
+        toast.error('❌ This perk has reached its maximum claims limit.');
+      } else if (error.message?.includes('Insufficient balance')) {
+        toast.error('❌ You don\'t have enough Alpha Points for this perk.');
       } else {
-        toast.error(error.message || 'Failed to purchase perk.');
+        toast.error(`❌ Failed to purchase perk: ${error.message || 'Unknown error'}`);
       }
     } finally {
       setPerkPurchaseLoading(false);
@@ -749,8 +960,6 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
     setTransactionLoading(true);
 
     try {
-      console.log('🔐 Discord: Processing Discord ID for role assignment');
-      console.log('⚡ Using QUOTA-FREE perk claiming (no PartnerPerkStatsV2 needed)');
 
       // Hash the Discord ID for privacy
       const salt = import.meta.env['VITE_METADATA_SALT'] ?? 'alpha4-default-salt-2024';
@@ -764,7 +973,6 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         hashedDiscordId
       );
 
-      console.log('🚀 Executing QUOTA-FREE perk claim transaction...');
       const result = await signAndExecute({
         transaction,
         chain: 'sui:testnet',
@@ -794,7 +1002,6 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
         setSelectedDiscordPerk(null);
       }
     } catch (error: any) {
-      console.error('Failed to purchase Discord perk:', error);
       
       // Provide clear error messages for quota-free function
       if (error.message?.includes('EPerkNotActive')) {
@@ -839,24 +1046,44 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   // OPTIMIZATION: Fast refresh with progressive updates
   const handleRefresh = async () => {
     try {
-      // Clear caches for fresh data
+      // Clear ALL caches for fresh data
       refreshPerkData();
       globalPartnerNamesCache.clear();
+      
+      // Clear localStorage cache to force fresh data
+      localStorage.removeItem(MARKETPLACE_CACHE_KEY);
+      localStorage.removeItem(CACHE_EXPIRY_KEY);
       
       // Reset progress tracking
       setLoadingStage('perks');
       
-      // Load perks first (fast)
-      const perks = await fetchAllMarketplacePerks();
-      setMarketplacePerks(perks);
-      setLoadingStage('complete');
+      // FAST REFRESH: Load data in background, don't block UI
+      fetchAllMarketplacePerks().then(perks => {
+        setMarketplacePerks(perks);
+        setLoadingStage('complete');
+        
+        // Cache the fresh data
+        if (perks.length > 0) {
+          setLocalStorageCache(perks);
+          const uniquePartnerCapIds = [...new Set(perks.map(perk => perk.creator_partner_cap_id))];
+          setTimeout(() => {
+            fetchPartnerNames(uniquePartnerCapIds);
+          }, 0);
+        }
+        
+        toast.success('Marketplace refreshed with latest data!');
+      }).catch(error => {
+        toast.error('Failed to refresh marketplace.');
+        setLoadingStage('complete');
+      });
       
-      // Also refresh claimed perks
+      // Also refresh claimed perks in background
       fetchClaimedPerks();
       
-      toast.success('Marketplace refreshed!');
+      // Show immediate feedback
+      toast.info('Refreshing marketplace...', { autoClose: 2000 });
+      
     } catch (error) {
-      console.error('Failed to refresh marketplace:', error);
       toast.error('Failed to refresh marketplace.');
       setLoadingStage('complete');
     }
@@ -865,8 +1092,8 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
   return (
     <div>
       {/* Filter Controls */}
-      <div className="card-modern p-6 mb-6 animate-fade-in">
-        <div className="flex items-center justify-between mb-4">
+      <div className="card-modern px-4 py-3 mb-3 animate-fade-in">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-4">
             <button 
               onClick={() => setIsFilterModalOpen(true)}
@@ -930,12 +1157,15 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
           </div>
           
           <div className="flex items-center space-x-4">
+
+            
             <button
               onClick={handleRefresh}
-              disabled={isLoadingPerks}
+              disabled={loadingStage !== 'complete'}
               className="btn-modern-secondary flex items-center text-sm"
+              title="Refresh to get the latest perks from blockchain"
             >
-              {isLoadingPerks ? '⏳' : '🔄'} Refresh
+              {loadingStage !== 'complete' ? '⏳' : '🔄'} Refresh
             </button>
             
             <div className="text-right">
@@ -954,14 +1184,14 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
       </div>
 
       {/* Marketplace Content */}
-      <div className="max-h-[30rem] overflow-y-auto scrollbar-thin grid grid-cols-1 md:grid-cols-2 gap-6 p-2">
-        {isLoadingPerks ? (
-          // Simple loading state with spinning hourglass
+      <div className="max-h-[calc(100vh-40rem)] md:max-h-[calc(100vh-36rem)] overflow-y-auto scrollbar-thin grid grid-cols-1 md:grid-cols-2 gap-6 p-2 pb-6">
+        {loadingStage === 'perks' ? (
+          // Show loading state during initial perk fetching
           <div className="col-span-full text-center py-8 animate-fade-in">
             <div 
-              className="text-6xl mb-4 inline-block animate-spin-slow opacity-70"
+              className="text-6xl mb-4 inline-block opacity-70"
               style={{ 
-                animation: 'spin 3s linear infinite',
+                animation: 'spin 0.8s linear infinite',
                 transformOrigin: 'center center'
               }}
             >
@@ -1097,6 +1327,15 @@ export const AlphaPerksMarketplace: React.FC<AlphaPerksMarketplaceProps> = ({
                               ? 'bg-red-600/50 text-red-300 cursor-not-allowed'
                               : 'btn-modern-primary'
                           }`}
+                          title={
+                            isPerkClaimed && !allowsMultipleClaims(perk)
+                              ? 'You have already claimed this perk'
+                              : hasBuggyPricing(perk)
+                              ? 'This perk has pricing issues - contact the partner'
+                              : !canAffordPerk(perk)
+                              ? `You need ${getCorrectAlphaPointsPrice(perk).toLocaleString()} αP to purchase this perk`
+                              : 'Click to purchase this perk'
+                          }
                         >
                           {perkPurchaseLoading ? (
                             <>
