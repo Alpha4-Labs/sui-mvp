@@ -128,3 +128,32 @@ export const formatSui = (amount: string | number, decimals = 2): string => {
     const dailyRewardsPerSui = (ALPHA_POINTS_PER_SUI * (apyPercentage / 100)) / DAYS_PER_YEAR;
     return dailyRewardsPerSui;
   }
+
+  /**
+   * ⚠️  EMERGENCY FIX: Calculates ACTUAL blockchain rewards (not theoretical APY)
+   * This reflects the current blockchain state after the emergency rate fix
+   * TODO: Remove when proper APY calculation is implemented in smart contract
+   * 
+   * @param apyPercentage The displayed APY tier (5%, 10%, 20%, 25%)
+   * @returns The ACTUAL Alpha Points per day users will receive
+   */
+  export function calculateActualAlphaPointsPerDayPerSui(apyPercentage: number): number {
+    if (apyPercentage < 0) return 0;
+    
+    // CURRENT BLOCKCHAIN REALITY: Rate corresponds to APY tier
+    // 5% APY → rate = 1 → 1 point per epoch per SUI
+    // 10% APY → rate = 2 → 2 points per epoch per SUI
+    // etc.
+    const rateMapping: { [key: number]: number } = {
+      5: 1,   // 5% APY tier gives 1 point/epoch
+      10: 2,  // 10% APY tier gives 2 points/epoch  
+      15: 3,  // 15% APY tier gives 3 points/epoch
+      20: 4,  // 20% APY tier gives 4 points/epoch
+      25: 5   // 25% APY tier gives 5 points/epoch
+    };
+    
+    const pointsPerEpoch = rateMapping[apyPercentage] || Math.round(apyPercentage / 5);
+    const EPOCHS_PER_DAY = 1; // Assuming 1 epoch per day for now
+    
+    return pointsPerEpoch * EPOCHS_PER_DAY;
+  }

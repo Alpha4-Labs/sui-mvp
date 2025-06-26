@@ -803,26 +803,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       return;
     }
 
-    // CRITICAL: Enforce PartnerPerkStats requirement before allowing perk creation
-    if (hasPartnerStats === false) {
-      toast.error(
-        `🚫 Partner Stats Object Required\n\n` +
-        `"${partnerCap.partnerName}" needs a PartnerPerkStatsV2 object before creating perks.\n\n` +
-        `This object tracks purchase quotas, analytics, and user activity.\n\n` +
-        `📍 Go to Settings tab → Click "Create Stats Object" → Then return here`,
-        {
-          autoClose: 12000,
-          style: { whiteSpace: 'pre-line' }
-        }
-      );
-      return;
-    }
-
-    // Don't allow perk creation while stats are still being checked
-    if (isCheckingStats || hasPartnerStats === null) {
-      toast.error('Please wait while we verify your partner stats object...');
-      return;
-    }
+    // REMOVED: PartnerPerkStats requirement validation
+    // The Move package has been optimized to remove the stats object requirement
+    // Partners can now create perks without needing PartnerPerkStatsV2 objects
 
     const usdcPrice = parseFloat(newPerkUsdcPrice);
 
@@ -1967,50 +1950,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
     // Extract compliance checking logic
     const renderComplianceCheck = () => {
-      // CRITICAL: Check PartnerPerkStats requirement FIRST (required for any perk operations)
-      if (hasPartnerStats === false && !isCheckingStats) {
-        return (
-          <div className="flex items-center space-x-2 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2 min-h-[40px]">
-            <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></div>
-            <span className="text-red-400 text-xs font-medium flex-1">Stats Object Required</span>
-            <div className="flex space-x-1 flex-shrink-0">
-              <button
-                onClick={() => checkPartnerStats(true)}
-                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                title="Refresh detection - check if stats object exists"
-              >
-                🔄
-              </button>
-              <button
-                onClick={createPartnerStats}
-                disabled={isCreatingStats}
-                className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors disabled:opacity-50"
-                title="Create PartnerPerkStatsV2 object for tracking quotas and analytics"
-              >
-                {isCreatingStats ? '⏳' : 'Create'}
-              </button>
-              <button
-                onClick={() => navigate('/partners/settings')}
-                className="px-2 py-1 bg-gray-600 hover:bg-gray-700 text-white text-xs rounded transition-colors"
-                title="Go to Settings tab"
-              >
-                Settings
-              </button>
-            </div>
-          </div>
-        );
-      }
-      
-      // Show loading state while checking stats
-      if (isCheckingStats) {
-        return (
-          <div className="flex items-center space-x-2 bg-gray-500/10 border border-gray-500/20 rounded-md px-3 py-2 min-h-[40px]">
-            <div className="w-2 h-2 rounded-full bg-gray-500 animate-pulse flex-shrink-0"></div>
-            <span className="text-gray-400 text-xs font-medium flex-1">Checking Stats...</span>
-            <div className="text-xs text-gray-500 flex-shrink-0">⏳</div>
-          </div>
-        );
-      }
+      // REMOVED: PartnerPerkStats requirement checks
+      // The Move package has been optimized to remove the stats object requirement
       
       // CRITICAL: Detect fresh partner caps without settings 
       // If currentSettings is null, this partner cap has NEVER been configured
@@ -2877,24 +2818,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     !newPerkName.trim() || 
                     !newPerkDescription.trim() || 
                     newPerkTags.length === 0 || 
-                    !newPerkUsdcPrice.trim() ||
-                    hasPartnerStats === false ||
-                    isCheckingStats ||
-                    hasPartnerStats === null
+                    !newPerkUsdcPrice.trim()
                   }
                   className="w-full"
-                  title={
-                    hasPartnerStats === false 
-                      ? 'Partner Stats object required - Go to Settings tab to create'
-                      : (isCheckingStats || hasPartnerStats === null)
-                      ? 'Checking partner stats...'
-                      : 'Create a new perk for your marketplace'
-                  }
+                  title="Create a new perk for your marketplace"
                 >
-                  {isCreatingPerk ? 'Creating...' : 
-                   hasPartnerStats === false ? 'Stats Required' :
-                   (isCheckingStats || hasPartnerStats === null) ? 'Checking Stats...' :
-                   'Create Perk'}
+                  {isCreatingPerk ? 'Creating...' : 'Create Perk'}
                 </Button>
               </div>
             </div>
@@ -4564,48 +4493,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold text-white">Configure Settings</h3>
             <div className="flex items-center space-x-2">
-              {/* Partner Stats Management - Only show button if stats are missing */}
-              {isCheckingStats && (
-                <div className="flex items-center space-x-2 text-gray-400 text-sm">
-                  <div className="w-4 h-4 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>
-                  <span>Checking stats...</span>
-                </div>
-              )}
-              
-              {hasPartnerStats === false && (
-                <div className="flex items-center space-x-2">
-                  <Button 
-                    className="bg-amber-600 hover:bg-amber-700 text-white text-sm px-3 py-1"
-                    onClick={createPartnerStats}
-                    disabled={isCreatingStats}
-                    title={`Create PartnerPerkStatsV2 for ${partnerCaps.find(cap => cap.id === selectedPartnerCapId)?.partnerName || 'this partner'}`}
-                  >
-                    {isCreatingStats ? 'Creating...' : 'Create Stats Object'}
-                  </Button>
-                  <Button 
-                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-2 py-1"
-                    onClick={() => checkPartnerStats(true)}
-                    disabled={isCheckingStats}
-                    title={`Refresh detection for ${partnerCaps.find(cap => cap.id === selectedPartnerCapId)?.partnerName || 'this partner'}`}
-                  >
-                    🔄
-                  </Button>
-                </div>
-              )}
-              
-              {hasPartnerStats === null && !isCheckingStats && (
-                <div className="flex items-center space-x-2">
-                  <Button 
-                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-2 py-1"
-                    onClick={() => checkPartnerStats(true)}
-                    title="Check for stats object"
-                  >
-                    Check Stats
-                  </Button>
-                </div>
-              )}
-              
-
+              {/* REMOVED: Partner Stats Management - No longer required */}
               
               {currentSettings && (
                 <Button 

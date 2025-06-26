@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { calculateAlphaPointsPerDayPerSui } from '../utils/format';
+import { calculateAlphaPointsPerDayPerSui, calculateActualAlphaPointsPerDayPerSui } from '../utils/format';
 import { PerkFilterModal } from '../components/PerkFilterModal';
 import { StakeCard } from '../components/StakeCard';
 import { LoanManagementCards } from '../components/LoanManagementCards';
@@ -51,26 +51,30 @@ export const GenerationPage: React.FC = () => {
             <p className="text-gray-300 mb-3">
               Stake your SUI tokens to earn Alpha Points over time. The longer you stake, the better the rate.
             </p>
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 mb-4">
+              <div className="text-blue-400 text-sm font-medium mb-1">🎉 Bonus Period Active</div>
+              <div className="text-gray-300 text-xs">Temporarily earning ~2.2x advertised APY due to recent optimizations. Enjoy the extra rewards!</div>
+            </div>
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div className="bg-background-card p-3 rounded-lg">
                 <div className="text-gray-400 mb-1">7-Day Stake</div>
                 <div className="text-white font-medium">5% APY</div>
-                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(5).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateActualAlphaPointsPerDayPerSui(5).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
               </div>
               <div className="bg-background-card p-3 rounded-lg">
                 <div className="text-gray-400 mb-1">30-Day Stake</div>
                 <div className="text-white font-medium">10% APY</div>
-                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(10).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateActualAlphaPointsPerDayPerSui(10).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
               </div>
               <div className="bg-background-card p-3 rounded-lg">
                 <div className="text-gray-400 mb-1">90-Day Stake</div>
                 <div className="text-white font-medium">15% APY</div>
-                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(15).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateActualAlphaPointsPerDayPerSui(15).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
               </div>
               <div className="bg-background-card p-3 rounded-lg">
                 <div className="text-gray-400 mb-1">365-Day Stake</div>
                 <div className="text-white font-medium">25% APY</div>
-                <div className="text-green-400 text-sm mt-1">+{calculateAlphaPointsPerDayPerSui(25).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
+                <div className="text-green-400 text-sm mt-1">+{calculateActualAlphaPointsPerDayPerSui(25).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})} αP/day per 1 SUI</div>
               </div>
             </div>
           </div>

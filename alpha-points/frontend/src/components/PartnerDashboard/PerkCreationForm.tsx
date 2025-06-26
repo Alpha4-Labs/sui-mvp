@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { PartnerCapInfo } from '../../hooks/usePartnerDetection';
 import { PartnerSettings } from '../../hooks/usePartnerSettings';
 import { formatUSD, usdToAlphaPointsDisplay } from '../../utils/conversionUtils';
+import { toast } from 'react-hot-toast';
+import { Transaction } from '@mysten/sui.js';
 
 interface PerkCreationFormProps {
   partnerCap: PartnerCapInfo;
@@ -9,6 +11,27 @@ interface PerkCreationFormProps {
   onCreatePerk: (perkData: any) => Promise<void>;
   onCancel: () => void;
   isCreating: boolean;
+  hasPartnerStats?: boolean;
+  onSuccess?: () => void;
+  onClose: () => void;
+  suiClient: any;
+  currentAccount: any;
+  PACKAGE_ID: string;
+  CONFIG_ID: string;
+  CLOCK_ID: string;
+}
+
+interface PerkFormData {
+  name: string;
+  description: string;
+  type: string;
+  usdPrice: number;
+  partnerShare: number;
+  maxUsesPerClaim?: number;
+  expirationDate?: string;
+  generateUniqueMetadata: boolean;
+  tags: string[];
+  maxClaims?: number;
 }
 
 export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
@@ -16,455 +39,375 @@ export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
   currentSettings,
   onCreatePerk,
   onCancel,
-  isCreating
+  isCreating,
+  hasPartnerStats = true,
+  onSuccess,
+  onClose,
+  suiClient,
+  currentAccount,
+  PACKAGE_ID,
+  CONFIG_ID,
+  CLOCK_ID
 }) => {
   // Form state
-  const [newPerkName, setNewPerkName] = useState('');
-  const [newPerkDescription, setNewPerkDescription] = useState('');
-  const [newPerkTags, setNewPerkTags] = useState<string[]>([]);
-  const [newPerkUsdcPrice, setNewPerkUsdcPrice] = useState('');
-  const [newPerkType, setNewPerkType] = useState('Access');
-  const [newPerkReinvestmentPercent, setNewPerkReinvestmentPercent] = useState(20);
-  const [newPerkIcon, setNewPerkIcon] = useState('🎁');
-  
-  // Expiry functionality
-  const [newPerkExpiryType, setNewPerkExpiryType] = useState<'none' | 'days' | 'date'>('none');
-  const [newPerkExpiryDays, setNewPerkExpiryDays] = useState('30');
-  const [newPerkExpiryDate, setNewPerkExpiryDate] = useState('');
-  
-  // Consumable functionality
-  const [newPerkIsConsumable, setNewPerkIsConsumable] = useState(false);
-  const [newPerkCharges, setNewPerkCharges] = useState('1');
+  const [formData, setFormData] = useState<PerkFormData>({
+    name: '',
+    description: '',
+    type: 'Digital Product',
+    usdPrice: 1,
+    partnerShare: 70,
+    generateUniqueMetadata: false,
+    tags: []
+  });
 
-  // Tag management
-  const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [tagInput, setTagInput] = useState('');
 
-  const addTag = (tag: string) => {
-    if (tag.trim() && !newPerkTags.includes(tag.trim())) {
-      setNewPerkTags([...newPerkTags, tag.trim()]);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Enhanced validation for settings issues
+    if (!currentSettings) {
+      alert('Partner settings not loaded. Please try again.');
+      return;
+    }
+
+    // Check perk control settings that might cause errors
+    if (currentSettings.maxCostPerPerk === 0) {
+      alert('Error: Your perk control settings have max cost set to 0. Please update your settings first to allow perk creation.');
+      return;
+    }
+
+    if (currentSettings.maxPerksPerPartner === 0) {
+      alert('Error: Your perk control settings have max perks limit set to 0. Please update your settings first to allow perk creation.');
+      return;
+    }
+
+    if (currentSettings.maxPartnerSharePercentage === 0 && formData.partnerShare > 0) {
+      alert('Error: Your perk control settings don\'t allow any partner revenue share. Please update your settings first.');
+      return;
+    }
+
+    // REMOVED: PartnerPerkStats requirement check
+    // The Move package has been optimized to remove the stats object requirement
+
+    try {
+      await onCreatePerk(formData);
+    } catch (error: any) {
+      console.error('Error in form submission:', error);
+      
+      // Enhanced error handling for common Move errors
+      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+      
+      if (errorMessage.includes('122') || errorMessage.includes('E_MAX_PERKS_REACHED')) {
+        alert('Cannot create perk: You have reached the maximum number of perks allowed. Please update your perk control settings to increase the limit.');
+      } else if (errorMessage.includes('114') || errorMessage.includes('E_COST_EXCEEDS_LIMIT')) {
+        alert('Cannot create perk: The perk cost exceeds your maximum allowed cost. Please update your perk control settings to allow higher costs.');
+      } else if (errorMessage.includes('115') || errorMessage.includes('E_INVALID_REVENUE_SHARE')) {
+        alert('Cannot create perk: The revenue share percentage is not allowed by your current settings. Please update your perk control settings.');
+      } else {
+        alert(`Failed to create perk: ${errorMessage}`);
+      }
+    }
+  };
+
+  const addTag = () => {
+    if (tagInput.trim() && !formData.tags.includes(tagInput.trim())) {
+      setFormData(prev => ({
+        ...prev,
+        tags: [...prev.tags, tagInput.trim()]
+      }));
+      setTagInput('');
     }
   };
 
   const removeTag = (tagToRemove: string) => {
-    setNewPerkTags(newPerkTags.filter(tag => tag !== tagToRemove));
+    setFormData(prev => ({
+      ...prev,
+      tags: prev.tags.filter(tag => tag !== tagToRemove)
+    }));
   };
 
-  const handleCustomTag = () => {
-    if (tagInput.trim()) {
-      addTag(tagInput.trim());
-      setTagInput('');
-      setShowTagDropdown(false);
-    }
-  };
-
-  const calculatePartnerShare = (reinvestmentPercent: number): number => {
-    return 100 - reinvestmentPercent;
-  };
-
-  const calculateExpiryTimestamp = (): number | undefined => {
-    if (newPerkExpiryType === 'days') {
-      const days = parseInt(newPerkExpiryDays);
-      if (days > 0) {
-        return Date.now() + (days * 24 * 60 * 60 * 1000);
-      }
-    } else if (newPerkExpiryType === 'date' && newPerkExpiryDate) {
-      return new Date(newPerkExpiryDate).getTime();
-    }
-    return undefined;
-  };
-
-  const getMaxUsesPerClaim = (): number | undefined => {
-    if (newPerkIsConsumable) {
-      const charges = parseInt(newPerkCharges);
-      return charges > 0 ? charges : 1;
-    }
-    return undefined;
-  };
-
-  const handleSubmit = async () => {
-    const perkData = {
-      name: newPerkName,
-      description: newPerkDescription,
-      tags: newPerkTags,
-      usdcPrice: parseFloat(newPerkUsdcPrice),
-      type: newPerkType,
-      reinvestmentPercent: newPerkReinvestmentPercent,
-      icon: newPerkIcon,
-      expiryTimestamp: calculateExpiryTimestamp(),
-      maxUsesPerClaim: getMaxUsesPerClaim()
-    };
-
-    await onCreatePerk(perkData);
-  };
-
-  // Validation functions
-  const renderPriceValidation = () => {
-    const price = parseFloat(newPerkUsdcPrice);
-    if (!newPerkUsdcPrice || isNaN(price)) return null;
-
-    const maxCost = currentSettings?.maxCostPerPerk || 0;
-    const isValid = price <= maxCost;
-
-    return (
-      <div className={`text-xs mt-1 ${isValid ? 'text-green-400' : 'text-red-400'}`}>
-        {isValid ? '✓' : '✗'} Price: {formatUSD(price)} 
-        {!isValid && ` (max: ${formatUSD(maxCost)})`}
-      </div>
-    );
-  };
-
-  const renderSplitValidation = () => {
-    const partnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
-    return (
-      <div className="text-xs text-gray-400 mt-1">
-        Split: {newPerkReinvestmentPercent}% reinvestment, {partnerShare}% to partner
-      </div>
-    );
-  };
-
-  const renderTagsValidation = () => {
-    const maxTags = 5;
-    const isValid = newPerkTags.length <= maxTags;
-
-    return (
-      <div className={`text-xs mt-1 ${isValid ? 'text-gray-400' : 'text-red-400'}`}>
-        {newPerkTags.length}/{maxTags} tags {!isValid && '(too many)'}
-      </div>
-    );
-  };
-
-  const renderTypeValidation = () => {
-    const allowedTypes = currentSettings?.allowedPerkTypes || [];
-    const isValid = allowedTypes.includes(newPerkType);
-
-    return (
-      <div className={`text-xs mt-1 ${isValid ? 'text-green-400' : 'text-red-400'}`}>
-        {isValid ? '✓' : '✗'} Type: {newPerkType}
-        {!isValid && ' (not allowed in settings)'}
-      </div>
-    );
-  };
-
-  const renderReadinessValidation = () => {
-    const price = parseFloat(newPerkUsdcPrice);
-    const maxCost = currentSettings?.maxCostPerPerk || 0;
-    const allowedTypes = currentSettings?.allowedPerkTypes || [];
-
-    const checks = [
-      { name: 'Name', valid: newPerkName.trim().length > 0 },
-      { name: 'Description', valid: newPerkDescription.trim().length > 0 },
-      { name: 'Price', valid: !isNaN(price) && price > 0 && price <= maxCost },
-      { name: 'Type', valid: allowedTypes.includes(newPerkType) },
-      { name: 'Tags', valid: newPerkTags.length <= 5 }
-    ];
-
-    if (newPerkExpiryType !== 'none') {
-      if (!currentSettings?.allowExpiringPerks) {
-        checks.push({ name: 'Expiry', valid: false });
-      } else if (newPerkExpiryType === 'days') {
-        checks.push({ name: 'Expiry', valid: parseInt(newPerkExpiryDays) > 0 });
-      } else if (newPerkExpiryType === 'date') {
-        checks.push({ name: 'Expiry', valid: !!newPerkExpiryDate });
-      }
-    }
-
-    if (newPerkIsConsumable) {
-      if (!currentSettings?.allowConsumablePerks) {
-        checks.push({ name: 'Consumable', valid: false });
-      } else {
-        checks.push({ name: 'Consumable', valid: parseInt(newPerkCharges) > 0 });
-      }
-    }
-
-    const passedChecks = checks.filter(check => check.valid).length;
-    const totalChecks = checks.length;
-    const allPassed = passedChecks === totalChecks;
-
-    return (
-      <div className={`border rounded-lg p-3 ${allPassed ? 'bg-green-500/20 border-green-500/30' : 'bg-red-500/20 border-red-500/30'}`}>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-white font-medium">
-            {allPassed ? '✅ Ready to Create' : '❌ Issues Found'}
-          </span>
-          <span className={`text-xs px-2 py-1 rounded ${allPassed ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}`}>
-            {passedChecks}/{totalChecks}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-1 text-xs">
-          {checks.map((check, index) => (
-            <span key={index} className={check.valid ? 'text-green-300' : 'text-red-300'}>
-              {check.valid ? '✓' : '✗'} {check.name}
-            </span>
-          ))}
-        </div>
-      </div>
-    );
+  const isFormValid = () => {
+    return formData.name.trim() !== '' && 
+           formData.description.trim() !== '' && 
+           formData.usdPrice > 0 &&
+           currentSettings?.maxCostPerPerk !== 0 &&
+           currentSettings?.maxPerksPerPartner !== 0;
   };
 
   return (
-    <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-semibold text-white">Create New Perk</h3>
-        <button
-          onClick={onCancel}
-          className="text-gray-400 hover:text-white transition-colors"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Basic Information */}
-        <div className="space-y-4">
-          <h4 className="text-lg font-medium text-white">Basic Information</h4>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Perk Name *
-            </label>
-            <input
-              type="text"
-              value={newPerkName}
-              onChange={(e) => setNewPerkName(e.target.value)}
-              placeholder="Enter perk name"
-              className="w-full bg-gray-900/50 border border-gray-600 rounded px-3 py-2 text-white"
-              disabled={isCreating}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Description *
-            </label>
-            <textarea
-              value={newPerkDescription}
-              onChange={(e) => setNewPerkDescription(e.target.value)}
-              placeholder="Describe what this perk offers"
-              rows={3}
-              className="w-full bg-gray-900/50 border border-gray-600 rounded px-3 py-2 text-white resize-none"
-              disabled={isCreating}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Icon
-            </label>
-            <input
-              type="text"
-              value={newPerkIcon}
-              onChange={(e) => setNewPerkIcon(e.target.value)}
-              placeholder="🎁"
-              className="w-full bg-gray-900/50 border border-gray-600 rounded px-3 py-2 text-white"
-              disabled={isCreating}
-            />
-          </div>
-        </div>
-
-        {/* Pricing & Configuration */}
-        <div className="space-y-4">
-          <h4 className="text-lg font-medium text-white">Pricing & Configuration</h4>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Price (USD) *
-            </label>
-            <input
-              type="number"
-              value={newPerkUsdcPrice}
-              onChange={(e) => setNewPerkUsdcPrice(e.target.value)}
-              placeholder="0.00"
-              min="0"
-              step="0.01"
-              className="w-full bg-gray-900/50 border border-gray-600 rounded px-3 py-2 text-white"
-              disabled={isCreating}
-            />
-            {renderPriceValidation()}
-            {newPerkUsdcPrice && (
-              <div className="text-xs text-blue-400 mt-1">
-                ≈ {usdToAlphaPointsDisplay(parseFloat(newPerkUsdcPrice))} Alpha Points
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Perk Type *
-            </label>
-            <select
-              value={newPerkType}
-              onChange={(e) => setNewPerkType(e.target.value)}
-              className="w-full bg-gray-900/50 border border-gray-600 rounded px-3 py-2 text-white"
-              disabled={isCreating}
-            >
-              {['Access', 'Discount', 'Experience', 'Content', 'Service'].map(type => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-            {renderTypeValidation()}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Reinvestment Percentage: {newPerkReinvestmentPercent}%
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={newPerkReinvestmentPercent}
-              onChange={(e) => setNewPerkReinvestmentPercent(parseInt(e.target.value))}
-              className="w-full"
-              disabled={isCreating}
-            />
-            {renderSplitValidation()}
-          </div>
-        </div>
-      </div>
-
-      {/* Advanced Options */}
-      <div className="mt-6 space-y-4">
-        <h4 className="text-lg font-medium text-white">Advanced Options</h4>
-        
-        {/* Tags */}
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Tags
-          </label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {newPerkTags.map((tag, index) => (
-              <span
-                key={index}
-                className="bg-blue-500/20 text-blue-300 px-2 py-1 rounded text-sm flex items-center space-x-1"
-              >
-                <span>{tag}</span>
-                <button
-                  onClick={() => removeTag(tag)}
-                  className="text-blue-300 hover:text-blue-100"
-                  disabled={isCreating}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex items-center space-x-2">
-            <input
-              type="text"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              placeholder="Add a tag"
-              className="flex-1 bg-gray-900/50 border border-gray-600 rounded px-3 py-2 text-white"
-              disabled={isCreating}
-              onKeyPress={(e) => e.key === 'Enter' && handleCustomTag()}
-            />
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-700">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold text-white">Create New Perk</h2>
             <button
-              onClick={handleCustomTag}
-              disabled={isCreating || !tagInput.trim()}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-3 py-2 rounded transition-colors"
+              onClick={onClose}
+              className="text-gray-400 hover:text-white"
             >
-              Add
+              ✕
             </button>
           </div>
-          {renderTagsValidation()}
-        </div>
-
-        {/* Expiry Options */}
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">
-            Expiry Settings
-          </label>
-          <select
-            value={newPerkExpiryType}
-            onChange={(e) => setNewPerkExpiryType(e.target.value as 'none' | 'days' | 'date')}
-            disabled={isCreating || !currentSettings?.allowExpiringPerks}
-            className="w-full h-10 bg-gray-900/50 border border-gray-600 rounded px-3 text-white cursor-pointer hover:border-gray-500 disabled:opacity-50"
-            title={!currentSettings?.allowExpiringPerks ? "Enable expiring perks in settings first" : "Set when this perk expires"}
-          >
-            <option value="none">No Expiry</option>
-            <option value="days">Expires in X days</option>
-            <option value="date">Expires on specific date</option>
-          </select>
-
-          {newPerkExpiryType === 'days' && (
-            <input
-              type="number"
-              value={newPerkExpiryDays}
-              onChange={(e) => setNewPerkExpiryDays(e.target.value)}
-              placeholder="30"
-              min="1"
-              className="w-full mt-2 bg-gray-900/50 border border-gray-600 rounded px-3 py-2 text-white"
-              disabled={isCreating}
-            />
-          )}
-
-          {newPerkExpiryType === 'date' && (
-            <input
-              type="datetime-local"
-              value={newPerkExpiryDate}
-              onChange={(e) => setNewPerkExpiryDate(e.target.value)}
-              className="w-full mt-2 bg-gray-900/50 border border-gray-600 rounded px-3 py-2 text-white"
-              disabled={isCreating}
-            />
+          
+          {/* Settings Warning */}
+          {(currentSettings?.maxCostPerPerk === 0 || currentSettings?.maxPerksPerPartner === 0) && (
+            <div className="mt-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
+              <div className="flex items-start space-x-3">
+                <div className="text-red-400 text-xl">⚠️</div>
+                <div className="flex-1">
+                  <h3 className="text-red-400 font-semibold mb-2">Setup Required</h3>
+                  <p className="text-red-300 text-sm mb-3">
+                    Before creating perks, you need to fix these issues:
+                  </p>
+                  <ul className="text-red-300 text-sm space-y-1 mb-3">
+                    {currentSettings?.maxCostPerPerk === 0 && (
+                      <li>• Update max cost per perk setting (currently 0)</li>
+                    )}
+                    {currentSettings?.maxPerksPerPartner === 0 && (
+                      <li>• Update max perks per partner setting (currently 0)</li>
+                    )}
+                    {currentSettings?.maxPartnerSharePercentage === 0 && (
+                      <li>• Update partner revenue share settings (currently 0%)</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Consumable Options */}
-        <div className="flex items-center space-x-3">
-          <input
-            type="checkbox"
-            id="consumable-toggle-main"
-            checked={newPerkIsConsumable}
-            onChange={(e) => setNewPerkIsConsumable(e.target.checked)}
-            disabled={isCreating || !currentSettings?.allowConsumablePerks}
-            className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
-          />
-          <label 
-            htmlFor="consumable-toggle-main" 
-            className={`text-sm ${!currentSettings?.allowConsumablePerks ? 'text-gray-500' : 'text-white cursor-pointer'}`}
-            title={!currentSettings?.allowConsumablePerks ? "Enable consumable perks in settings first" : "Make this perk consumable with limited uses"}
-          >
-            Consumable
-          </label>
-          {newPerkIsConsumable && (
-            <input
-              type="number"
-              value={newPerkCharges}
-              onChange={(e) => setNewPerkCharges(e.target.value)}
-              placeholder="1"
-              min="1"
-              className="w-20 bg-gray-900/50 border border-gray-600 rounded px-2 py-1 text-white text-sm"
-              disabled={isCreating}
-              title="Number of times this perk can be used"
-            />
-          )}
+        <div className="bg-gray-800/50 rounded-lg p-6 border border-gray-700">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-white">Create New Perk</h3>
+            <button
+              onClick={onCancel}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Basic Information */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Perk Name *
+                </label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., Premium Discord Access"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Perk Type
+                </label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Digital Product">Digital Product</option>
+                  <option value="Service">Service</option>
+                  <option value="Access">Access</option>
+                  <option value="Merchandise">Merchandise</option>
+                  <option value="Subscription">Subscription</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Description *
+              </label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Describe what users get with this perk..."
+                required
+              />
+            </div>
+
+            {/* Pricing */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Price (USD) *
+                </label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={formData.usdPrice}
+                  onChange={(e) => setFormData(prev => ({ ...prev, usdPrice: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  ≈ {usdToAlphaPointsDisplay(formData.usdPrice)} Alpha Points
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Partner Revenue Share (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={formData.partnerShare}
+                  onChange={(e) => setFormData(prev => ({ ...prev, partnerShare: parseInt(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  You get: {formatUSD((formData.usdPrice * formData.partnerShare) / 100)} per purchase
+                </p>
+              </div>
+            </div>
+
+            {/* Advanced Options */}
+            <div className="border-t border-gray-600 pt-6">
+              <h4 className="text-md font-medium text-white mb-4">Advanced Options</h4>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Max Uses Per Claim (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.maxUsesPerClaim || ''}
+                    onChange={(e) => setFormData(prev => ({ 
+                      ...prev, 
+                      maxUsesPerClaim: e.target.value ? parseInt(e.target.value) : undefined 
+                    }))}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Unlimited"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Max Total Claims (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.maxClaims || ''}
+                    onChange={(e) => setFormData(prev => ({ 
+                      ...prev, 
+                      maxClaims: e.target.value ? parseInt(e.target.value) : undefined 
+                    }))}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Unlimited"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Expiration Date (Optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={formData.expirationDate || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, expirationDate: e.target.value || undefined }))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="mt-4">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.generateUniqueMetadata}
+                    onChange={(e) => setFormData(prev => ({ ...prev, generateUniqueMetadata: e.target.checked }))}
+                    className="rounded border-gray-600 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-300">Generate unique metadata for each claim</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Tags
+              </label>
+              <div className="flex space-x-2 mb-2">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                  className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Add a tag..."
+                />
+                <button
+                  type="button"
+                  onClick={addTag}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                >
+                  Add
+                </button>
+              </div>
+              
+              {formData.tags.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {formData.tags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center px-3 py-1 bg-blue-600/20 text-blue-300 rounded-full text-sm"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        className="ml-2 text-blue-300 hover:text-white"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex space-x-4 pt-6 border-t border-gray-600">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isCreating || !isFormValid()}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              >
+                {isCreating ? 'Creating...' : 
+                 !hasPartnerStats ? 'Stats Required' : 
+                 currentSettings?.maxCostPerPerk === 0 ? 'Settings Required' :
+                 currentSettings?.maxPerksPerPartner === 0 ? 'Settings Required' :
+                 'Create Perk'}
+              </button>
+            </div>
+          </form>
         </div>
-      </div>
-
-      {/* Validation Summary */}
-      <div className="mt-6">
-        {renderReadinessValidation()}
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex items-center justify-end space-x-4 mt-6">
-        <button
-          onClick={onCancel}
-          disabled={isCreating}
-          className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-700 text-white px-6 py-2 rounded-lg transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={isCreating || !newPerkName.trim() || !newPerkDescription.trim() || !newPerkUsdcPrice}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition-colors"
-        >
-          {isCreating ? 'Creating...' : 'Create Perk'}
-        </button>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
 import { ALL_PACKAGE_IDS } from '../config/contract';
 import { requestCache } from '../utils/cache';
-import { rateLimitedRequest } from '../utils/globalRateLimiter';
+
 import { microUSDCToUSD } from '../utils/conversionUtils';
 
 export interface PerkDefinition {
@@ -56,100 +56,32 @@ export function usePerkData() {
   const fetchPerkObjectsBatch = async (perkIds: string[], packageId: string): Promise<PerkDefinition[]> => {
     if (perkIds.length === 0) return [];
     
-    // Only log in development and for significant batches
-    if (import.meta.env.DEV && perkIds.length > 20) {
 
-    }
     
-    // AGGRESSIVE RATE LIMITING: Much smaller batches to avoid 429 errors
-    const RATE_LIMITED_BATCH_SIZE = 3; // Reduce from 10 to 3
-    const MAX_RATE_LIMITED_CONCURRENT = 1; // Only 1 batch at a time
-    const INTER_REQUEST_DELAY = 200; // 200ms between individual requests
-    const INTER_BATCH_DELAY = 1000; // 1 second between batches
-    
-    // Split into very small batches
-    const batches: string[][] = [];
-    for (let i = 0; i < perkIds.length; i += RATE_LIMITED_BATCH_SIZE) {
-      batches.push(perkIds.slice(i, i + RATE_LIMITED_BATCH_SIZE));
-    }
-    
-    // Process batches sequentially with delays to avoid rate limits
-    const processBatchWithRetry = async (batch: string[], batchIndex: number) => {
-      const objects: any[] = [];
-      
-      for (let i = 0; i < batch.length; i++) {
-        const id = batch[i];
-        let retryCount = 0;
-        const maxRetries = 3;
-        
-        while (retryCount < maxRetries) {
-          try {
-            // Add delay between requests
-            if (i > 0) {
-              await new Promise(resolve => setTimeout(resolve, INTER_REQUEST_DELAY));
-            }
-            
-            const result = await Promise.race([
-              rateLimitedRequest(() => 
-                client.getObject({
-                  id,
-                  options: {
-                    showContent: true,
-                    showType: true,
-                  },
-                })
-              ),
-              // Longer timeout for rate-limited requests
-              new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Timeout')), 15000)
-              )
-            ]);
-            
-            objects.push(result);
-            break; // Success, exit retry loop
-            
-          } catch (err: any) {
-            retryCount++;
-            
-            if (err.message?.includes('429') || err.message?.includes('Too Many Requests')) {
-              // Exponential backoff for rate limits
-              const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 8000);
-              console.warn(`⚠️ Rate limited fetching ${id}, retrying in ${backoffDelay}ms (attempt ${retryCount}/${maxRetries})`);
-              await new Promise(resolve => setTimeout(resolve, backoffDelay));
-            } else {
-              // Non-rate-limit error, don't retry
-              if (import.meta.env.DEV && err.message !== 'Timeout') {
-                console.warn(`⚠️ Failed to fetch perk ${id}:`, err.message);
-              }
-              break;
-            }
-          }
-        }
-      }
-      
-      return objects.filter(obj => obj !== null);
-    };
+    // SIMPLE & FAST: Fetch all objects in parallel without artificial delays
+    const fetchPromises = perkIds.map(async (id) => {
+      try {
+        const result = await client.getObject({
+          id,
+          options: {
+            showContent: true,
+            showType: true,
+          },
+        });
+        return result;
+      } catch (err: any) {
 
-    // Process batches sequentially with delays
-    const allObjects: any[] = [];
-    for (let i = 0; i < batches.length; i++) {
-      // Add delay between batches
-      if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, INTER_BATCH_DELAY));
+        return null;
       }
-      
-      const batchResults = await processBatchWithRetry(batches[i], i);
-      allObjects.push(...batchResults);
-      
-      // Progress logging for large batches
-      if (import.meta.env.DEV && batches.length > 5) {
+    });
 
-      }
-    }
+    // Wait for all requests to complete in parallel
+    const allObjects = await Promise.all(fetchPromises);
+    const validObjects = allObjects.filter(obj => obj !== null);
     
     // Parse objects into PerkDefinition format
     const perks: PerkDefinition[] = [];
-    for (const perkObject of allObjects) {
+    for (const perkObject of validObjects) {
       if (perkObject?.data?.content && perkObject.data.content.dataType === 'moveObject') {
         try {
           const fields = (perkObject.data.content as any).fields;
@@ -190,9 +122,7 @@ export function usePerkData() {
             packageId,
           });
         } catch (parseErr) {
-          if (import.meta.env.DEV) {
-            console.warn(`⚠️ Failed to parse perk object ${perkObject.data.objectId}:`, parseErr);
-          }
+
         }
       }
     }
@@ -242,9 +172,7 @@ export function usePerkData() {
                   queryParams.cursor = cursor;
                 }
 
-                const perkCreatedEvents = await rateLimitedRequest(() =>
-                  client.queryEvents(queryParams)
-                );
+                const perkCreatedEvents = await client.queryEvents(queryParams);
 
                 // SCAN FOR PARTNER PERKS
                 let foundInThisBatch = 0;
@@ -261,7 +189,7 @@ export function usePerkData() {
 
                 // SMART CONTINUATION: Continue if we found perks and there are more pages
                 if (perkCreatedEvents.hasNextPage && (foundInThisBatch > 0 || allPackagePerkIds.length === 0)) {
-                  cursor = perkCreatedEvents.nextCursor;
+                  cursor = perkCreatedEvents.nextCursor as string | null;
                 } else {
                   hasMoreEvents = false;
                 }
@@ -274,7 +202,6 @@ export function usePerkData() {
 
               // BATCH FETCH: Get all perk objects for this package
               if (allPackagePerkIds.length > 0) {
-
                 const packagePerks = await fetchPerkObjectsBatch(allPackagePerkIds, packageId);
                 return packagePerks;
               }
@@ -282,7 +209,6 @@ export function usePerkData() {
               return [];
               
             } catch (err) {
-              console.warn(`⚠️ Package ${packageId.slice(-8)} search failed:`, err);
               return []; // Don't fail entire search due to one package
             }
           });
@@ -296,7 +222,6 @@ export function usePerkData() {
             arr.findIndex(p => p.id === perk.id) === index
           );
 
-
           return uniquePerks;
         },
         CACHE_DURATION
@@ -305,7 +230,6 @@ export function usePerkData() {
       setPartnerPerks(perks);
       return perks;
     } catch (err: any) {
-      console.error('❌ Partner perk search failed:', err);
       setError(err.message || 'Failed to search for partner perks');
       return [];
     } finally {
@@ -333,18 +257,16 @@ export function usePerkData() {
           // OPTIMIZATION: Process packages in parallel
           const packagePromises = ALL_PACKAGE_IDS.filter(Boolean).map(async (packageId) => {
             try {
-              const claimedPerkObjects = await rateLimitedRequest(() =>
-                client.getOwnedObjects({
-                  owner: userAddress,
-                  filter: {
-                    StructType: `${packageId}::perk_manager::ClaimedPerk`
-                  },
-                  options: {
-                    showContent: true,
-                    showType: true,
-                  },
-                })
-              );
+              const claimedPerkObjects = await client.getOwnedObjects({
+                owner: userAddress,
+                filter: {
+                  StructType: `${packageId}::perk_manager::ClaimedPerk`
+                },
+                options: {
+                  showContent: true,
+                  showType: true,
+                },
+              });
 
               const packagePerks: ClaimedPerk[] = [];
               for (const obj of claimedPerkObjects.data) {
@@ -365,7 +287,6 @@ export function usePerkData() {
               
               return packagePerks;
             } catch (err) {
-              console.error(`❌ Error fetching claimed perks from package ${packageId}:`, err);
               return []; // Return empty array on error
             }
           });
@@ -404,43 +325,45 @@ export function usePerkData() {
       const perks = await requestCache.getOrFetch(
         cacheKey,
         async () => {
-          // OPTIMIZATION 1: Process latest 3 packages for better perk discovery, but with reduced limits
-          const prioritizedPackages = ALL_PACKAGE_IDS.filter(Boolean).slice(-3); // Latest 3 packages
+                  // COMPREHENSIVE SEARCH: Query ALL packages to find all perks from all companies
+        const prioritizedPackages = ALL_PACKAGE_IDS.filter(Boolean); // Query ALL packages to ensure we find all perks
           
           const packagePromises = prioritizedPackages.map(async (packageId, packageIndex) => {
-            // Add delay between package queries to avoid rate limits
-            if (packageIndex > 0) {
-              await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay between packages
-            }
             try {
-              // RATE LIMIT PROTECTION: Small event limit but slightly increased for better discovery
-              const perkCreatedEvents = await rateLimitedRequest(() =>
-                client.queryEvents({
-                  query: {
-                    MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
-                  },
-                  order: 'descending',
-                  limit: 25, // Slightly increased from 20 for better perk discovery
-                })
-              );
+              
+              // COMPREHENSIVE SEARCH: Increase event limit to find all perks
+              const perkCreatedEvents = await client.queryEvents({
+                query: {
+                  MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
+                },
+                order: 'descending',
+                limit: 50, // Increased to find more perks
+              });
 
-              // RATE LIMIT PROTECTION: Extract only first 20 perk IDs (increased from 15)
+
+              
+              // COMPREHENSIVE SEARCH: Extract more perk IDs to find all perks
               const allPerkIds: string[] = [];
-              for (const event of perkCreatedEvents.data.slice(0, 20)) {
+              for (const event of perkCreatedEvents.data.slice(0, 40)) {
                 if (event.parsedJson && typeof event.parsedJson === 'object') {
                   const eventData = event.parsedJson as any;
                   allPerkIds.push(eventData.perk_definition_id);
                 }
               }
+              
+
 
               // OPTIMIZATION 4: Faster batch fetch with limits
               const packagePerks = await fetchPerkObjectsBatch(allPerkIds, packageId);
               
               // OPTIMIZATION 5: Return active perks only
-              return packagePerks.filter(perk => perk.is_active);
+              const activePerks = packagePerks.filter(perk => perk.is_active);
+              
+
+              
+              return activePerks;
               
             } catch (err) {
-              console.warn(`⚠️ Error querying marketplace package ${packageId}:`, err);
               return [];
             }
           });
@@ -452,8 +375,6 @@ export function usePerkData() {
           const uniquePerks = allPerks.filter((perk, index, arr) => 
             arr.findIndex(p => p.id === perk.id) === index
           );
-
-
 
           return uniquePerks;
         },
