@@ -89,3 +89,179 @@ Implemented as pure Move math inside the `ledger` module for deterministic resul
 ## Development and Testing
 
 See the `tests` directory for unit tests covering all module functionalities.
+
+# Alpha Points ClaimedPerk Query Tool
+
+A Node.js script to query `ClaimedPerk` objects by Discord ID from the Alpha Points blockchain system.
+
+## Overview
+
+This tool helps you find `ClaimedPerk` objects that contain metadata matching a specific Discord ID. It's particularly useful for Discord bots and backend services that need to verify which perks a user has claimed based on their Discord ID.
+
+## How It Works
+
+1. **ClaimedPerk Structure**: Each claimed perk has an optional `claim_specific_metadata_id` field
+2. **Metadata Storage**: This ID points to a `ClaimSpecificMetadataStore` object containing dynamic fields
+3. **Discord ID Hashing**: Discord IDs are hashed using SHA-256 with a salt for privacy
+4. **Query Process**: The script queries all packages, finds ClaimedPerk objects, and checks their metadata for matching Discord IDs
+
+## Installation
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Set up environment variables (create a `.env` file or export):
+```bash
+export VITE_PACKAGE_ID="0x..."                    # Your main package ID
+export VITE_PACKAGE_ID_V22="0x..."               # Additional package IDs
+export VITE_DISCORD_SALT="your-discord-salt"     # Salt used for hashing Discord IDs
+```
+
+## Usage
+
+### Query by Discord ID
+
+```bash
+# Basic usage with default salt
+node query-claimed-perks-by-discord.js 123456789012345678
+
+# With custom salt
+node query-claimed-perks-by-discord.js 123456789012345678 custom-salt-2024
+
+# Using npm script
+npm run query 123456789012345678
+```
+
+### Query by Owner Address
+
+```bash
+# Find all ClaimedPerk objects owned by a specific address
+node query-claimed-perks-by-discord.js --owner 0x1234567890abcdef...
+```
+
+## Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `VITE_PACKAGE_ID` | Main Alpha Points package ID | Yes |
+| `VITE_PACKAGE_ID_V22` | Package ID version 22 | No |
+| `VITE_PACKAGE_ID_V21` | Package ID version 21 | No |
+| `VITE_DISCORD_SALT` | Salt for Discord ID hashing | Recommended |
+| `VITE_METADATA_SALT` | Fallback salt for metadata | No |
+
+## Example Output
+
+```json
+[
+  {
+    "id": "0xabc123...",
+    "perk_definition_id": "0xdef456...",
+    "owner": "0x789xyz...",
+    "claim_timestamp_ms": 1700000000000,
+    "status": "ACTIVE",
+    "claim_specific_metadata_id": "0x111222...",
+    "remaining_uses": 5,
+    "packageId": "0x333444...",
+    "metadata": {
+      "discord_id_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+]
+```
+
+## API Usage
+
+You can also use this as a module in your own Node.js applications:
+
+```javascript
+const { 
+  findClaimedPerksByDiscordId, 
+  findClaimedPerksByOwner,
+  hashDiscordId 
+} = require('./query-claimed-perks-by-discord');
+
+// Find perks by Discord ID
+const perks = await findClaimedPerksByDiscordId('123456789012345678');
+
+// Find perks by owner address
+const userPerks = await findClaimedPerksByOwner('0x123...');
+
+// Hash a Discord ID (useful for verification)
+const hashedId = hashDiscordId('123456789012345678', 'your-salt');
+```
+
+## Query Strategy
+
+The script uses a multi-step approach for efficiency:
+
+1. **Event-Based Discovery**: First tries to find ClaimedPerk objects via `PerkClaimed` events
+2. **Direct Object Query**: Fallback to direct object queries for specific owners
+3. **Metadata Fetching**: For each ClaimedPerk, fetches associated metadata from dynamic fields
+4. **Hash Matching**: Compares both raw and hashed Discord IDs against stored values
+
+## Supported Metadata Keys
+
+The script looks for Discord IDs in these metadata fields:
+- `discord_id` (raw Discord ID)
+- `discord_id_hash` (hashed Discord ID)
+- `discordId` (alternative naming)
+- `discord` (short form)
+
+## Error Handling
+
+- Invalid Discord IDs (must be 17-19 digits) are rejected
+- Missing package IDs are skipped with warnings
+- Individual object query failures don't stop the entire process
+- Network timeouts and RPC errors are handled gracefully
+
+## Performance Considerations
+
+- Uses batch queries where possible (`multiGetObjects`)
+- Caches package IDs to avoid repeated environment variable lookups
+- Provides progress logging for long-running queries
+- Limits event queries to prevent overwhelming the RPC
+
+## Debugging
+
+Run with verbose logging:
+```bash
+DEBUG=* node query-claimed-perks-by-discord.js 123456789012345678
+```
+
+## Common Issues
+
+1. **No results found**: Check that package IDs are correct and the Discord ID exists in metadata
+2. **RPC timeouts**: Try using a different RPC endpoint or reducing query limits
+3. **Hash mismatches**: Ensure you're using the same salt that was used when creating the metadata
+
+## Integration with Discord Bots
+
+Example Discord bot integration:
+
+```javascript
+const { findClaimedPerksByDiscordId } = require('./query-claimed-perks-by-discord');
+
+// Discord bot command
+bot.on('messageCreate', async (message) => {
+  if (message.content === '!myperks') {
+    try {
+      const perks = await findClaimedPerksByDiscordId(message.author.id);
+      const perkCount = perks.length;
+      
+      await message.reply(`You have claimed ${perkCount} perk(s)!`);
+    } catch (error) {
+      await message.reply('Error checking your perks. Please try again later.');
+    }
+  }
+});
+```
+
+## Contributing
+
+Feel free to submit issues and pull requests to improve this tool.
+
+## License
+
+MIT License - see LICENSE file for details.

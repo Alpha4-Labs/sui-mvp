@@ -930,6 +930,23 @@ module alpha_points::integration {
         });
     }
 
+    /// View function to calculate accrued points for a stake position
+    /// 
+    /// ⚠️  KNOWN ISSUE: INCONSISTENT WITH ledger::calculate_accrued_points
+    /// This function uses APY_POINT_SCALING_FACTOR=25 and different denominator
+    /// while ledger uses flat rate per epoch. Results in different calculations!
+    /// 
+    /// PROBLEMS:
+    /// 1. Uses arbitrary scaling factor (25) instead of proper APY conversion
+    /// 2. Different logic than main calculation function
+    /// 3. Both approaches give wrong results vs intended APY economics
+    /// 
+    /// CORRECT FORMULA SHOULD BE:
+    /// principal_in_AP = (principal * 3280) / 1e9
+    /// points = (principal_in_AP * apy_bps * epochs) / (10000 * 365)
+    /// 
+    /// CANNOT FIX: Upgrade rules prevent changing public function logic
+    /// 
     public fun view_accrued_points_for_stake<T: key + store>(
         stake_position: &StakePosition<T>,
         current_epoch: u64

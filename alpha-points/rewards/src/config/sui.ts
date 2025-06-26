@@ -11,7 +11,17 @@ export const SUI_CONFIG = {
   
   // Smart Contract Package IDs (update these when contracts are deployed)
   packageIds: {
-    perkManager: import.meta.env.VITE_PERK_MANAGER_PACKAGE_ID || '0xf933e69aeeeebb9d1fc50b6324070d8f2bdc2595162b0616142a509c90e3cd16',
+    main: import.meta.env.VITE_PACKAGE_ID || '0x8519374e972c0da6a44eea309fb8a8447722019de5186fdde98d3c2a10e704ec',
+    perkManager: import.meta.env.VITE_PERK_MANAGER_PACKAGE_ID || '0x8519374e972c0da6a44eea309fb8a8447722019de5186fdde98d3c2a10e704ec',
+  },
+  
+  // Shared Objects (required for Alpha Points balance queries)
+  // Using current testnet shared object IDs from environment
+  sharedObjects: {
+    config: import.meta.env.VITE_CONFIG_ID || '0x0a2655cc000b24a316390753253f59de6691ec0b418d38bb6bca535c4c66e9bb',
+    ledger: import.meta.env.VITE_LEDGER_ID || '0x90f17af41623cdeccbeb2b30b5df435135247e34526d56c40c491b017452dc00',
+    stakingManager: import.meta.env.VITE_STAKING_MANAGER_ID || '0x3fa797fcbc0bec7390910311f432329e68e4fdf23f1a55033410e81f3ebd08f4',
+    oracle: import.meta.env.VITE_ORACLE_ID || '0x4e0a8f7a9bccc7bb88dd5d0c0ac9dd6186681cde14d8c981eaa238b93e22e02f',
   },
   
   // Object types

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alpha4 Onboard SDK - Universal Zero-Dev Integration</title>
+    <meta name="description" content="Universal Zero-Dev JavaScript SDK for blockchain points integration with automatic event detection">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'brand-primary': '#9333EA',
+                        'brand-blue': '#007BFF',
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.5s ease-out forwards',
+                        'slide-up': 'slideUp 0.3s ease-out',
+                        blob: 'blob 7s infinite',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            'from': { opacity: '0', transform: 'translateY(10px)' },
+                            'to': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        slideUp: {
+                            '0%': { transform: 'translateY(10px)', opacity: '0' },
+                            '100%': { transform: 'translateY(0)', opacity: '1' },
+                        },
+                        blob: {
+                            '0%': { transform: 'translate(0px, 0px) scale(1)' },
+                            '33%': { transform: 'translate(30px, -50px) scale(1.1)' },
+                            '66%': { transform: 'translate(-20px, 20px) scale(0.9)' },
+                            '100%': { transform: 'translate(0px, 0px) scale(1)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #f9fafb;
+            background: #111827;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        /* Custom animations for enhanced UX */
+        .animation-delay-2000 {
+            animation-delay: 2s;
+        }
+        .animation-delay-4000 {
+            animation-delay: 4s;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 antialiased">
+    <!-- Background Effects -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none">
+        <div class="absolute top-0 -left-4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob"></div>
+        <div class="absolute top-0 -right-4 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
+        <div class="absolute -bottom-8 left-20 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
+    </div>
+
+    <div class="relative min-h-screen">
+        <!-- Header -->
+        <header class="relative z-10 pt-16 pb-8">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+                <div class="animate-fade-in">
+                    <h1 class="text-5xl md:text-7xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-transparent mb-6">
+                        🚀 Alpha4 Onboard SDK
+                    </h1>
+                    <p class="text-xl md:text-2xl text-gray-300 max-w-4xl mx-auto mb-8 leading-relaxed">
+                        Universal Zero-Dev JavaScript SDK for blockchain points integration with automatic event detection
+                    </p>
+                    <div class="flex items-center justify-center gap-4 mb-8">
+                        <div class="inline-flex items-center gap-2 bg-emerald-500/10 text-emerald-400 px-4 py-2 rounded-full border border-emerald-500/20">
+                            <div class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                            <span class="font-medium">Live & Ready</span>
+                        </div>
+                        <div class="inline-flex items-center gap-2 bg-blue-500/10 text-blue-400 px-4 py-2 rounded-full border border-blue-500/20">
+                            <span class="font-medium">v1.0.0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Files Section -->
+        <section class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+            <div class="bg-gray-800/60 backdrop-blur-lg rounded-2xl border border-gray-700/50 p-8 mb-8">
+                <h2 class="text-3xl font-bold text-white mb-8 flex items-center gap-3">
+                    <span class="text-4xl">📦</span>
+                    Available Files
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="group bg-gray-900/50 rounded-xl border border-gray-600/50 p-6 hover:border-purple-500/50 hover:bg-gray-900/70 transition-all duration-300 hover:transform hover:scale-105">
+                        <div class="text-purple-400 text-2xl mb-3">⚡</div>
+                        <h3 class="text-lg font-semibold text-white mb-2">Production SDK</h3>
+                        <a href="/sui-points-adapter.js" class="text-purple-400 hover:text-purple-300 font-medium block mb-2 transition-colors">
+                            sui-points-adapter.js
+                        </a>
+                        <div class="text-sm text-gray-400">22KB unminified</div>
+                    </div>
+                    
+                    <div class="group bg-gray-900/50 rounded-xl border border-gray-600/50 p-6 hover:border-blue-500/50 hover:bg-gray-900/70 transition-all duration-300 hover:transform hover:scale-105">
+                        <div class="text-blue-400 text-2xl mb-3">🗜️</div>
+                        <h3 class="text-lg font-semibold text-white mb-2">Minified SDK</h3>
+                        <a href="/sui-points-adapter.min.js" class="text-blue-400 hover:text-blue-300 font-medium block mb-2 transition-colors">
+                            sui-points-adapter.min.js
+                        </a>
+                        <div class="text-sm text-gray-400">10KB minified</div>
+                    </div>
+                    
+                    <div class="group bg-gray-900/50 rounded-xl border border-gray-600/50 p-6 hover:border-emerald-500/50 hover:bg-gray-900/70 transition-all duration-300 hover:transform hover:scale-105">
+                        <div class="text-emerald-400 text-2xl mb-3">🗺️</div>
+                        <h3 class="text-lg font-semibold text-white mb-2">Source Map</h3>
+                        <a href="/sui-points-adapter.min.js.map" class="text-emerald-400 hover:text-emerald-300 font-medium block mb-2 transition-colors">
+                            sui-points-adapter.min.js.map
+                        </a>
+                        <div class="text-sm text-gray-400">11KB source map</div>
+                    </div>
+                    
+                    <div class="group bg-gray-900/50 rounded-xl border border-gray-600/50 p-6 hover:border-pink-500/50 hover:bg-gray-900/70 transition-all duration-300 hover:transform hover:scale-105">
+                        <div class="text-pink-400 text-2xl mb-3">📝</div>
+                        <h3 class="text-lg font-semibold text-white mb-2">TypeScript Types</h3>
+                        <a href="/types/" class="text-pink-400 hover:text-pink-300 font-medium block mb-2 transition-colors">
+                            types/index.d.ts
+                        </a>
+                        <div class="text-sm text-gray-400">Complete definitions</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Integration Examples -->
+        <section class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+            <div class="bg-gray-800/60 backdrop-blur-lg rounded-2xl border border-gray-700/50 p-8 mb-8">
+                <h2 class="text-3xl font-bold text-white mb-8 flex items-center gap-3">
+                    <span class="text-4xl">⚡</span>
+                    Quick Integration
+                </h2>
+                
+                <div class="space-y-8">
+                    <div class="bg-gray-900/50 rounded-xl border border-gray-600/50 p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-xl font-semibold text-purple-400">Auto-Configuration (Recommended)</h3>
+                            <span class="bg-purple-500/20 text-purple-300 px-3 py-1 rounded-full text-sm font-medium">Recommended</span>
+                        </div>
+                        <div class="relative">
+                            <pre class="bg-gray-950 text-gray-100 p-6 rounded-lg overflow-x-auto border border-gray-700 text-sm leading-relaxed"><code>&lt;script 
+    src="https://onboard.alpha4.io/sui-points-adapter.js"
+    data-package-id="0x123..."
+    data-partner-cap-id="0x456..."
+    data-rpc-url="https://fullnode.testnet.sui.io:443"
+    data-allowed-origins="https://yoursite.com"&gt;
+&lt;/script&gt;</code></pre>
+                            <button onclick="copyCode(this)" class="absolute top-4 right-4 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 hover:scale-105">
+                                <span>📋</span>
+                                <span class="copy-text">Copy</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gray-900/50 rounded-xl border border-gray-600/50 p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-xl font-semibold text-blue-400">Manual Configuration</h3>
+                            <span class="bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-sm font-medium">Advanced</span>
+                        </div>
+                        <div class="relative">
+                            <pre class="bg-gray-950 text-gray-100 p-6 rounded-lg overflow-x-auto border border-gray-700 text-sm leading-relaxed"><code>&lt;script src="https://onboard.alpha4.io/sui-points-adapter.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+    const adapter = new SuiPointsAdapter({
+        packageId: '0x123...',
+        partnerCapId: '0x456...',
+        rpcUrl: 'https://fullnode.testnet.sui.io:443',
+        allowedOrigins: ['https://yoursite.com'],
+        enableAutoDetection: true,
+        showNotifications: true
+    });
+&lt;/script&gt;</code></pre>
+                            <button onclick="copyCode(this)" class="absolute top-4 right-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 hover:scale-105">
+                                <span>📋</span>
+                                <span class="copy-text">Copy</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Features Section -->
+        <section class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+            <div class="bg-gray-800/60 backdrop-blur-lg rounded-2xl border border-gray-700/50 p-8 mb-8">
+                <h2 class="text-3xl font-bold text-white mb-8 flex items-center gap-3">
+                    <span class="text-4xl">✨</span>
+                    Key Features
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                    <div class="text-center group">
+                        <div class="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">
+                            🔄
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-3">Auto-Detection</h3>
+                        <p class="text-gray-300 leading-relaxed">Automatically detects forms, buttons, and user actions across your website</p>
+                    </div>
+                    <div class="text-center group">
+                        <div class="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">
+                            🔒
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-3">Enterprise Security</h3>
+                        <p class="text-gray-300 leading-relaxed">Replay protection, rate limiting, and domain validation built-in</p>
+                    </div>
+                    <div class="text-center group">
+                        <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">
+                            ⚡
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-3">Zero Dependencies</h3>
+                        <p class="text-gray-300 leading-relaxed">Lightweight 10KB minified, loads Sui SDK dynamically when needed</p>
+                    </div>
+                    <div class="text-center group">
+                        <div class="w-16 h-16 bg-gradient-to-br from-orange-500 to-red-500 rounded-2xl flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">
+                            🎯
+                        </div>
+                        <h3 class="text-xl font-semibold text-white mb-3">6 Event Types</h3>
+                        <p class="text-gray-300 leading-relaxed">Signup, purchase, newsletter, social, profile, and referral events</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer Links -->
+        <footer class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+            <div class="flex flex-wrap justify-center items-center gap-6">
+                <a href="https://github.com/Alpha4-Labs/zd-sdk/tree/master" class="inline-flex items-center gap-2 bg-gray-800/60 hover:bg-gray-700/60 backdrop-blur-lg border border-gray-600/50 hover:border-gray-500/50 text-gray-300 hover:text-white px-6 py-3 rounded-xl transition-all duration-300 hover:scale-105">
+                    <span>📚</span>
+                    <span>Documentation</span>
+                </a>
+                <a href="https://github.com/Alpha4-Labs/zd-sdk/tree/master/examples" class="inline-flex items-center gap-2 bg-gray-800/60 hover:bg-gray-700/60 backdrop-blur-lg border border-gray-600/50 hover:border-gray-500/50 text-gray-300 hover:text-white px-6 py-3 rounded-xl transition-all duration-300 hover:scale-105">
+                    <span>💡</span>
+                    <span>Examples</span>
+                </a>
+                <a href="https://alpha4.io" class="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white px-6 py-3 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-purple-500/25">
+                    <span>🏠</span>
+                    <span>Alpha4.io</span>
+                </a>
+                <a href="https://discord.gg/alpha4" class="inline-flex items-center gap-2 bg-gray-800/60 hover:bg-gray-700/60 backdrop-blur-lg border border-gray-600/50 hover:border-gray-500/50 text-gray-300 hover:text-white px-6 py-3 rounded-xl transition-all duration-300 hover:scale-105">
+                    <span>💬</span>
+                    <span>Discord</span>
+                </a>
+            </div>
+        </footer>
+    </div>
+    
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+    <script>
+        // Modern Toast System
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            const toastId = 'toast-' + Date.now();
+            toast.id = toastId;
+            
+            const bgColor = type === 'success' ? 'bg-emerald-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600';
+            const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+            
+            toast.className = `${bgColor} text-white px-6 py-4 rounded-xl shadow-lg border border-white/10 backdrop-blur-lg transform translate-x-full transition-all duration-300 flex items-center gap-3 max-w-sm`;
+            toast.innerHTML = `
+                <span class="text-xl">${icon}</span>
+                <span class="font-medium">${message}</span>
+                <button onclick="removeToast('${toastId}')" class="ml-auto text-white/70 hover:text-white text-xl leading-none">&times;</button>
+            `;
+            
+            document.getElementById('toast-container').appendChild(toast);
+            
+            // Animate in
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full');
+                toast.classList.add('translate-x-0');
+            }, 100);
+            
+            // Auto remove after 4 seconds
+            setTimeout(() => {
+                removeToast(toastId);
+            }, 4000);
+        }
+        
+        function removeToast(toastId) {
+            const toast = document.getElementById(toastId);
+            if (toast) {
+                toast.classList.add('translate-x-full', 'opacity-0');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }
+        }
+
+        function copyCode(button) {
+            const pre = button.parentElement.querySelector('pre');
+            const code = pre.textContent;
+            const copyText = button.querySelector('.copy-text');
+            
+            navigator.clipboard.writeText(code).then(() => {
+                // Update button state
+                copyText.textContent = 'Copied!';
+                button.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+                button.classList.remove('bg-purple-600', 'hover:bg-purple-700', 'bg-blue-600', 'hover:bg-blue-700');
+                
+                // Show toast
+                showToast('Code copied to clipboard!', 'success');
+                
+                // Reset button after 2 seconds
+                setTimeout(() => {
+                    copyText.textContent = 'Copy';
+                    button.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+                    // Restore original colors based on context
+                    if (button.closest('.bg-gray-900').querySelector('h3').classList.contains('text-purple-400')) {
+                        button.classList.add('bg-purple-600', 'hover:bg-purple-700');
+                    } else {
+                        button.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                    }
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                showToast('Failed to copy code', 'error');
+            });
+        }
+        
+        // Add interactive elements and animations
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 Alpha4 Onboard SDK CDN loaded successfully');
+            console.log('📊 Available files:', {
+                'Production SDK': 'https://onboard.alpha4.io/sui-points-adapter.js',
+                'Minified SDK': 'https://onboard.alpha4.io/sui-points-adapter.min.js',
+                'Source Map': 'https://onboard.alpha4.io/sui-points-adapter.min.js.map',
+                'TypeScript Types': 'https://onboard.alpha4.io/types/'
+            });
+            
+            // Add stagger animation to cards
+            const cards = document.querySelectorAll('.group');
+            cards.forEach((card, index) => {
+                card.style.animationDelay = `${index * 0.1}s`;
+                card.classList.add('animate-fade-in');
+            });
+            
+            // Welcome toast
+            setTimeout(() => {
+                showToast('Welcome to Alpha4 Onboard SDK! 🚀', 'info');
+            }, 1000);
+        });
+        
+        // Add scroll animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+        
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('animate-slide-up');
+                }
+            });
+        }, observerOptions);
+        
+        // Observe sections for scroll animations
+        setTimeout(() => {
+            document.querySelectorAll('section').forEach(section => {
+                observer.observe(section);
+            });
+        }, 500);
+    </script>
+</body>
+</html> 

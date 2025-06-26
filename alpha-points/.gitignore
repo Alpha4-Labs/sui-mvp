@@ -7,6 +7,9 @@ dev-examples/
 examples/
 ../clean-mvp-source/
 ../node_modules/
+discord-query-tool/
+backup-new-features/
+
 
 # Node modules
 node_modules/

@@ -46,11 +46,18 @@ module alpha_points::admin {
     }
     
     /// Configuration object holding protocol parameters.
+    /// ⚠️  ISSUE: Currently interpreted as points PER EPOCH per SUI (should be APY bps)
+    /// Current value 100 = 100 points per epoch per SUI (223x too much!)
+    /// Should be APY basis points (500 = 5% APY)
+    /// CANNOT CHANGE: Upgrade rules prevent changing struct field interpretation
     public struct Config has key {
         id: object::UID,
         deployer: address, // Address of the deployer/protocol
         paused: bool, // Protocol pause state
-        points_rate: u64, // Points per SUI per epoch (e.g., 100 means 100 points for 1 SUI staked for 1 epoch)
+        points_rate: u64, // ⚠️  ISSUE: Currently interpreted as points PER EPOCH per SUI (should be APY bps)
+                         // Current value 100 = 100 points per epoch per SUI (223x too much!)
+                         // Should be APY basis points (500 = 5% APY)
+                         // CANNOT CHANGE: Upgrade rules prevent changing struct field interpretation
         target_validator: address, // Target validator address for native SUI staking
         admin_cap_id: object::ID, // ID of the AdminCap, stored for convenience/events
         default_liq_share_for_weight_curve: u64, // Default liq_share for weight curve calculation
@@ -268,6 +275,12 @@ module alpha_points::admin {
     }
 
     /// Returns the configured points earning rate per SUI per epoch.
+    /// 
+    /// ⚠️  KNOWN ISSUE: This returns points per epoch, not APY basis points
+    /// Current interpretation: 100 = 100 points per SUI per epoch
+    /// Should be: 100 = 1% APY (100 basis points)
+    /// CANNOT FIX: Upgrade rules prevent changing public function behavior
+    /// 
     public fun get_points_rate(config: &Config): u64 {
         config.points_rate // Corrected field name
     }
