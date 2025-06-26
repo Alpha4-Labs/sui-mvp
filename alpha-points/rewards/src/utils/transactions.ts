@@ -9,11 +9,14 @@ export const buildClaimPerkQuotaFreeTransaction = (perkDefinitionId: string): Tr
   const transaction = new Transaction();
   const packageId = SUI_CONFIG.packageIds.perkManager;
 
-  // Call the quota-free claim function
+  // Call the correct quota-free claim function
   transaction.moveCall({
-    target: `${packageId}::perk_manager::claim_perk_quota_free`,
+    target: `${packageId}::perk_manager::claim_perk_by_user`,
     arguments: [
+      transaction.object(SUI_CONFIG.sharedObjects.config), // config: &admin::Config
       transaction.object(perkDefinitionId), // perk_definition: &mut PerkDefinition
+      transaction.object(SUI_CONFIG.sharedObjects.ledger), // ledger: &mut ledger::Ledger
+      transaction.object('0x6'), // clock_obj: &Clock
     ],
   });
 
@@ -32,13 +35,16 @@ export const buildClaimPerkWithMetadataQuotaFreeTransaction = (
   const transaction = new Transaction();
   const packageId = SUI_CONFIG.packageIds.perkManager;
 
-  // Call the quota-free claim function with metadata
+  // Call the correct quota-free claim function with metadata
   transaction.moveCall({
-    target: `${packageId}::perk_manager::claim_perk_with_metadata_quota_free`,
+    target: `${packageId}::perk_manager::claim_perk_with_metadata_by_user`,
     arguments: [
+      transaction.object(SUI_CONFIG.sharedObjects.config), // config: &admin::Config
       transaction.object(perkDefinitionId), // perk_definition: &mut PerkDefinition
+      transaction.object(SUI_CONFIG.sharedObjects.ledger), // ledger: &mut ledger::Ledger
       transaction.pure.string(metadataKey), // metadata_key: String
       transaction.pure.string(metadataValue), // metadata_value: String
+      transaction.object('0x6'), // clock_obj: &Clock
     ],
   });
 
