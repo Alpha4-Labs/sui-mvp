@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentAccount } from '@mysten/dapp-kit';
 import { useAlphaContext } from '../context/AlphaContext';
 import {
-  buildRequestAddStakeTransaction, 
-  buildRegisterStakeTransaction 
+  buildCombinedStakeTransaction
 } from '../utils/transaction';
 import {
   getTransactionErrorMessage,
@@ -42,8 +41,8 @@ const validators = [
   { name: 'Cosmosta...', address: '0xbfaf08e600526abe628f4f5351278de290268c81c8ccd0217d6bd302e9645617' },
 ];
 
-// Type for staking process state
-type StakingStage = 'idle' | 'requestingStake' | 'fetchingProof' | 'registeringStake' | 'failed' | 'success';
+// Type for staking process state - simplified for combined transaction
+type StakingStage = 'idle' | 'staking' | 'fetchingProof' | 'failed' | 'success';
 
 // Interface for decoded JWT payload (add more fields as needed)
 interface DecodedJwt {
@@ -117,20 +116,15 @@ export const StakeCard: React.FC = () => {
   const suiClient = useSuiClient();
 
   const [amount, setAmount] = useState('');
-  // Removed error and success state since we're using toasts only
-  // const [error, setError] = useState<string | null>(null);
-  // const [success, setSuccess] = useState<string | null>(null);
 
-  // State for multi-stage staking process
+  // State for simplified staking process
   const [stakingStage, setStakingStage] = useState<StakingStage>('idle');
-  const [stakedSuiId, setStakedSuiId] = useState<string | null>(null);
-  const [txDigest1, setTxDigest1] = useState<string | null>(null);
-  const [txDigest2, setTxDigest2] = useState<string | null>(null);
+  const [txDigest, setTxDigest] = useState<string | null>(null);
 
   // State to track if the default duration has been set
   const [isDefaultDurationSet, setIsDefaultDurationSet] = useState(false);
 
-    // Use transaction success hook for automatic refresh
+  // Use transaction success hook for automatic refresh
   const transactionHook = useTransactionSuccess();
   const { registerRefreshCallback, signAndExecute } = transactionHook || {};
 
@@ -228,7 +222,7 @@ export const StakeCard: React.FC = () => {
   // --- Effects ---
   useEffect(() => {
     // Update global loading state based on staking stage
-    setTransactionLoading(stakingStage === 'requestingStake' || stakingStage === 'registeringStake' || stakingStage === 'fetchingProof');
+    setTransactionLoading(stakingStage === 'staking' || stakingStage === 'fetchingProof');
   }, [stakingStage, setTransactionLoading]);
 
   // Effect to set the default duration to 30 days
@@ -253,21 +247,6 @@ export const StakeCard: React.FC = () => {
 
   // --- Helper Functions ---
 
-  /**
-   * Parses the transaction response to find the newly created StakedSui object ID.
-   */
-  const findStakedSuiObjectId = (response: SuiTransactionBlockResponse): string | null => {
-    const created = getCreatedObjects(response);
-    if (!created) return null;
-
-    // Find the object with type ending in `::staking_pool::StakedSui`
-    const stakedSuiObject = created.find((obj: SuiObjectChangeCreated) => 
-      obj.objectType.endsWith('::staking_pool::StakedSui')
-    );
-    
-    return stakedSuiObject ? stakedSuiObject.objectId : null;
-  };
-
   // Handler to navigate to staked positions
   const handleViewStakedPositions = () => {
     // Scroll to the staked positions section or navigate to it
@@ -283,17 +262,17 @@ export const StakeCard: React.FC = () => {
   // --- Primary Stake Function ---
 
   const handleStake = async () => {
-    // Clear any previous states
-    setStakedSuiId(null);
-    setTxDigest1(null);
-    setTxDigest2(null);
+    // Clear any previous state
+    setTxDigest(null);
     setStakingStage('idle');
 
     if (!alphaIsConnected || !alphaAddress) {
       toast.error("Please connect your wallet or sign in.", getToastConfig());
       return;
     }
+    
     if (stakingStage !== 'idle' && stakingStage !== 'failed' && stakingStage !== 'success') return;
+    
     if (!selectedDuration) {
       toast.error("Please select a staking duration.", getToastConfig());
       return;
@@ -326,15 +305,14 @@ export const StakeCard: React.FC = () => {
     if (!selectedValidator) throw new Error("Failed to select a validator");
     const validatorAddressToUse = selectedValidator.address;
    
-    setStakingStage('requestingStake');
-    let tx1Digest: string | null = null; 
-    let newStakedSuiId: string | null = null;
+    setStakingStage('staking');
 
     try {
-      const tx1 = buildRequestAddStakeTransaction(amountInMist, validatorAddressToUse);
+      // Build the combined transaction that stakes SUI and registers with Alpha Points in one atomic operation
+      const combinedTx = buildCombinedStakeTransaction(amountInMist, validatorAddressToUse, selectedDuration.days);
 
       if (alphaProvider === 'google') {
-        tx1.setSender(alphaAddress);
+        combinedTx.setSender(alphaAddress);
         
         const jwt = localStorage.getItem('zkLogin_jwt');
         const secretKeySeedString = localStorage.getItem('zkLogin_ephemeralSecretKeySeed');
@@ -343,7 +321,7 @@ export const StakeCard: React.FC = () => {
         const publicKeyBytesString = localStorage.getItem('zkLogin_ephemeralPublicKeyBytes');
 
         if (!jwt || !secretKeySeedString || !maxEpochString || !randomnessString || !publicKeyBytesString) {
-          throw new Error("Missing required zkLogin data from localStorage for Tx1 (Direct ZKP)");
+          throw new Error("Missing required zkLogin data from localStorage");
         }
 
         const secretKeySeed = Uint8Array.from(JSON.parse(secretKeySeedString));
@@ -357,280 +335,91 @@ export const StakeCard: React.FC = () => {
         setStakingStage('fetchingProof');
 
         try {
-            const fullTxBytes = await tx1.build({ client: suiClient as unknown as SuiClient });
+          const fullTxBytes = await combinedTx.build({ client: suiClient as unknown as SuiClient });
+          const { signature: userSignature } = await ephemeralKeypair.signTransaction(fullTxBytes); 
 
-            const { signature: userSignature } = await ephemeralKeypair.signTransaction(fullTxBytes); 
+          const enokiZkpRequest = {
+            network: 'testnet',
+            ephemeralPublicKey: extendedEphemeralPublicKeyString,
+            maxEpoch: maxEpoch,
+            randomness: randomness,
+          };
 
-            const enokiZkpRequest = {
-                network: 'testnet',
-                ephemeralPublicKey: extendedEphemeralPublicKeyString,
-                maxEpoch: maxEpoch,
-                randomness: randomness,
-            };
+          const enokiZkpResponseRaw = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin/zkp', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${import.meta.env['VITE_ENOKI_KEY']}`,
+              'zklogin-jwt': jwt, 
+            },
+            body: JSON.stringify(enokiZkpRequest)
+          });
 
-            const enokiZkpResponseRaw = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin/zkp', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${import.meta.env['VITE_ENOKI_KEY']}`,
-                    'zklogin-jwt': jwt, 
-                },
-                body: JSON.stringify(enokiZkpRequest)
-            });
+          if (!enokiZkpResponseRaw.ok) {
+            const errorBody = await enokiZkpResponseRaw.text();
+            throw new Error(`Enoki ZKP service error: ${enokiZkpResponseRaw.status} ${enokiZkpResponseRaw.statusText} - ${errorBody}`);
+          }
+          
+          const enokiResponse: EnokiZkpResponse = await enokiZkpResponseRaw.json();
+          if (!enokiResponse.data?.proofPoints) throw new Error("Invalid ZKP response from Enoki");
 
-            if (!enokiZkpResponseRaw.ok) {
-                const errorBody = await enokiZkpResponseRaw.text();
-                throw new Error(`Enoki ZKP service error (Tx1): ${enokiZkpResponseRaw.status} ${enokiZkpResponseRaw.statusText} - ${errorBody}`);
-            }
-            const enokiResponse: EnokiZkpResponse = await enokiZkpResponseRaw.json();
-            if (!enokiResponse.data?.proofPoints) throw new Error("Invalid ZKP response from Enoki (Tx1).");
+          const zkLoginInputs: ActualZkLoginSignatureInputs = {
+            proofPoints: enokiResponse.data.proofPoints,
+            issBase64Details: enokiResponse.data.issBase64Details,
+            headerBase64: enokiResponse.data.headerBase64,
+            addressSeed: localStorage.getItem('zkLogin_userSalt_from_enoki') || '',
+          };
 
-            const zkLoginInputs: ActualZkLoginSignatureInputs = {
-                 proofPoints: enokiResponse.data.proofPoints,
-                 issBase64Details: enokiResponse.data.issBase64Details,
-                 headerBase64: enokiResponse.data.headerBase64,
-                 addressSeed: localStorage.getItem('zkLogin_userSalt_from_enoki') || '',
-            };
+          const actualZkLoginSignature = getZkLoginSignature({ inputs: zkLoginInputs, maxEpoch, userSignature });
 
-            const actualZkLoginSignature = getZkLoginSignature({ inputs: zkLoginInputs, maxEpoch, userSignature });
+          setStakingStage('staking'); 
+          const result = await suiClient.executeTransactionBlock({ 
+            transactionBlock: fullTxBytes,
+            signature: actualZkLoginSignature,
+            options: { showEffects: true, showObjectChanges: true }
+          }); 
+          
+          setTxDigest(result.digest);
 
-            setStakingStage('requestingStake'); 
-            const result1 = await suiClient.executeTransactionBlock({ 
-              transactionBlock: fullTxBytes,
-              signature: actualZkLoginSignature,
-              options: { showEffects: true, showObjectChanges: true }
-            }); 
-            tx1Digest = result1.digest;
-            setTxDigest1(tx1Digest);
-            newStakedSuiId = findStakedSuiObjectId(result1);
-
-        } catch (directZkpError: any) {
-            console.error("Error during Direct ZKP Flow (Tx1):", directZkpError);
-            toast.error(`Failed during ZKP flow: ${directZkpError.message || 'Unknown ZKP/execution error'}`, getToastConfig());
-            setStakingStage('failed');
-            return;
+        } catch (zkpError: any) {
+          console.error("Error during ZKP Flow:", zkpError);
+          toast.error(`Failed during ZKP flow: ${zkpError.message || 'Unknown ZKP/execution error'}`, getToastConfig());
+          setStakingStage('failed');
+          return;
         }
 
       } else if (alphaProvider === 'dapp-kit') {
-        let signResult1;
+        let signResult;
         if (signAndExecute) {
-          // Use the custom hook that handles refresh automatically
-          signResult1 = await signAndExecute(tx1);
+          signResult = await signAndExecute(combinedTx);
         } else {
-          // Use the fallback hook
-          signResult1 = await actualSignAndExecute({ transaction: tx1 });
+          signResult = await actualSignAndExecute({ transaction: combinedTx });
         }
 
-        tx1Digest = signResult1.digest;
-        setTxDigest1(tx1Digest);
-
-        // Manual refresh if transaction success hook is not available
-        if (!signAndExecute && signResult1.digest) {
-          try {
-            await refreshData();
-          } catch (refreshError) {
-            console.warn('Failed to refresh data after transaction:', refreshError);
-          }
-        }
-
-        const delayMs = 3000;
-        await sleep(delayMs); 
-        
-        const result1 = await suiClient.getTransactionBlock({ 
-          digest: tx1Digest, 
-          options: { showEffects: true, showObjectChanges: true }
-        });
-
-        const responseError1 = getTransactionResponseError(result1);
-        if (responseError1) throw new Error(`Tx1 Error: ${responseError1}`);
-        newStakedSuiId = findStakedSuiObjectId(result1);
+        setTxDigest(signResult.digest);
 
       } else {
-        throw new Error ("Cannot determine execution path for Tx1");
-      }
-
-      if (!newStakedSuiId) {
-        console.error("Could not find StakedSui object ID in Tx1 results.");
-        toast.error("Stake request was cancelled or failed. Please ensure the first transaction is approved and try again.", getToastConfig());
-        setStakingStage('failed');
-        setTransactionLoading(false);
-        return;
-      }
-      setStakedSuiId(newStakedSuiId);
-
-    } catch (error: any) {
-      console.error('Error during Tx1 preparation/execution:', error);
-      toast.error(`Transaction failed: ${getTransactionErrorMessage(error)}`, getToastConfig());
-      setStakingStage('failed');
-    } finally {
-      setTransactionLoading(false);
-    }
-
-    // Remove duplicate check - already handled in the try block above
-    // if (!newStakedSuiId) {
-    //     toast.error("Failed to obtain necessary stake information after the first step. Please try again.", getToastConfig());
-    //     setStakingStage('failed');
-    //     setTransactionLoading(false);
-    //   return;
-    // }
-
-    // Only proceed if we have a valid staked SUI ID
-    if (!newStakedSuiId) {
-      return; // Error already handled above
-    }
-
-    setStakingStage('registeringStake');
-    let tx2Digest: string | null = null;
-
-    try {
-      if (!selectedDuration) {
-        throw new Error("Selected duration is required for registration");
-      }
-      const tx2 = buildRegisterStakeTransaction(newStakedSuiId, selectedDuration.days);
-
-      if (alphaProvider === 'google') {
-        tx2.setSender(alphaAddress);
-        
-        const jwt = localStorage.getItem('zkLogin_jwt');
-        const secretKeySeedString = localStorage.getItem('zkLogin_ephemeralSecretKeySeed');
-        const maxEpochStringTx2 = localStorage.getItem('zkLogin_maxEpoch');
-        const randomnessStringTx2 = localStorage.getItem('zkLogin_randomness');
-        const publicKeyBytesStringTx2 = localStorage.getItem('zkLogin_ephemeralPublicKeyBytes');
-
-        if (!jwt || !secretKeySeedString || !maxEpochStringTx2 || !randomnessStringTx2 || !publicKeyBytesStringTx2) {
-             console.error("Tx2 - Missing zkLogin items from localStorage.", { jwtPresent: !!jwt, secretKeySeedStringPresent: !!secretKeySeedString, maxEpochStringPresent: !!maxEpochStringTx2, randomnessStringPresent: !!randomnessStringTx2, publicKeyBytesStringPresent: !!publicKeyBytesStringTx2 });
-             throw new Error("Missing zkLogin data for Tx2");
-        }
-
-        const secretKeySeed = Uint8Array.from(JSON.parse(secretKeySeedString));
-        const ephemeralKeypair = Ed25519Keypair.fromSecretKey(secretKeySeed.slice(0, 32));
-        const maxEpochTx2 = parseInt(maxEpochStringTx2, 10);
-        const randomnessTx2 = randomnessStringTx2;
-        const publicKeyBytesTx2 = Uint8Array.from(JSON.parse(publicKeyBytesStringTx2));
-        const ephemeralPublicKeyTx2 = new Ed25519PublicKey(publicKeyBytesTx2);
-        const extendedEphemeralPublicKeyStringTx2 = ephemeralPublicKeyTx2.toSuiPublicKey();
-
-        if (isNaN(maxEpochTx2)) {
-           console.error("Tx2 - maxEpoch is NaN!");
-           throw new Error("Invalid maxEpoch for Tx2");
-        }
-        
-        const fullTxBytes2 = await tx2.build({ client: suiClient as unknown as SuiClient });
-
-        const signedData2 = await ephemeralKeypair.signTransaction(fullTxBytes2);
-        const userSignature2 = signedData2.signature;
-        
-        setStakingStage('fetchingProof');
-
-        const VITE_ENOKI_KEY_TX2 = import.meta.env['VITE_ENOKI_KEY'];
-        if (!VITE_ENOKI_KEY_TX2) {
-            console.error("VITE_ENOKI_KEY not found for Tx2.");
-            toast.error("Configuration error: Enoki API Key missing", getToastConfig());
-            setStakingStage('failed');
-            return;
-        }
-
-        try {
-            const enokiZkpRequestTx2 = {
-                network: 'testnet',
-                ephemeralPublicKey: extendedEphemeralPublicKeyStringTx2,
-                maxEpoch: maxEpochTx2,
-                randomness: randomnessTx2,
-            };
-
-            const enokiZkpResponseRawTx2 = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin/zkp', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${VITE_ENOKI_KEY_TX2}`,
-                    'zklogin-jwt': jwt,
-                },
-                body: JSON.stringify(enokiZkpRequestTx2)
-            });
-
-            if (!enokiZkpResponseRawTx2.ok) {
-                const errorBodyTx2 = await enokiZkpResponseRawTx2.text();
-                throw new Error(`Enoki ZKP service error (Tx2): ${enokiZkpResponseRawTx2.status} ${enokiZkpResponseRawTx2.statusText} - ${errorBodyTx2}`);
-            }
-
-            const enokiResponseTx2: EnokiZkpResponse = await enokiZkpResponseRawTx2.json();
-            
-            if (!enokiResponseTx2.data || !enokiResponseTx2.data.proofPoints || !enokiResponseTx2.data.issBase64Details || !enokiResponseTx2.data.headerBase64 || !enokiResponseTx2.data.addressSeed) {
-               throw new Error("Invalid response from Enoki ZKP (Tx2).");
-            }
-            
-            const zkLoginSignatureInputsTx2: ActualZkLoginSignatureInputs = {
-                proofPoints: enokiResponseTx2.data.proofPoints,
-                issBase64Details: enokiResponseTx2.data.issBase64Details,
-                headerBase64: enokiResponseTx2.data.headerBase64,
-                addressSeed: enokiResponseTx2.data.addressSeed,
-            };
-
-            setStakingStage('registeringStake'); 
-            const actualZkLoginSignature2 = getZkLoginSignature({ inputs: zkLoginSignatureInputsTx2, maxEpoch: maxEpochTx2, userSignature: userSignature2 });
-        
-            const result2 = await suiClient.executeTransactionBlock({ 
-              transactionBlock: fullTxBytes2,
-              signature: actualZkLoginSignature2,
-              options: { showEffects: true }
-            });
-            tx2Digest = result2.digest;
-            setTxDigest2(tx2Digest);
-
-        } catch (proofErrorTx2: any) {
-            console.error("Error during Enoki ZK proof stage (Tx2):", proofErrorTx2);
-            toast.error(`Failed during ZK proof stage: ${proofErrorTx2.message || 'Unknown proof error'}`, getToastConfig());
-            setStakingStage('failed');
-            return;
-        }
-      } else if (alphaProvider === 'dapp-kit') {
-        let signResult2;
-        if (signAndExecute) {
-          // Use the custom hook that handles refresh automatically
-          signResult2 = await signAndExecute(tx2);
-        } else {
-          // Use the fallback hook
-          signResult2 = await actualSignAndExecute({ transaction: tx2 });
-        }
-        
-        tx2Digest = signResult2.digest;
-        setTxDigest2(tx2Digest);
-
-        // Manual refresh if transaction success hook is not available
-        if (!signAndExecute && signResult2.digest) {
-          try {
-            await refreshData();
-          } catch (refreshError) {
-            console.warn('Failed to refresh data after transaction:', refreshError);
-          }
-        }
-      } else {
-        throw new Error ("Cannot determine execution path for Tx2");
+        throw new Error("Cannot determine execution path");
       }
       
       setStakingStage('success');
       setAmount('');
-      // Show single toast with digest links
+      
+      // Show success toast with transaction link
       toast.success(
         <div>
           <div>Successfully staked {formatSui(amountInMist.toString())} SUI!</div>
-          {tx1Digest && (
+          {txDigest && (
             <div className="mt-1 text-xs">
-              Tx1 Digest: <a href={`https://suiscan.xyz/testnet/tx/${tx1Digest}`} target="_blank" rel="noopener noreferrer" className="underline">{tx1Digest.substring(0, 10)}...</a>
-            </div>
-          )}
-          {tx2Digest && (
-            <div className="mt-1 text-xs">
-              Tx2 Digest: <a href={`https://suiscan.xyz/testnet/tx/${tx2Digest}`} target="_blank" rel="noopener noreferrer" className="underline">{tx2Digest.substring(0, 10)}...</a>
+              Transaction: <a href={`https://suiscan.xyz/testnet/tx/${txDigest}`} target="_blank" rel="noopener noreferrer" className="underline">{txDigest.substring(0, 10)}...</a>
             </div>
           )}
         </div>,
         getToastConfig()
       );
-      // Component will automatically refresh via transaction success hook
 
     } catch (error: any) {
-      console.error('Error during Tx2:', error);
+      console.error('Error during staking:', error);
       toast.error(`Transaction failed: ${getTransactionErrorMessage(error)}`, getToastConfig());
       setStakingStage('failed');
     } finally {
@@ -641,9 +430,8 @@ export const StakeCard: React.FC = () => {
   // --- Button Label Logic ---
   const getButtonLabel = () => {
     switch (stakingStage) {
-      case 'requestingStake': return 'Requesting Stake...';
+      case 'staking': return 'Staking...';
       case 'fetchingProof': return 'Fetching ZK Proof...';
-      case 'registeringStake': return 'Registering Stake...';
       case 'idle':
       case 'success':
       case 'failed':
@@ -885,28 +673,26 @@ export const StakeCard: React.FC = () => {
         <div>
           <button
             onClick={handleStake}
-            disabled={ 
-                !alphaIsConnected || 
-                (!amount || !(parseFloat(amount) >= 1.0)) ||
-                !checkSufficientBalance() ||
-                isLoadingBalance ||
-                (stakingStage !== 'idle' && stakingStage !== 'failed' && stakingStage !== 'success')
+            disabled={
+              !alphaIsConnected || 
+              !checkSufficientBalance() || 
+              !getAmountValidation().isValid || 
+              stakingStage === 'staking' || 
+              stakingStage === 'fetchingProof' || 
+              isLoadingBalance
             }
             className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white font-semibold py-2 px-6 rounded-lg transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 relative"
           >
-            {(stakingStage === 'requestingStake' || stakingStage === 'registeringStake' || stakingStage === 'fetchingProof') ? (
+            {(stakingStage === 'staking' || stakingStage === 'fetchingProof') ? (
               <>
                 <span className="opacity-0">{getButtonLabel()}</span> 
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <svg className="animate-spin h-4 w-4 text-white mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
                   <span>{getButtonLabel()}</span>
-                </span>
+                </div>
               </>
             ) : (
-              'Stake SUI'
+              getButtonLabel()
             )}
           </button>
         </div>

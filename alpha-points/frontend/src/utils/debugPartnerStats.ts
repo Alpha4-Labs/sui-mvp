@@ -103,8 +103,13 @@ export const debugPartnerStatsDetection = async (
   // First validate the partner cap ID format
   validatePartnerCapId(partnerCapId);
   
-  const objectType = `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`;
-  console.log('🐛 Expected object type:', objectType);
+  // NOTE: PartnerPerkStatsV2 objects are no longer used in the current contract version
+  console.warn('⚠️ PartnerPerkStatsV2 objects are no longer required. Current contract handles perk claims without separate stats objects.');
+  console.log('✅ The current contract version handles perk claims directly without requiring separate stats objects.');
+  return null; // Return null since this object type no longer exists
+  
+  // The following debug code is commented out as it's no longer relevant:
+  /*
 
   // Test 0: Try to find the object by known transaction digest
   console.log('\n🐛 TEST 0: Search by Known Transaction');
@@ -311,6 +316,7 @@ export const debugPartnerStatsDetection = async (
   } catch (error) {
     console.error('🐛 Alternative event type test failed:', error);
   }
+  */
   
   console.log('\n🐛 ===== END DEBUG =====');
 };

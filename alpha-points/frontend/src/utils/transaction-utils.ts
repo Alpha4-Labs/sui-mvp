@@ -12,6 +12,11 @@ export {
   export {
     buildRequestAddStakeTransaction,
     buildRegisterStakeTransaction,
+    buildCombinedStakeTransaction,
+    buildImprovedSequentialStakeTransactions,
+    buildSequentialStakeTransactions,
+    findStakedSuiObjectId,
+    waitForStakedSuiObject,
     buildUnstakeTransaction,
     buildRedeemPointsTransaction,
     buildCreateLoanTransaction,
