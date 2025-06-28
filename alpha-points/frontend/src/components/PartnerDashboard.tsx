@@ -45,6 +45,7 @@ import {
   usdToAlphaPointsDisplay,
   formatAlphaPoints as formatAP
 } from '../utils/conversionUtils';
+import { hashMetadata } from '../utils/privacy';
 import { formatSui } from '../utils/format';
 import suiLogo from '../assets/sui-logo.jpg';
 import { GenerationsTab } from './GenerationsTab';
@@ -175,6 +176,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const [newPerkIcon, setNewPerkIcon] = useState('🎁'); // Default icon
   const [isCreatingPerk, setIsCreatingPerk] = useState(false);
   
+  // Metadata state
+  const [showMetadataModal, setShowMetadataModal] = useState(false);
+  const [customMetadata, setCustomMetadata] = useState<Array<{key: string; value: string; shouldHash: boolean}>>([]);
+  const [metadataField, setMetadataField] = useState({key: '', value: '', shouldHash: true});
+  
   // Expiry functionality
   const [newPerkExpiryType, setNewPerkExpiryType] = useState<'none' | 'days' | 'date'>('none');
   const [newPerkExpiryDays, setNewPerkExpiryDays] = useState('30');
@@ -216,7 +222,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const [isCheckingStats, setIsCheckingStats] = useState(false);
   const [isCreatingStats, setIsCreatingStats] = useState(false);
 
-  // Check if partner has stats object
+  // Check if partner has stats object (deprecated - now always returns true since stats objects are no longer required)
   const checkPartnerStats = useCallback(async (forceRefresh: boolean = false, partnerCapIdOverride?: string) => {
     const partnerCapIdToCheck = partnerCapIdOverride || selectedPartnerCapId;
     
@@ -225,10 +231,26 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       return;
     }
     
+    // NOTE: PartnerPerkStatsV2 objects are no longer required by the current contract version
+    // Always set hasPartnerStats to true
+    console.log('ℹ️ PartnerPerkStatsV2 objects are no longer required - marking partner as ready');
+    setHasPartnerStats(true);
+    setIsCheckingStats(false);
+    
     // Get the current partner name for better logging
     const currentPartner = partnerCaps.find(cap => cap.id === partnerCapIdToCheck);
     const partnerName = currentPartner?.partnerName || 'Unknown Partner';
     
+    // Show success toast only on perks tab for better UX
+    if (currentTab === 'perks' && !globalStatsCheckTracker.has(partnerCapIdToCheck)) {
+      toast.success(`✅ Partner ready for perk creation: ${partnerName}`, { autoClose: 2000 });
+    }
+    
+    // Mark this partner as checked to prevent duplicate toasts
+    globalStatsCheckTracker.set(partnerCapIdToCheck, Promise.resolve());
+    
+    // Commented out deprecated stats checking logic:
+    /*
     // Use global singleton to prevent multiple simultaneous checks for the same partner cap
     const actualCheckFunction = async () => {
       try {
@@ -262,10 +284,19 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     
     // Use the global singleton pattern to prevent duplicate checks
     return getOrCreateStatsCheck(partnerCapIdToCheck, actualCheckFunction);
+    */
   }, [suiClient, selectedPartnerCapId, partnerCaps, currentTab, setIsCheckingStats]);
 
-  // Create partner stats object (with duplicate prevention)
+  // Create partner stats object (deprecated - no longer needed since contract was updated)
   const createPartnerStats = async () => {
+    console.warn('⚠️ createPartnerStats called but PartnerPerkStatsV2 objects are no longer required');
+    toast.success('Partner stats objects are no longer required! Your partner is ready to create perks.');
+    setHasPartnerStats(true);
+    setIsCreatingStats(false);
+    return;
+    
+    // Commented out deprecated stats creation logic:
+    /*
     if (!selectedPartnerCapId || !suiClient) {
       toast.error('Client not ready. Please try again in a moment.');
       return;
@@ -324,6 +355,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     } finally {
       setIsCreatingStats(false);
     }
+    */
   };
 
 
@@ -691,6 +723,90 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     setShowTagDropdown(false);
   };
 
+  // Metadata management functions
+  const addMetadataField = () => {
+    if (!metadataField.key.trim() || !metadataField.value.trim()) {
+      toast.error('Both key and value are required');
+      return;
+    }
+
+    // Parse comma-separated keys and values
+    const keys = metadataField.key.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    const values = metadataField.value.split(',').map(v => v.trim()).filter(v => v.length > 0);
+
+    // Validate that keys and values match
+    if (keys.length !== values.length) {
+      toast.error(`Mismatch: ${keys.length} keys but ${values.length} values. Please ensure equal counts.`);
+      return;
+    }
+
+    // Check for duplicate keys (both existing and within new batch)
+    const existingKeys = customMetadata.map(field => field.key);
+    const duplicateKeys = keys.filter(key => existingKeys.includes(key));
+    const internalDuplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
+    
+    if (duplicateKeys.length > 0) {
+      toast.error(`Duplicate keys already exist: ${duplicateKeys.join(', ')}`);
+      return;
+    }
+    
+    if (internalDuplicates.length > 0) {
+      toast.error(`Duplicate keys in input: ${[...new Set(internalDuplicates)].join(', ')}`);
+      return;
+    }
+
+    // Create new metadata fields
+    const newFields = keys.map((key, index) => ({
+      key: key,
+      value: values[index],
+      shouldHash: metadataField.shouldHash
+    }));
+
+    setCustomMetadata(prev => [...prev, ...newFields]);
+
+    // Reset modal state
+    setMetadataField({key: '', value: '', shouldHash: true});
+    setShowMetadataModal(false);
+    toast.success(`${newFields.length} metadata field(s) added`);
+  };
+
+  // Generate JSON preview for metadata
+  const generateMetadataPreview = () => {
+    if (!metadataField.key.trim() || !metadataField.value.trim()) {
+      return null;
+    }
+
+    const keys = metadataField.key.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    const values = metadataField.value.split(',').map(v => v.trim()).filter(v => v.length > 0);
+
+    if (keys.length !== values.length) {
+      return { error: `Mismatch: ${keys.length} keys, ${values.length} values` };
+    }
+
+    const preview: Record<string, string> = {};
+    keys.forEach((key, index) => {
+      preview[key] = metadataField.shouldHash ? 
+        `<hashed: ${values[index].substring(0, 10)}...>` : 
+        values[index];
+    });
+
+    return { data: preview };
+  };
+
+  const removeMetadataField = (keyToRemove: string) => {
+    setCustomMetadata(prev => prev.filter(field => field.key !== keyToRemove));
+    toast.success('Metadata field removed');
+  };
+
+  // Process metadata for submission (hash where needed)
+  const processMetadataForSubmission = (partnerSalt: string) => {
+    return customMetadata.map(field => ({
+      key: field.key,
+      value: field.shouldHash ? hashMetadata(field.value, partnerSalt) : field.value,
+      isHashed: field.shouldHash
+    }));
+  };
+
   const filteredTags = availableTags.filter(tag => 
     !newPerkTags.includes(tag) && 
     tag.toLowerCase().includes(tagInput.toLowerCase())
@@ -806,6 +922,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     // REMOVED: PartnerPerkStats requirement validation
     // The Move package has been optimized to remove the stats object requirement
     // Partners can now create perks without needing PartnerPerkStatsV2 objects
+
+    // Check if custom metadata requires partner salt
+    if (customMetadata.length > 0 && !perkSettings?.partnerSalt) {
+      toast.error('Error: Custom metadata requires a partner salt to be generated. Please generate a partner salt in your settings first.');
+      return;
+    }
 
     const usdcPrice = parseFloat(newPerkUsdcPrice);
 
@@ -958,6 +1080,16 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       // Calculate partner share percentage for the transaction
       const newPerkPartnerShare = calculatePartnerShare(newPerkReinvestmentPercent);
       
+      // Process custom metadata if any exists
+      let metadataKeys: string[] = [];
+      let metadataValues: string[] = [];
+      
+      if (customMetadata.length > 0 && perkSettings?.partnerSalt) {
+        const processedMetadata = processMetadataForSubmission(perkSettings.partnerSalt);
+        metadataKeys = processedMetadata.map(field => field.key);
+        metadataValues = processedMetadata.map(field => field.value);
+      }
+      
       const transaction = buildCreatePerkDefinitionTransaction(
         partnerCap.id,
         {
@@ -971,8 +1103,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           generatesUniqueClaimMetadata: false,
           tags: newPerkTags,
           maxClaims: undefined,
-          initialDefinitionMetadataKeys: [], // TODO: Add 'icon' key when smart contract supports it
-          initialDefinitionMetadataValues: [], // TODO: Add newPerkIcon value when smart contract supports it
+          initialDefinitionMetadataKeys: metadataKeys,
+          initialDefinitionMetadataValues: metadataValues,
           isActive: true
         }
       );
@@ -1097,6 +1229,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             // Reset consumable fields
             setNewPerkIsConsumable(false);
             setNewPerkCharges('1');
+            // Reset metadata fields
+            setCustomMetadata([]);
+            setMetadataField({key: '', value: '', shouldHash: true});
             
             // Refresh perk data
             setTimeout(() => {
@@ -2800,7 +2935,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
               </div>
               
               {/* Description and Create Button Row */}
-              <div className="grid grid-cols-4 gap-3 mt-4">
+              <div className="grid grid-cols-5 gap-3 mt-4">
                 <div className="col-span-3">
                   <Input
                     placeholder="Perk Description"
@@ -2811,6 +2946,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     title="Describe what users get with this perk. Be specific about benefits and any redemption instructions."
                   />
                 </div>
+                <Button 
+                  onClick={() => setShowMetadataModal(true)}
+                  disabled={!perkSettings?.partnerSalt || isCreatingPerk}
+                  className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600"
+                  title={!perkSettings?.partnerSalt ? "Partner salt required - generate in settings" : "Add custom metadata fields"}
+                >
+                  🏷️ Metadata
+                </Button>
                 <Button 
                   onClick={handleCreatePerk}
                   disabled={
@@ -2826,6 +2969,65 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   {isCreatingPerk ? 'Creating...' : 'Create Perk'}
                 </Button>
               </div>
+              
+              {/* Show added metadata fields if any exist */}
+              {customMetadata.length > 0 && (
+                <div className="mt-4 p-3 bg-gray-900/30 rounded-lg border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <h5 className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                      <span>🏷️</span>
+                      Custom Metadata ({customMetadata.length})
+                    </h5>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-gray-400">
+                        {customMetadata.filter(f => f.shouldHash).length} hashed
+                      </span>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-gray-400">
+                        {customMetadata.filter(f => !f.shouldHash).length} plain
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* JSON-like view */}
+                  <div className="bg-gray-800/50 rounded p-3 border border-gray-600">
+                    <pre className="text-xs text-gray-300 font-mono">
+{JSON.stringify(
+  customMetadata.reduce((acc, field) => {
+    acc[field.key] = field.shouldHash ? 
+      `<hashed: ${field.value.substring(0, 8)}...>` : 
+      field.value;
+    return acc;
+  }, {} as Record<string, string>), 
+  null, 
+  2
+)}
+                    </pre>
+                  </div>
+                  
+                  {/* Individual field management */}
+                  <div className="mt-3 space-y-1">
+                    <p className="text-xs text-gray-500 mb-2">Individual field controls:</p>
+                    {customMetadata.map((field, index) => (
+                      <div key={index} className="flex items-center justify-between p-2 bg-gray-800/30 rounded text-xs">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-white font-medium">{field.key}</span>
+                          {field.shouldHash && (
+                            <span className="px-1 py-0.5 bg-green-600/20 text-green-300 text-xs rounded">🔒</span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => removeMetadataField(field.key)}
+                          className="text-red-400 hover:text-red-300 text-sm px-2 py-1 rounded hover:bg-red-900/20"
+                          title="Remove metadata field"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           
@@ -5985,6 +6187,199 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             </div>
             <div className="p-4">
               <SDKConfigurationDashboard />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Metadata Input Modal */}
+      {showMetadataModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-gray-900 rounded-lg max-w-6xl w-full border border-gray-700">
+            <div className="p-6 border-b border-gray-700">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-white">Add Custom Metadata</h3>
+                <button
+                  onClick={() => {
+                    setShowMetadataModal(false);
+                    setMetadataField({key: '', value: '', shouldHash: true});
+                  }}
+                  className="text-gray-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3 mb-4">
+                <div className="flex items-start space-x-2">
+                  <span className="text-blue-400 text-sm">💡</span>
+                  <div className="text-xs text-blue-300">
+                    <p className="font-medium mb-1">Multiple Fields Support</p>
+                    <p>Use commas to add multiple fields at once - watch the live alignment on the right!</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                {/* Left Column - Input Fields */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Key(s) *
+                    </label>
+                    <Input
+                      type="text"
+                      value={metadataField.key}
+                      onChange={(e) => setMetadataField(prev => ({ ...prev, key: e.target.value }))}
+                      placeholder="discord_id, email, username"
+                      className="w-full"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Value(s) *
+                    </label>
+                    <Input
+                      type="text"
+                      value={metadataField.value}
+                      onChange={(e) => setMetadataField(prev => ({ ...prev, value: e.target.value }))}
+                      placeholder="12345, user@email.com, myname"
+                      className="w-full"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={metadataField.shouldHash}
+                        onChange={(e) => setMetadataField(prev => ({ ...prev, shouldHash: e.target.checked }))}
+                        className="rounded border-gray-600 text-purple-600 focus:ring-purple-500"
+                      />
+                      <span className="text-sm text-gray-300">Hash with partner salt</span>
+                    </label>
+                    <p className="text-xs text-gray-400 mt-1 ml-6">
+                      Protects sensitive information
+                    </p>
+                  </div>
+                </div>
+
+                {/* Right Column - Live Alignment View */}
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+                      <span>👀</span>
+                      Live Alignment View
+                    </h4>
+                    
+                    {(() => {
+                      const keys = metadataField.key.split(',').map(k => k.trim()).filter(k => k.length > 0);
+                      const values = metadataField.value.split(',').map(v => v.trim()).filter(v => v.length > 0);
+                      const hasInput = metadataField.key.trim() || metadataField.value.trim();
+                      
+                      if (!hasInput) {
+                        return (
+                          <div className="bg-gray-800/30 rounded-lg p-4 text-center text-gray-500 text-sm">
+                            Start typing to see alignment...
+                          </div>
+                        );
+                      }
+
+                      const maxLength = Math.max(keys.length, values.length);
+                      const hasError = keys.length !== values.length;
+                      
+                      return (
+                        <div className="bg-gray-800/50 rounded-lg border border-gray-600 overflow-hidden">
+                          {/* Header */}
+                          <div className="bg-gray-700/50 px-3 py-2 border-b border-gray-600">
+                            <div className="grid grid-cols-2 gap-2 text-xs font-medium text-gray-300">
+                              <div className="flex items-center gap-1">
+                                <span>Key</span>
+                                <span className="text-blue-400">({keys.length})</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span>Value</span>
+                                <span className="text-green-400">({values.length})</span>
+                                {metadataField.shouldHash && <span className="text-orange-400">(hashed)</span>}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Rows */}
+                          <div className="max-h-48 overflow-y-auto">
+                            {Array.from({ length: maxLength }, (_, i) => {
+                              const key = keys[i] || '';
+                              const value = values[i] || '';
+                              const keyMissing = i >= keys.length;
+                              const valueMissing = i >= values.length;
+                              
+                              return (
+                                <div 
+                                  key={i} 
+                                  className={`grid grid-cols-2 gap-2 px-3 py-2 text-xs border-b border-gray-700/50 last:border-b-0 ${
+                                    keyMissing || valueMissing ? 'bg-red-900/20' : 'hover:bg-gray-700/30'
+                                  }`}
+                                >
+                                  <div className={`font-mono ${keyMissing ? 'text-red-400' : 'text-white'}`}>
+                                    {key || (keyMissing ? '❌ missing' : '⚪ empty')}
+                                  </div>
+                                  <div className={`font-mono ${valueMissing ? 'text-red-400' : 'text-gray-300'}`}>
+                                    {value ? (
+                                      metadataField.shouldHash ? `🔒 ${value.substring(0, 10)}...` : value
+                                    ) : (
+                                      valueMissing ? '❌ missing' : '⚪ empty'
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          
+                          {/* Status Footer */}
+                          <div className={`px-3 py-2 text-xs ${hasError ? 'bg-red-900/20 text-red-300' : 'bg-green-900/20 text-green-300'}`}>
+                            {hasError ? (
+                              <span>⚠️ Mismatch: {keys.length} keys ≠ {values.length} values</span>
+                            ) : (
+                              <span>✅ Perfect alignment: {keys.length} pair(s) ready</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+
+            </div>
+            
+            <div className="p-6 border-t border-gray-700 flex space-x-3">
+              <Button
+                onClick={() => {
+                  setShowMetadataModal(false);
+                  setMetadataField({key: '', value: '', shouldHash: true});
+                }}
+                className="flex-1 bg-gray-600 hover:bg-gray-700"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={addMetadataField}
+                disabled={!metadataField.key.trim() || !metadataField.value.trim() || (() => {
+                  const preview = generateMetadataPreview();
+                  return preview?.error ? true : false;
+                })()}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed"
+              >
+                {(() => {
+                  const keys = metadataField.key.split(',').map(k => k.trim()).filter(k => k.length > 0);
+                  const count = keys.length;
+                  return count > 1 ? `Add ${count} Fields` : 'Add Field';
+                })()}
+              </Button>
             </div>
           </div>
         </div>

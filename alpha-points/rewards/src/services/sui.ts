@@ -1,20 +1,7 @@
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
 import { SUI_CONFIG, isUsingRealContracts } from '../config/sui';
 
-export interface ClaimedPerk {
-  objectId: string;
-  name: string;
-  description: string;
-  category: string;
-  value: number;
-  status: 'Active' | 'Used' | 'Expired';
-  claimedAt: string;
-  icon?: string;
-  // Additional properties for backward compatibility with existing UI
-  perkType: string;
-  currentAlphaPointsPrice: number;
-  usdcPrice: number;
-}
+import type { ClaimedPerk } from '../types/index';
 
 class SimpleCache {
   private cache = new Map<string, { data: any; timestamp: number }>();
@@ -450,24 +437,4 @@ export class SuiService {
 // Export singleton instance
 export const suiService = new SuiService();
 
-// Define PerkDefinition interface for the service
-interface PerkDefinition {
-  objectId: string;
-  name: string;
-  description: string;
-  creatorPartnerCapId: string;
-  perk_type: string;
-  usdc_price: number;
-  current_alpha_points_price: number;
-  last_price_update_timestamp_ms: number;
-  partner_share_percentage: number;
-  platform_share_percentage: number;
-  max_claims?: number;
-  total_claims_count: number;
-  is_active: boolean;
-  generates_unique_claim_metadata: boolean;
-  max_uses_per_claim?: number;
-  expiration_timestamp_ms?: number;
-  tags: string[];
-  packageId: string;
-} 
+import type { PerkDefinition } from '../types/index'; 

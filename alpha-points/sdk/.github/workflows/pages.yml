@@ -1,0 +1,87 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build SDK
+        run: npm run build
+      
+      - name: Create index.html for easier navigation
+        run: |
+          cat > index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Alpha4 Onboard SDK</title>
+            <meta charset="UTF-8">
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 40px; line-height: 1.6; }
+              .file-list { background: #f5f5f5; padding: 20px; border-radius: 8px; }
+              a { color: #0066cc; text-decoration: none; }
+              a:hover { text-decoration: underline; }
+              code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }
+            </style>
+          </head>
+          <body>
+            <h1>Alpha4 Onboard SDK</h1>
+            <p>Universal Zero-Dev JavaScript SDK for blockchain points integration</p>
+            
+            <div class="file-list">
+              <h2>Available Files:</h2>
+              <ul>
+                <li><a href="sui-points-adapter.js">sui-points-adapter.js</a> - Full SDK (22KB)</li>
+                <li><a href="sui-points-adapter.min.js">sui-points-adapter.min.js</a> - Minified SDK (10KB)</li>
+                <li><a href="sui-points-adapter.min.js.map">sui-points-adapter.min.js.map</a> - Source Map</li>
+                <li><a href="types/">types/</a> - TypeScript Definitions</li>
+                <li><a href="examples/">examples/</a> - Integration Examples</li>
+              </ul>
+            </div>
+            
+            <h2>Quick Integration:</h2>
+            <pre><code>&lt;script src="https://alpha4-labs.github.io/zd-sdk/sui-points-adapter.js" data-package-id="YOUR_PACKAGE_ID" data-partner-cap-id="YOUR_PARTNER_CAP_ID" data-rpc-url="https://fullnode.testnet.sui.io:443"&gt;&lt;/script&gt;</code></pre>
+            
+            <p><a href="https://github.com/Alpha4-Labs/zd-sdk">View on GitHub</a></p>
+          </body>
+          </html>
+          EOF
+      
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+      
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4 

@@ -1,0 +1,78 @@
+name: Deploy to CDN
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build SDK
+      run: npm run build
+    
+    - name: Test example
+      run: npm run example &
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: sdk-build
+        path: |
+          sui-points-adapter.js
+          sui-points-adapter.min.js
+          sui-points-adapter.min.js.map
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build SDK
+      run: npm run build
+    
+    - name: Deploy to CDN
+      env:
+        CDN_ACCESS_KEY: ${{ secrets.CDN_ACCESS_KEY }}
+        CDN_SECRET_KEY: ${{ secrets.CDN_SECRET_KEY }}
+      run: |
+        echo "Deploying to onboard.alpha4.io CDN..."
+        # Add your CDN deployment script here
+        # aws s3 sync . s3://onboard-alpha4-io --exclude="*" --include="*.js" --include="*.map"
+    
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false 

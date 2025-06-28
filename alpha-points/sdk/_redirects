@@ -1,0 +1,11 @@
+# Redirect shortcuts to main files
+/latest /sui-points-adapter.js 302
+/latest.min /sui-points-adapter.min.js 302
+/v1 /sui-points-adapter.js 302
+/v1.min /sui-points-adapter.min.js 302
+
+# Ensure index.html is served for root
+/ /index.html 200
+
+# Handle 404s by serving index.html (for better UX)
+/* /index.html 404 

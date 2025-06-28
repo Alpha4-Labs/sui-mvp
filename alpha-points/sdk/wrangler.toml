@@ -1,0 +1,56 @@
+name = "alpha4-onboard-sdk"
+compatibility_date = "2024-12-19"
+
+[env.production]
+name = "alpha4-onboard-sdk"
+route = "onboard.alpha4.io/*"
+
+# Build configuration for Cloudflare Pages
+[build]
+command = "npm run build"
+cwd = "."
+watch_dir = "."
+
+# Environment variables for build
+[env.production.vars]
+NODE_ENV = "production"
+
+# Custom headers for CDN
+[[headers]]
+for = "*.js"
+[headers.values]
+"Cache-Control" = "public, max-age=31536000, immutable"
+"Content-Type" = "application/javascript; charset=utf-8"
+"Access-Control-Allow-Origin" = "*"
+"Access-Control-Allow-Methods" = "GET, HEAD, OPTIONS"
+"Access-Control-Allow-Headers" = "Content-Type"
+
+[[headers]]
+for = "*.js.map"
+[headers.values]
+"Cache-Control" = "public, max-age=31536000, immutable"
+"Content-Type" = "application/json; charset=utf-8"
+"Access-Control-Allow-Origin" = "*"
+
+[[headers]]
+for = "*.d.ts"
+[headers.values]
+"Cache-Control" = "public, max-age=31536000, immutable"
+"Content-Type" = "text/plain; charset=utf-8"
+"Access-Control-Allow-Origin" = "*"
+
+# Redirect rules
+[[redirects]]
+from = "/"
+to = "/index.html"
+status = 200
+
+[[redirects]]
+from = "/latest"
+to = "/sui-points-adapter.js"
+status = 302
+
+[[redirects]]
+from = "/latest.min"
+to = "/sui-points-adapter.min.js"
+status = 302 

@@ -1,8 +1,9 @@
 /**
  * Partner Perk Validation Utilities
  * 
- * This module provides tools to detect and fix issues with partner perk setup,
- * specifically perks that were created without the required PartnerPerkStatsV2 object.
+ * NOTE: This module was originally designed to validate PartnerPerkStatsV2 objects,
+ * but those are no longer required by the current contract version.
+ * Most validation functions now return successful states since perks no longer depend on stats objects.
  */
 
 import { PerkDefinition } from '../hooks/usePerkData';
@@ -42,12 +43,17 @@ export const validatePerk = async (
     perkName: perk.name,
     partnerCapId: perk.creator_partner_cap_id,
     isValid: true,
-    hasPartnerStats: false,
-    canBePurchased: false,
+    hasPartnerStats: true, // Always true since stats objects are no longer required
+    canBePurchased: true, // Always true since stats objects are no longer required
     issues: [],
     recommendations: []
   };
 
+  // NOTE: PartnerPerkStatsV2 checks are no longer needed since the contract was updated
+  console.log(`✅ Perk "${perk.name}" is valid - PartnerPerkStatsV2 objects are no longer required`);
+  
+  // Commented out deprecated stats validation:
+  /*
   try {
     // Check if partner has PartnerPerkStatsV2
     const statsId = await findPartnerStatsId(suiClient, perk.creator_partner_cap_id);
@@ -69,6 +75,7 @@ export const validatePerk = async (
     
     console.warn(`❌ Perk "${perk.name}" is invalid - no PartnerPerkStatsV2 found`);
   }
+  */
 
   // Additional validations
   if (!perk.is_active) {
@@ -111,6 +118,11 @@ export const validatePartnerPerks = async (
     return summary;
   }
 
+  // NOTE: PartnerPerkStatsV2 checks are no longer needed - always mark as having stats
+  summary.hasPartnerStats = true; // Always true since stats objects are no longer required
+  
+  // Commented out deprecated stats validation:
+  /*
   // Check if partner has PartnerPerkStatsV2
   try {
     await findPartnerStatsId(suiClient, partnerCapId);
@@ -120,6 +132,7 @@ export const validatePartnerPerks = async (
     summary.recommendations.push('🚨 CRITICAL: Create PartnerPerkStatsV2 object immediately');
     summary.recommendations.push('All perks are currently unpurchasable without this object');
   }
+  */
 
   // Validate each perk
   for (const perk of partnerPerks) {

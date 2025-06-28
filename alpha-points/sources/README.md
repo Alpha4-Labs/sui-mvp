@@ -182,3 +182,75 @@ This package follows Sui Move upgrade compatibility requirements:
 
 For frontend usage and onboarding UI, see `/frontend/README.md`. 
 For package upgrade procedures, see Sui Move upgrade documentation. 
+
+## Core Modules
+
+### `admin.move`
+Handles protocol administration, configuration, and governance.
+
+### `ledger.move` 
+Manages Alpha Points balances and calculations.
+
+### `integration.move`
+Main integration layer for staking operations.
+
+## ⚠️ KNOWN CRITICAL ISSUES
+
+### Staking Rewards Math Error (URGENT)
+
+**Status**: DOCUMENTED - Cannot fix due to Sui Move upgrade constraints
+
+**Problem**: Staking rewards are giving **223x more points than intended**
+
+**Expected vs Actual**:
+- **Expected**: 1 SUI at 5% APY for 7 epochs = ~3.14 Alpha Points
+- **Actual**: 1 SUI gives 700 Alpha Points (223x multiplier error!)
+
+**Root Cause Analysis**:
+1. `Config.points_rate = 100` interpreted as "100 points per SUI per epoch"
+2. Should be APY basis points where `500 = 5% APY`
+3. Two inconsistent calculation methods:
+   - `ledger.move`: Flat rate multiplication per epoch
+   - `integration.move`: Uses arbitrary scaling factor (25)
+
+**Math Breakdown**:
+```
+Current Wrong Formula (ledger.move):
+points = (principal_mist * points_rate * epochs) / 1e9
+For 1 SUI, 7 epochs: (1e9 * 100 * 7) / 1e9 = 700 points ❌
+
+Correct Formula Should Be:
+principal_in_AP = (principal_mist * 3280) / 1e9  // Convert to Alpha Points value  
+points = (principal_in_AP * apy_bps * epochs) / (10000 * 365)  // APY-based
+For 1 SUI, 7 epochs: (3280 * 500 * 7) / (10000 * 365) = ~3.14 points ✅
+```
+
+**Impact**:
+- Users receiving massive over-rewards
+- Economics completely broken
+- Inconsistent calculation results between functions
+
+**Why Can't Fix Immediately**:
+- Sui Move upgrade rules prevent changing public function logic
+- Cannot change struct field interpretations  
+- Would break existing contract compatibility
+
+**Immediate Options**:
+1. **Quick Fix**: Reduce `points_rate` from 100 to ~0.45 via admin function
+2. **Frontend Fix**: Apply correction factor in UI display
+3. **New Functions**: Add v2 functions with correct math (safe upgrade)
+4. **Major Upgrade**: Plan new economics module
+
+**Files Affected**:
+- `sources/admin.move` - Config struct and points_rate interpretation
+- `sources/ledger.move` - calculate_accrued_points function  
+- `sources/integration.move` - view_accrued_points_for_stake function
+
+**Next Steps**:
+1. ✅ Documented in code comments
+2. ⚠️ Needs immediate decision on mitigation strategy
+3. 📋 Plan proper architectural fix for next major upgrade
+
+---
+
+## Module Documentation 

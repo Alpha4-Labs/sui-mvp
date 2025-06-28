@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PartnerCapInfo } from '../../hooks/usePartnerDetection';
 import { PartnerSettings } from '../../hooks/usePartnerSettings';
 import { formatUSD, usdToAlphaPointsDisplay } from '../../utils/conversionUtils';
+import { hashMetadata } from '../../utils/privacy';
 import { toast } from 'react-hot-toast';
 import { Transaction } from '@mysten/sui.js';
 
@@ -21,6 +22,12 @@ interface PerkCreationFormProps {
   CLOCK_ID: string;
 }
 
+interface MetadataField {
+  key: string;
+  value: string;
+  shouldHash: boolean;
+}
+
 interface PerkFormData {
   name: string;
   description: string;
@@ -32,6 +39,7 @@ interface PerkFormData {
   generateUniqueMetadata: boolean;
   tags: string[];
   maxClaims?: number;
+  customMetadata: MetadataField[];
 }
 
 export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
@@ -57,10 +65,19 @@ export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
     usdPrice: 1,
     partnerShare: 70,
     generateUniqueMetadata: false,
-    tags: []
+    tags: [],
+    customMetadata: []
   });
 
   const [tagInput, setTagInput] = useState('');
+  
+  // Metadata modal state
+  const [showMetadataModal, setShowMetadataModal] = useState(false);
+  const [metadataField, setMetadataField] = useState<MetadataField>({
+    key: '',
+    value: '',
+    shouldHash: true
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,11 +104,28 @@ export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
       return;
     }
 
+    // Check if custom metadata requires partner salt
+    if (formData.customMetadata.length > 0 && !currentSettings?.partnerSalt) {
+      alert('Error: Custom metadata requires a partner salt to be generated. Please generate a partner salt in your settings first.');
+      return;
+    }
+
     // REMOVED: PartnerPerkStats requirement check
     // The Move package has been optimized to remove the stats object requirement
 
     try {
-      await onCreatePerk(formData);
+      // Process custom metadata if any exists and partner salt is available
+      let processedFormData = { ...formData };
+      
+      if (formData.customMetadata.length > 0 && currentSettings?.partnerSalt) {
+        const processedMetadata = processMetadataForSubmission(currentSettings.partnerSalt);
+        processedFormData = {
+          ...formData,
+          processedMetadata // Add the hashed metadata to form data
+        };
+      }
+      
+      await onCreatePerk(processedFormData);
     } catch (error: any) {
       console.error('Error in form submission:', error);
       
@@ -124,6 +158,51 @@ export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
     setFormData(prev => ({
       ...prev,
       tags: prev.tags.filter(tag => tag !== tagToRemove)
+    }));
+  };
+
+  // Metadata management functions
+  const addMetadataField = () => {
+    if (!metadataField.key.trim() || !metadataField.value.trim()) {
+      toast.error('Both key and value are required');
+      return;
+    }
+
+    // Check for duplicate keys
+    if (formData.customMetadata.some(field => field.key === metadataField.key.trim())) {
+      toast.error('Metadata key already exists');
+      return;
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      customMetadata: [...prev.customMetadata, {
+        key: metadataField.key.trim(),
+        value: metadataField.value.trim(),
+        shouldHash: metadataField.shouldHash
+      }]
+    }));
+
+    // Reset modal state
+    setMetadataField({ key: '', value: '', shouldHash: true });
+    setShowMetadataModal(false);
+    toast.success('Metadata field added');
+  };
+
+  const removeMetadataField = (keyToRemove: string) => {
+    setFormData(prev => ({
+      ...prev,
+      customMetadata: prev.customMetadata.filter(field => field.key !== keyToRemove)
+    }));
+    toast.success('Metadata field removed');
+  };
+
+  // Process metadata for submission (hash where needed)
+  const processMetadataForSubmission = (partnerSalt: string) => {
+    return formData.customMetadata.map(field => ({
+      key: field.key,
+      value: field.shouldHash ? hashMetadata(field.value, partnerSalt) : field.value,
+      isHashed: field.shouldHash
     }));
   };
 
@@ -236,6 +315,48 @@ export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
                 placeholder="Describe what users get with this perk..."
                 required
               />
+              
+              {/* Metadata Button - positioned between description and Create Perk button */}
+              <div className="flex justify-between items-center mt-4">
+                <div className="flex-1"></div>
+                <button
+                  type="button"
+                  onClick={() => setShowMetadataModal(true)}
+                  disabled={!currentSettings?.partnerSalt}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-sm transition-colors flex items-center space-x-2"
+                  title={!currentSettings?.partnerSalt ? "Partner salt required - generate in settings" : "Add custom metadata fields"}
+                >
+                  <span>🏷️</span>
+                  <span>Add Metadata</span>
+                </button>
+              </div>
+              
+              {/* Show metadata fields if any exist */}
+              {formData.customMetadata.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-gray-400">Custom Metadata:</p>
+                  {formData.customMetadata.map((field, index) => (
+                    <div key={index} className="flex items-center justify-between p-2 bg-gray-700/30 rounded text-sm">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-white">{field.key}:</span>
+                        <span className="text-gray-400">
+                          {field.shouldHash ? '••••••••••••••••' : field.value}
+                        </span>
+                        {field.shouldHash && (
+                          <span className="px-1 py-0.5 bg-green-600/20 text-green-300 text-xs rounded">🔒</span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeMetadataField(field.key)}
+                        className="text-red-400 hover:text-red-300 text-xs"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Pricing */}
@@ -385,6 +506,8 @@ export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
               )}
             </div>
 
+
+
             {/* Action Buttons */}
             <div className="flex space-x-4 pt-6 border-t border-gray-600">
               <button
@@ -400,7 +523,6 @@ export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
                 className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
               >
                 {isCreating ? 'Creating...' : 
-                 !hasPartnerStats ? 'Stats Required' : 
                  currentSettings?.maxCostPerPerk === 0 ? 'Settings Required' :
                  currentSettings?.maxPerksPerPartner === 0 ? 'Settings Required' :
                  'Create Perk'}
@@ -409,6 +531,92 @@ export const PerkCreationForm: React.FC<PerkCreationFormProps> = ({
           </form>
         </div>
       </div>
+
+      {/* Metadata Input Modal */}
+      {showMetadataModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-gray-900 rounded-lg max-w-md w-full border border-gray-700">
+            <div className="p-6 border-b border-gray-700">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-white">Add Custom Metadata</h3>
+                <button
+                  onClick={() => {
+                    setShowMetadataModal(false);
+                    setMetadataField({ key: '', value: '', shouldHash: true });
+                  }}
+                  className="text-gray-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Key *
+                </label>
+                <input
+                  type="text"
+                  value={metadataField.key}
+                  onChange={(e) => setMetadataField(prev => ({ ...prev, key: e.target.value }))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="e.g., discord_id, email, custom_field"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Value *
+                </label>
+                <input
+                  type="text"
+                  value={metadataField.value}
+                  onChange={(e) => setMetadataField(prev => ({ ...prev, value: e.target.value }))}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="The metadata value"
+                />
+              </div>
+              
+              <div>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={metadataField.shouldHash}
+                    onChange={(e) => setMetadataField(prev => ({ ...prev, shouldHash: e.target.checked }))}
+                    className="rounded border-gray-600 text-purple-600 focus:ring-purple-500"
+                  />
+                  <span className="text-sm text-gray-300">Hash with partner salt (recommended for sensitive data)</span>
+                </label>
+                <p className="text-xs text-gray-400 mt-1 ml-6">
+                  Hashing protects sensitive information while allowing verification
+                </p>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-gray-700 flex space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMetadataModal(false);
+                  setMetadataField({ key: '', value: '', shouldHash: true });
+                }}
+                className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={addMetadataField}
+                disabled={!metadataField.key.trim() || !metadataField.value.trim()}
+                className="flex-1 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              >
+                Add Field
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }; 

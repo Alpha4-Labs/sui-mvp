@@ -170,6 +170,22 @@ module alpha_points::ledger {
     }
 
     /// Calculates points accrued since the last claim epoch.
+    /// 
+    /// ⚠️  KNOWN ISSUE: MATH IS INCORRECT - GIVING 223x TOO MANY POINTS
+    /// Current logic gives flat rate per epoch instead of proper APY calculation
+    /// 
+    /// PROBLEM: 
+    /// - points_rate_per_sui_per_epoch=100 means 100 points PER EPOCH per SUI
+    /// - For 1 SUI staked 7 epochs = 700 points (should be ~3.14 points for 5% APY)
+    /// - This is 223x more than intended APY-based rewards
+    /// 
+    /// CORRECT CALCULATION SHOULD BE:
+    /// 1. principal_in_AP = (principal_mist * 3280) / 1e9  // Convert to Alpha Points value
+    /// 2. points = (principal_in_AP * apy_bps * epochs) / (10000 * 365)  // APY-based
+    /// 
+    /// CANNOT FIX: Sui Move upgrade rules prevent changing public function logic
+    /// TODO: Create new function with correct math in future upgrade
+    /// 
     public fun calculate_accrued_points(
         principal: u64, // Principal in MIST
         points_rate_per_sui_per_epoch: u64, // Rate from Config

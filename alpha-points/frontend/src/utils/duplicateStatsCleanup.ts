@@ -24,8 +24,10 @@ export const findAllDuplicateStats = async (
   try {
     console.log('🔍 Scanning for duplicate PartnerPerkStatsV2 objects...');
     
-    const objectType = `${PACKAGE_ID}::perk_manager::PartnerPerkStatsV2`;
-    const duplicates: DuplicateStatsInfo[] = [];
+    // NOTE: PartnerPerkStatsV2 objects are no longer used in the current contract version
+    // This function is deprecated but kept for historical reference
+    console.warn('⚠️ PartnerPerkStatsV2 objects are no longer used in the current contract version');
+    return []; // Return empty array since no duplicates exist for obsolete objects
     
     // Get all PartnerPerkStatsCreatedV2 events
     const eventsResponse = await suiClient.queryEvents({

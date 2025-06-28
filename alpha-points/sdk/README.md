@@ -1,15 +1,15 @@
-# Sui Points Adapter - Universal Zero-Dev JavaScript SDK
+# Alpha4 Onboard SDK - Universal Zero-Dev JavaScript SDK
 
 ## Overview
 
-The Sui Points Adapter is a revolutionary drop-in JavaScript SDK that enables **zero-development blockchain points integration** for any website. Simply include one script tag and your website automatically starts rewarding users with blockchain points for common actions.
+The Alpha4 Onboard SDK is a revolutionary drop-in JavaScript SDK that enables **zero-development blockchain points integration** for any website. Simply include one script tag and your website automatically starts rewarding users with blockchain points for common actions.
 
 ## 🚀 Quick Start
 
 ### Option 1: Auto-Configuration (Recommended)
 ```html
 <script 
-    src="https://cdn.alphapoints.com/sui-points-adapter.js"
+    src="https://onboard.alpha4.io/sui-points-adapter.js"
     data-package-id="0x123..."
     data-partner-cap-id="0x456..."
     data-rpc-url="https://fullnode.mainnet.sui.io:443"
@@ -19,7 +19,7 @@ The Sui Points Adapter is a revolutionary drop-in JavaScript SDK that enables **
 
 ### Option 2: Manual Configuration
 ```html
-<script src="https://cdn.alphapoints.com/sui-points-adapter.js"></script>
+<script src="https://onboard.alpha4.io/sui-points-adapter.js"></script>
 <script>
     const adapter = new SuiPointsAdapter({
         packageId: '0x123...',
@@ -205,6 +205,13 @@ The SDK automatically detects events by analyzing:
 
 ## 🔧 Integration Examples
 
+Comprehensive integration examples are available in the `examples/` directory:
+
+- **`basic-integration.html`** - Complete integration showcase with all features
+- **`ecommerce-integration.html`** - E-commerce focused implementation with shopping cart
+- **`saas-integration.html`** - SaaS platform onboarding and user engagement
+- **`react-integration.html`** - React hooks and context integration example
+
 ### E-commerce Site
 ```html
 <!-- Automatic purchase detection -->
@@ -283,7 +290,7 @@ function onProfileComplete() {
 ## 🚀 Performance
 
 ### Lightweight
-- **Minified Size**: ~15KB gzipped
+- **Minified Size**: ~10KB gzipped
 - **Dependencies**: None (loads Sui SDK dynamically)
 - **Initialization**: <100ms average
 
@@ -312,8 +319,7 @@ const adapter = new SuiPointsAdapter({
 [SuiPointsAdapter] Sui client connected successfully
 [SuiPointsAdapter] Setting up automatic event detection
 [SuiPointsAdapter] Wallet connected: 0x123...
-[SuiPointsAdapter] Submitting event: user_signup for user: 0x123...
-[SuiPointsAdapter] Event submitted successfully: ABC123...
+[SuiPointsAdapter] Event user_signup submitted: true
 ```
 
 ### Status Monitoring
@@ -331,16 +337,16 @@ window.addEventListener('suiPointsEarned', (event) => {
 
 ### Production CDN
 ```html
-<script src="https://cdn.alphapoints.com/sui-points-adapter.js"></script>
+<script src="https://onboard.alpha4.io/sui-points-adapter.js"></script>
 ```
 
-### Development CDN
+### Minified Version
 ```html
-<script src="https://cdn.alphapoints.com/sui-points-adapter-dev.js"></script>
+<script src="https://onboard.alpha4.io/sui-points-adapter.min.js"></script>
 ```
 
 ### Self-Hosting
-Download `sui-points-adapter.js` and host on your own CDN:
+Download from [GitHub Releases](https://github.com/Alpha4-Labs/zd-sdk/releases) and host on your own CDN:
 ```html
 <script src="/js/sui-points-adapter.js"></script>
 ```
@@ -360,14 +366,20 @@ A: Ensure `showNotifications: true` and check for CSS conflicts.
 
 ### Getting Help
 
-- **Documentation**: https://docs.alphapoints.com/sdk
-- **Support**: support@alphapoints.com
-- **Discord**: https://discord.gg/alphapoints
-- **GitHub**: https://github.com/alphapoints/sui-points-adapter
+- **Documentation**: https://docs.alpha4.io/onboard-sdk
+- **Support**: support@alpha4.io
+- **Discord**: https://discord.gg/alpha4
+- **GitHub**: https://github.com/Alpha4-Labs/zd-sdk
 
 ## 📄 License
 
 MIT License - see LICENSE file for details.
+
+## 🔗 Links
+
+- **Main Website**: https://alpha4.io
+- **Dashboard**: https://app.alpha4.io
+- **Status Page**: https://status.alpha4.io
 
 ---
 

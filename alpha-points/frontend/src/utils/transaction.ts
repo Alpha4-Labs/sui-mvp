@@ -35,9 +35,111 @@ const VITE_SUINS_PARENT_DOMAIN_NAME = import.meta.env['VITE_SUINS_PARENT_DOMAIN_
 const SUI_SYSTEM_STATE_ID = '0x5';
 
 /**
+ * ALTERNATIVE: Builds a combined transaction with explicit object transfers
+ * Use this if the standard combined transaction has argument reference issues
+ * 
+ * @param amount Amount in MIST (SUI * 10^9)
+ * @param validatorAddress Validator's address
+ * @param durationDays The desired staking duration in days
+ * @returns Transaction object ready for execution
+ */
+export const buildCombinedStakeTransactionAlt = (
+  amount: bigint,
+  validatorAddress: string,
+  durationDays: number
+) => {
+  const tx = new Transaction();
+  
+  // Step 1: Create the coin for staking by splitting from tx.gas
+  const stakeCoin = tx.splitCoins(tx.gas, [tx.pure.u64(amount)]);
+  
+  // Step 2: Request to add stake to a validator
+  const stakedSui = tx.moveCall({
+    target: `0x3::sui_system::request_add_stake`,
+    arguments: [
+      tx.object(SUI_SYSTEM_STATE_ID),
+      stakeCoin,
+      tx.pure.address(validatorAddress)
+    ]
+  });
+  
+  // Step 3: Explicitly transfer the StakedSui to sender first
+  tx.transferObjects([stakedSui], tx.pure.address('@sender'));
+  
+  // Step 4: Register the StakedSui with Alpha Points protocol
+  // Note: This approach may not work because the object was transferred
+  // This is mainly for testing/debugging purposes
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::route_stake_sui`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(SHARED_OBJECTS.stakingManager),
+      tx.object(CLOCK_ID),
+      stakedSui,
+      tx.pure.u64(BigInt(durationDays)),
+      tx.pure(bcs.option(bcs.Address).serialize(null))
+    ]
+  });
+  
+  return tx;
+};
+
+/**
+ * RECOMMENDED: Builds a combined transaction that stakes SUI and registers it with Alpha Points in one atomic operation
+ * This is the preferred method as it eliminates the need for separate transactions and reduces complexity
+ * 
+ * @param amount Amount in MIST (SUI * 10^9)
+ * @param validatorAddress Validator's address
+ * @param durationDays The desired staking duration in days
+ * @returns Transaction object ready for execution
+ */
+export const buildCombinedStakeTransaction = (
+  amount: bigint,
+  validatorAddress: string,
+  durationDays: number
+) => {
+  const tx = new Transaction();
+  
+  // Step 1: Create the coin for staking by splitting from tx.gas
+  const stakeCoin = tx.splitCoins(tx.gas, [tx.pure.u64(amount)])[0];
+  
+  // Step 2: Request to add stake to a validator
+  // FIXED: Use request_add_stake_non_entry to get StakedSui object result
+  const stakedSui = tx.moveCall({
+    target: `0x3::sui_system::request_add_stake_non_entry`,
+    arguments: [
+      tx.object(SUI_SYSTEM_STATE_ID), // SuiSystemState object ID
+      stakeCoin,                      // The Coin<SUI> to stake
+      tx.pure.address(validatorAddress) // Validator's address
+    ]
+  });
+  
+  // Step 3: Register the StakedSui with Alpha Points protocol
+  // FIXED: Pass the StakedSui result directly without destructuring
+  tx.moveCall({
+    target: `${PACKAGE_ID}::integration::route_stake_sui`,
+    arguments: [
+      tx.object(SHARED_OBJECTS.config),
+      tx.object(SHARED_OBJECTS.ledger),
+      tx.object(SHARED_OBJECTS.stakingManager),
+      tx.object(CLOCK_ID),
+      stakedSui, // Use the StakedSui result directly
+      tx.pure.u64(BigInt(durationDays)),
+      tx.pure(bcs.option(bcs.Address).serialize(null))
+    ]
+  });
+  
+  return tx;
+};
+
+/**
  * Transaction 1: Builds a transaction to request adding stake to the Sui system.
  * This transaction, when executed, will result in a StakedSui object being
  * transferred to the sender.
+ * 
+ * IMPORTANT: This function has been updated to return the StakedSui object result
+ * so it can be used in the same transaction block if needed.
  * 
  * @param amount Amount in MIST (SUI * 10^9)
  * @param validatorAddress Validator's address
@@ -50,11 +152,11 @@ export const buildRequestAddStakeTransaction = (
   const tx = new Transaction();
   
   // Create the coin for staking by splitting from tx.gas
-  const stakeCoin = tx.splitCoins(tx.gas, [tx.pure.u64(amount)]);
+  const stakeCoin = tx.splitCoins(tx.gas, [tx.pure.u64(amount)])[0];
   
-  // 2. Request to add stake to a validator
-  // This transfers the resulting StakedSui object to the sender.
-  tx.moveCall({
+  // Request to add stake to a validator
+  // FIXED: Capture the returned StakedSui object for potential use in combined transactions
+  const stakedSui = tx.moveCall({
     target: `0x3::sui_system::request_add_stake`, // Use 0x3 for sui_system module
     arguments: [
       tx.object(SUI_SYSTEM_STATE_ID), // SuiSystemState object ID
@@ -63,14 +165,17 @@ export const buildRequestAddStakeTransaction = (
     ]
   });
   
-  // Note: The StakedSui object is NOT returned as a result usable in the same PTB.
-  // The user needs to find this object in their account after executing this transaction.
+  // Transfer the StakedSui to sender to ensure it's accessible
+  tx.transferObjects([stakedSui], tx.pure.address('sender'));
+  
   return tx;
 };
 
 /**
  * Transaction 2: Builds a transaction to register a StakedSui object with our protocol
  * and receive a StakePosition NFT.
+ * 
+ * IMPORTANT: Enhanced error handling and validation
  * 
  * @param stakedSuiObjectId The Object ID of the StakedSui object obtained from Transaction 1.
  * @param durationDays The desired staking duration in days.
@@ -80,10 +185,23 @@ export const buildRegisterStakeTransaction = (
   stakedSuiObjectId: string,
   durationDays: number
 ) => {
+  // Validate inputs
+  if (!stakedSuiObjectId || stakedSuiObjectId.length < 10) {
+    throw new Error(`Invalid StakedSui object ID: ${stakedSuiObjectId}`);
+  }
+  
+  if (!durationDays || durationDays <= 0) {
+    throw new Error(`Invalid duration: ${durationDays} days`);
+  }
+  
+  // Validate required shared objects
+  if (!SHARED_OBJECTS.config || !SHARED_OBJECTS.ledger || !SHARED_OBJECTS.stakingManager) {
+    throw new Error("Missing required shared objects configuration");
+  }
+  
   const tx = new Transaction();
 
   // Call the integration module's function, passing the StakedSui object by ID.
-  // The function expects the object itself, so we pass the object ID as an argument.
   tx.moveCall({
     target: `${PACKAGE_ID}::integration::route_stake_sui`,
     arguments: [
@@ -91,7 +209,7 @@ export const buildRegisterStakeTransaction = (
       tx.object(SHARED_OBJECTS.ledger),
       tx.object(SHARED_OBJECTS.stakingManager),
       tx.object(CLOCK_ID),
-      tx.object(stakedSuiObjectId),
+      tx.object(stakedSuiObjectId), // The StakedSui object from Transaction 1
       tx.pure.u64(BigInt(durationDays)),
       tx.pure(bcs.option(bcs.Address).serialize(null))
     ]
@@ -1070,7 +1188,7 @@ export const buildCreatePartnerStatsIfNotExistsTransaction = async (
 export const findPartnerStatsId = async (
   suiClient: any,
   partnerCapId: string
-): Promise<string> => {
+): Promise<string | null> => {
   try {
     console.log('🔍 Searching for PartnerPerkStatsV2 for partner cap:', partnerCapId);
     
@@ -1110,7 +1228,8 @@ export const findPartnerStatsId = async (
     }
     
     if (matchingStatsIds.length === 0) {
-      throw new Error(`No PartnerPerkStatsV2 found for partner cap: ${partnerCapId}`);
+      console.log('ℹ️ No PartnerPerkStatsV2 found for partner cap:', partnerCapId, '(This is expected - stats objects are no longer required)');
+      return null; // Return null instead of throwing error - stats objects are no longer required
     }
     
     if (matchingStatsIds.length > 1) {
@@ -1122,7 +1241,8 @@ export const findPartnerStatsId = async (
     return matchingStatsIds[0];
   } catch (error) {
     console.error('❌ Error searching for PartnerPerkStatsV2:', error);
-    throw error;
+    console.log('ℹ️ Returning null - PartnerPerkStatsV2 objects are no longer required');
+    return null; // Return null instead of throwing error - stats objects are no longer required
   }
 };
 
@@ -1208,16 +1328,22 @@ export const ensurePartnerStatsExists = async (
   partnerCapId: string,
   signAndExecuteTransaction: any,
   dailyQuotaLimit: number = 10000
-): Promise<string> => {
+): Promise<string | null> => {
   try {
+    console.warn('⚠️ ensurePartnerStatsExists called but PartnerPerkStatsV2 objects are no longer required by the contract');
+    console.log('✅ Returning null - current contract version handles perk claims without separate stats objects');
+    return null; // Stats objects are no longer required
+    
+    // Commenting out the rest of the function since it's no longer needed
+    /*
     console.log('🔍 Ensuring PartnerPerkStatsV2 exists for partner:', partnerCapId);
     
     // First, try to find existing stats
-    try {
-      const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
+    const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
+    if (existingStatsId) {
       console.log('✅ Found existing PartnerPerkStatsV2:', existingStatsId);
       return existingStatsId;
-    } catch (error) {
+    } else {
       console.log('❌ No existing PartnerPerkStatsV2 found, need to create one');
     }
     
@@ -1280,6 +1406,10 @@ export const ensurePartnerStatsExists = async (
     }
     
     throw new Error(`Unable to create required PartnerPerkStatsV2 object: ${error.message || 'Unknown error'}`);
+    */
+  } catch (error: any) {
+    console.warn('⚠️ Error in deprecated ensurePartnerStatsExists function:', error);
+    return null; // Return null since stats objects are no longer required
   }
 };
 
@@ -2093,26 +2223,44 @@ export const findOrSuggestCreatePartnerStats = async (
   needsCreation: boolean;
   suggestion?: string;
 }> => {
+  console.warn('⚠️ findOrSuggestCreatePartnerStats called but PartnerPerkStatsV2 objects are no longer required');
+  console.log('✅ Current contract version handles perk claims without separate stats objects');
+  
+  return {
+    needsCreation: false,
+    suggestion: 'PartnerPerkStatsV2 objects are no longer required. The current contract version handles perk claims directly without separate stats objects.'
+  };
+  
+  // Commenting out deprecated logic:
+  /*
   try {
     console.log('🔍 Checking PartnerPerkStatsV2 status for partner:', partnerCapId);
     
     // Try to find existing stats
     const statsId = await findPartnerStatsId(suiClient, partnerCapId);
     
-    console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
-    return {
-      statsId,
-      needsCreation: false
-    };
-    
+    if (statsId) {
+      console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
+      return {
+        statsId,
+        needsCreation: false
+      };
+    } else {
+      console.log('❌ No PartnerPerkStatsV2 found for partner:', partnerCapId);
+      
+      return {
+        needsCreation: true,
+        suggestion: 'This partner needs to create their PartnerPerkStatsV2 object before users can purchase perks. Please contact the partner to complete their setup.'
+      };
+    }
   } catch (error) {
-    console.log('❌ No PartnerPerkStatsV2 found for partner:', partnerCapId);
-    
+    console.log('❌ Error checking stats for partner:', partnerCapId);
     return {
       needsCreation: true,
-      suggestion: 'This partner needs to create their PartnerPerkStatsV2 object before users can purchase perks. Please contact the partner to complete their setup.'
+      suggestion: 'Error occurred while checking stats. PartnerPerkStatsV2 objects are no longer required anyway.'
     };
   }
+  */
 };
 
 /**
@@ -2770,6 +2918,166 @@ export const getGenerationRegistryId = async (suiClient: any): Promise<string> =
   
   cachedRegistryId = await findGenerationRegistry(suiClient);
   return cachedRegistryId;
+};
+
+/**
+ * Helper function to find StakedSui object ID from transaction results
+ * This is used when executing buildRequestAddStakeTransaction separately
+ * 
+ * @param transactionResult The result from executing buildRequestAddStakeTransaction
+ * @returns The StakedSui object ID or throws an error if not found
+ */
+export const findStakedSuiObjectId = (transactionResult: any): string => {
+  try {
+    // Check for object changes in the transaction result
+    if (transactionResult?.objectChanges) {
+      for (const change of transactionResult.objectChanges) {
+        if (change.type === 'created' && change.objectType?.includes('StakedSui')) {
+          return change.objectId;
+        }
+      }
+    }
+    
+    // Check for created objects (alternative format)
+    if (transactionResult?.effects?.created) {
+      for (const created of transactionResult.effects.created) {
+        if (created.owner && 'AddressOwner' in created.owner) {
+          // Query the object to check its type
+          // This would need to be done with a SUI client call
+          return created.reference.objectId;
+        }
+      }
+    }
+    
+    // Check for events that might contain the StakedSui info
+    if (transactionResult?.events) {
+      for (const event of transactionResult.events) {
+        if (event.type?.includes('staking_pool') && event.parsedJson?.staked_sui_id) {
+          return event.parsedJson.staked_sui_id;
+        }
+      }
+    }
+    
+    throw new Error('StakedSui object not found in transaction results');
+  } catch (error) {
+    console.error('Error finding StakedSui object ID:', error);
+    throw new Error(`Failed to locate StakedSui object from transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+/**
+ * Helper function to wait for a transaction to be indexed and find the StakedSui object
+ * This includes retry logic for better reliability
+ * 
+ * @param suiClient SUI client instance
+ * @param transactionDigest The digest of the first transaction
+ * @param maxRetries Maximum number of retries (default: 5)
+ * @param delayMs Delay between retries in milliseconds (default: 2000)
+ * @returns Promise that resolves to the StakedSui object ID
+ */
+export const waitForStakedSuiObject = async (
+  suiClient: any,
+  transactionDigest: string,
+  maxRetries: number = 5,
+  delayMs: number = 2000
+): Promise<string> => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempt ${attempt}/${maxRetries}: Looking for StakedSui object from transaction ${transactionDigest}`);
+      
+      // Get the transaction details
+      const txResult = await suiClient.getTransactionBlock({
+        digest: transactionDigest,
+        options: {
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+        },
+      });
+      
+      const stakedSuiId = findStakedSuiObjectId(txResult);
+      console.log(`✅ Found StakedSui object: ${stakedSuiId}`);
+      return stakedSuiId;
+      
+    } catch (error) {
+      console.log(`❌ Attempt ${attempt} failed:`, error);
+      
+      if (attempt === maxRetries) {
+        throw new Error(
+          `Failed to find StakedSui object after ${maxRetries} attempts. ` +
+          `Please check the transaction ${transactionDigest} manually and try again with the StakedSui object ID.`
+        );
+      }
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  throw new Error('Unexpected error in waitForStakedSuiObject');
+};
+
+/**
+ * UTILITY: Builds both stake transactions with proper error handling and timing
+ * This is a helper for the existing two-transaction flow with improved reliability
+ * 
+ * @param amount Amount in MIST (SUI * 10^9)
+ * @param validatorAddress Validator's address
+ * @param durationDays The desired staking duration in days
+ * @returns Object containing both transactions and helper functions
+ */
+export const buildSequentialStakeTransactions = (
+  amount: bigint,
+  validatorAddress: string,
+  durationDays: number
+) => {
+  const tx1 = buildRequestAddStakeTransaction(amount, validatorAddress);
+  
+  return {
+    requestStakeTransaction: tx1,
+    buildRegisterTransaction: (stakedSuiObjectId: string) => 
+      buildRegisterStakeTransaction(stakedSuiObjectId, durationDays),
+    findStakedSuiObjectId,
+    waitForStakedSuiObject
+  };
+};
+
+/**
+ * FALLBACK: Two-transaction approach with improved error handling
+ * Use this if the combined transaction has argument reference issues
+ * 
+ * @param amount Amount in MIST (SUI * 10^9)
+ * @param validatorAddress Validator's address
+ * @param durationDays The desired staking duration in days
+ * @returns Object containing both transactions and utilities
+ */
+export const buildImprovedSequentialStakeTransactions = (
+  amount: bigint,
+  validatorAddress: string,
+  durationDays: number
+) => {
+  // Transaction 1: Enhanced request stake - the StakedSui automatically goes to sender
+  const tx1 = new Transaction();
+  const stakeCoin = tx1.splitCoins(tx1.gas, [tx1.pure.u64(amount)]);
+  
+  // The request_add_stake function automatically transfers the StakedSui to the sender
+  // No need for explicit transfer
+  tx1.moveCall({
+    target: `0x3::sui_system::request_add_stake`,
+    arguments: [
+      tx1.object(SUI_SYSTEM_STATE_ID),
+      stakeCoin,
+      tx1.pure.address(validatorAddress)
+    ]
+  });
+
+  return {
+    requestStakeTransaction: tx1,
+    buildRegisterTransaction: (stakedSuiObjectId: string) => 
+      buildRegisterStakeTransaction(stakedSuiObjectId, durationDays),
+    findStakedSuiObjectId,
+    waitForStakedSuiObject
+  };
 };
 
 

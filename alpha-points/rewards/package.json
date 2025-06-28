@@ -1,25 +1,41 @@
 {
-  "name": "rewards",
+  "name": "alpha4-white-label-perk-marketplace",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "White-label perk marketplace template powered by Alpha4",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup": "cp env.template .env && echo '✅ Environment template copied to .env - please edit it with your configuration'",
+    "validate-curation": "node scripts/validate-curation.js",
+    "test-config": "npm run validate-curation && npm run dev"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "^2.0.0",
+    "@headlessui/react": "^2.2.2",
+    "@heroicons/react": "^2.2.0",
     "@mysten/dapp-kit": "^0.16.9",
     "@mysten/sui": "^1.30.5",
     "@tanstack/react-query": "^5.80.6",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "framer-motion": "^11.15.0",
+    "immer": "^10.1.1",
     "lucide-react": "^0.513.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-hook-form": "^7.54.0",
     "react-hot-toast": "^2.5.2",
-    "tailwind-merge": "^3.3.0"
+    "react-intersection-observer": "^9.14.0",
+    "react-router-dom": "^7.6.2",
+    "react-use": "^17.5.1",
+    "recharts": "^2.15.3",
+    "swiper": "^11.2.6",
+    "tailwind-merge": "^3.3.0",
+    "zustand": "^5.0.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
