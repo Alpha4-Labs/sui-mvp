@@ -28,8 +28,11 @@ const initialState: ZkLoginState = {
   provider: null,
 };
 
-// Ensure your SuiClient setup is correct (testnet/mainnet)
-const suiClient = new SuiClient({ url: 'https://fullnode.testnet.sui.io' });
+// DEPRECATED: This hook is deprecated and will be removed in a future version
+// Please use regular wallet connections instead of zkLogin
+import { CURRENT_NETWORK } from '../config/network';
+// Remove SuiClient instantiation to prevent CORS issues
+// const suiClient = new SuiClient({ url: CURRENT_NETWORK.rpcUrl });
 
 export const useZkLogin = () => {
   const [loading, setLoading] = useState(false);

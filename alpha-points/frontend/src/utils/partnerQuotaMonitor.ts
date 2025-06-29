@@ -3,7 +3,7 @@
  * Monitors the Alpha4 PartnerCap to enable percentage-based reward calculations
  */
 
-import { SuiClient } from '@mysten/sui.js/client';
+import { SuiClient } from '@mysten/sui/client';
 import { PartnerQuotaInfo } from './engagementProcessor';
 
 // Alpha4 PartnerCap ID provided by user

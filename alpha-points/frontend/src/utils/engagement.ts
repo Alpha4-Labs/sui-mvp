@@ -1,7 +1,7 @@
 /**
  * Engagement tracking utilities for Alpha Points
  */
-import { SuiClient } from '@mysten/sui.js/client';
+import { SuiClient } from '@mysten/sui/client';
 
 export interface UserEngagement {
   user: string;

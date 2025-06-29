@@ -24,7 +24,7 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
   },
   testnet: {
     name: 'testnet',
-    rpcUrl: import.meta.env.DEV ? 'http://localhost:3000/sui-rpc' : 'https://fullnode.testnet.sui.io',
+    rpcUrl: 'https://rpc-testnet.suiscan.xyz:443',
     faucetUrl: 'https://faucet.testnet.sui.io',
     explorerUrl: 'https://explorer.testnet.sui.io',
   },

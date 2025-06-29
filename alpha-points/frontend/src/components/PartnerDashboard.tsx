@@ -35,6 +35,7 @@ import {
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
 import { PACKAGE_ID, SHARED_OBJECTS } from '../config/contract';
+import { CURRENT_NETWORK } from '../config/network';
 import { formatErrorForToast, parseErrorCode, debugError114 } from '../utils/errorCodes';
 import { simulateTransaction, executeWithSimulation } from '../utils/transactionSimulation';
 import { 
@@ -499,6 +500,12 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   });
   const [isUpdatingPerk, setIsUpdatingPerk] = useState(false);
 
+  // Edit metadata state
+  const [editMetadata, setEditMetadata] = useState<{[key: string]: string}>({});
+  const [editMetadataField, setEditMetadataField] = useState({key: '', value: '', shouldHash: true});
+  const [showEditMetadataModal, setShowEditMetadataModal] = useState(false);
+  const [isLoadingMetadata, setIsLoadingMetadata] = useState(false);
+
   // Collateral management modal state
   const [showCollateralModal, setShowCollateralModal] = useState<{
     type: 'topup' | 'add' | null;
@@ -805,6 +812,66 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       value: field.shouldHash ? hashMetadata(field.value, partnerSalt) : field.value,
       isHashed: field.shouldHash
     }));
+  };
+
+  // Fetch metadata for a perk
+  const fetchPerkMetadata = async (perk: PerkDefinition): Promise<{[key: string]: string}> => {
+    if (!perk.definition_metadata_id) {
+      return {};
+    }
+
+    try {
+      const metadata: {[key: string]: string} = {};
+
+      // Fetch the metadata object from Sui
+      const result = await suiClient.getObject({
+        id: perk.definition_metadata_id,
+        options: {
+          showContent: true,
+          showType: true,
+          showOwner: true,
+          showPreviousTransaction: true,
+          showStorageRebate: true,
+          showDisplay: true,
+        },
+      });
+
+      if (!result?.data?.content || result.data.content.dataType !== 'moveObject') {
+        console.warn('Perk metadata object not found or invalid:', perk.definition_metadata_id);
+        return {};
+      }
+      
+      // Extract dynamic fields from the metadata store
+      const dynamicFields = await suiClient.getDynamicFields({
+        parentId: perk.definition_metadata_id,
+      });
+
+      // Process each dynamic field
+      for (const field of dynamicFields.data) {
+        try {
+          const fieldData = await suiClient.getDynamicFieldObject({
+            parentId: perk.definition_metadata_id,
+            name: field.name,
+          });
+          
+          if (fieldData?.data?.content && fieldData.data.content.dataType === 'moveObject') {
+            const fieldContent = fieldData.data.content as any;
+            if (fieldContent.fields?.value && field.name?.value) {
+              metadata[field.name.value] = fieldContent.fields.value;
+            }
+          }
+        } catch (error) {
+          console.warn('Failed to fetch dynamic field:', field.name, error);
+          // Continue processing other fields even if one fails
+        }
+      }
+
+      console.log(`✅ Successfully fetched ${Object.keys(metadata).length} metadata fields for perk:`, perk.name);
+      return metadata;
+    } catch (error) {
+      console.error('Failed to fetch perk metadata:', error);
+      return {};
+    }
   };
 
   const filteredTags = availableTags.filter(tag => 
@@ -1329,7 +1396,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     }
   };
 
-  const handleEditPerk = (perk: PerkDefinition) => {
+  const handleEditPerk = async (perk: PerkDefinition) => {
     setEditingPerk(perk);
     setEditForm({
       name: perk.name,
@@ -1339,6 +1406,18 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       isActive: perk.is_active,
       icon: perk.icon || '🎁',
     });
+
+    // Load existing metadata
+    setIsLoadingMetadata(true);
+    try {
+      const metadata = await fetchPerkMetadata(perk);
+      setEditMetadata(metadata);
+    } catch (error) {
+      console.error('Failed to load perk metadata:', error);
+      setEditMetadata({});
+    } finally {
+      setIsLoadingMetadata(false);
+    }
   };
 
   const handleCancelEdit = () => {
@@ -1351,6 +1430,81 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       isActive: true,
       icon: '🎁',
     });
+    setEditMetadata({});
+    setEditMetadataField({key: '', value: '', shouldHash: true});
+    setShowEditMetadataModal(false);
+  };
+
+  // Edit metadata functions
+  const addEditMetadataField = () => {
+    if (!editMetadataField.key.trim() || !editMetadataField.value.trim()) {
+      toast.error('Please fill in both key and value fields');
+      return;
+    }
+
+    // Handle comma-separated inputs
+    const keys = editMetadataField.key.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    const values = editMetadataField.value.split(',').map(v => v.trim()).filter(v => v.length > 0);
+
+    if (keys.length !== values.length) {
+      toast.error('Number of keys must match number of values');
+      return;
+    }
+
+    // Check for duplicates
+    const duplicateKeys = keys.filter(key => key in editMetadata);
+    if (duplicateKeys.length > 0) {
+      toast.error(`Duplicate keys found: ${duplicateKeys.join(', ')}`);
+      return;
+    }
+
+    // Process fields
+    if (!perkSettings?.partnerSalt && editMetadataField.shouldHash) {
+      toast.error('Partner salt required for hashing. Please generate a salt in settings first.');
+      return;
+    }
+
+    const newFields: {[key: string]: string} = {};
+    keys.forEach((key, index) => {
+      const value = values[index];
+      newFields[key] = editMetadataField.shouldHash && perkSettings?.partnerSalt
+        ? hashMetadata(value, perkSettings.partnerSalt)
+        : value;
+    });
+
+    setEditMetadata(prev => ({ ...prev, ...newFields }));
+    setEditMetadataField({key: '', value: '', shouldHash: true});
+    setShowEditMetadataModal(false);
+
+    toast.success(`Added ${keys.length} metadata field(s)!`);
+  };
+
+  const removeEditMetadataField = (keyToRemove: string) => {
+    setEditMetadata(prev => {
+      const newMetadata = { ...prev };
+      delete newMetadata[keyToRemove];
+      return newMetadata;
+    });
+    toast.success('Metadata field removed');
+  };
+
+  // Test RPC connectivity
+  const testRpcConnection = async () => {
+    try {
+      console.log('🔧 Testing RPC connectivity...');
+      console.log('Current network:', CURRENT_NETWORK);
+      
+      // Simple connectivity test
+      const startTime = Date.now();
+      await suiClient.getLatestSuiSystemState();
+      const duration = Date.now() - startTime;
+      
+      console.log(`✅ RPC connection successful (${duration}ms)`);
+      toast.success(`RPC connection successful (${duration}ms)`);
+    } catch (error) {
+      console.error('RPC test failed:', error);
+      toast.error('RPC connectivity test failed');
+    }
   };
 
   const handleUpdatePerk = async () => {
@@ -1358,9 +1512,21 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
 
     setIsUpdatingPerk(true);
     try {
-      // For now, we'll implement the basic settings update
-      // Note: The smart contract has separate functions for different updates
+      // Check for metadata changes first
+      const originalMetadata = await fetchPerkMetadata(editingPerk);
+      const hasMetadataChanges = JSON.stringify(editMetadata) !== JSON.stringify(originalMetadata);
       
+      if (hasMetadataChanges) {
+        // NOTE: Currently, the smart contract doesn't support updating metadata after perk creation
+        // This would require adding a new function like update_perk_definition_metadata
+        toast.warning(
+          '⚠️ Metadata changes detected but cannot be updated on-chain yet. ' +
+          'Currently, perk metadata is immutable after creation. ' +
+          'This feature will be available in a future smart contract update.',
+          { autoClose: 8000 }
+        );
+      }
+
       // 1. Update tags if they changed
       if (JSON.stringify(editForm.tags) !== JSON.stringify(editingPerk.tags)) {
         const updateTagsTransaction = new Transaction();
@@ -1391,6 +1557,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       // 2. Update active status if it changed
       if (editForm.isActive !== editingPerk.is_active) {
         await handleTogglePerkStatus(editingPerk);
+      }
+
+      // Show summary of what was updated
+      if (!hasMetadataChanges) {
+        toast.success('✅ Perk updated successfully!');
       }
 
       // Close edit modal
@@ -3911,9 +4082,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                           
                           <button 
                             className="flex-1 btn-modern-primary text-xs px-2 py-1"
-                            onClick={(e) => {
+                            onClick={async (e) => {
                               e.stopPropagation();
-                              handleEditPerk(perk);
+                              await handleEditPerk(perk);
                             }}
                           >
                             Edit
@@ -4147,6 +4318,57 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     <span className="text-sm text-gray-300">Perk is active</span>
                   </label>
                 </div>
+
+                {/* Metadata Section */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-gray-300">Custom Metadata</label>
+                    <Button
+                      onClick={() => setShowEditMetadataModal(true)}
+                      className="bg-purple-600 hover:bg-purple-700 text-white text-xs px-3 py-1.5 rounded"
+                      disabled={!perkSettings?.partnerSalt}
+                    >
+                      🏷️ Add Fields
+                    </Button>
+                  </div>
+                  
+                  {isLoadingMetadata ? (
+                    <div className="text-center text-gray-400 text-sm py-4">
+                      Loading metadata...
+                    </div>
+                  ) : Object.keys(editMetadata).length > 0 ? (
+                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                      {Object.entries(editMetadata).map(([key, value]) => (
+                        <div key={key} className="flex items-center justify-between bg-gray-800/50 rounded px-3 py-2">
+                          <div className="flex items-center space-x-3 flex-1 min-w-0">
+                            <span className="text-sm font-medium text-blue-300 truncate">{key}</span>
+                            <span className="text-xs text-gray-400">:</span>
+                            <span className="text-sm text-gray-300 truncate flex-1">
+                              {value.length > 50 ? `${value.substring(0, 50)}...` : value}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => removeEditMetadataField(key)}
+                            className="text-red-400 hover:text-red-300 ml-2 text-xs"
+                            title="Remove field"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center text-gray-500 text-sm py-4 bg-gray-800/30 rounded border-2 border-dashed border-gray-600">
+                      No custom metadata fields. Click "Add Fields" to add some.
+                    </div>
+                  )}
+                  
+                  {!perkSettings?.partnerSalt && (
+                    <div className="text-xs text-amber-400 mt-2">
+                      ⚠️ Partner salt required for metadata. Generate one in Settings.
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="flex justify-end space-x-3 mt-6">
@@ -4162,6 +4384,193 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   className="btn-modern-primary"
                 >
                   {isUpdatingPerk ? 'Updating...' : 'Update Perk'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Metadata Modal */}
+        {showEditMetadataModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+            <div className="bg-gray-900 rounded-lg max-w-6xl w-full border border-gray-700">
+              <div className="p-6 border-b border-gray-700">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-bold text-white">Edit Metadata Fields</h3>
+                  <button
+                    onClick={() => {
+                      setShowEditMetadataModal(false);
+                      setEditMetadataField({key: '', value: '', shouldHash: true});
+                    }}
+                    className="text-gray-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6">
+                <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3 mb-4">
+                  <div className="flex items-start space-x-2">
+                    <span className="text-blue-400 text-sm">💡</span>
+                    <div className="text-xs text-blue-300">
+                      <p className="font-medium mb-1">Multiple Fields Support</p>
+                      <p>Use commas to add multiple fields at once - watch the live alignment on the right!</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Left Column - Input Fields */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Key(s) *
+                      </label>
+                      <Input
+                        type="text"
+                        value={editMetadataField.key}
+                        onChange={(e) => setEditMetadataField(prev => ({ ...prev, key: e.target.value }))}
+                        placeholder="discord_id, email, username"
+                        className="w-full"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Value(s) *
+                      </label>
+                      <Input
+                        type="text"
+                        value={editMetadataField.value}
+                        onChange={(e) => setEditMetadataField(prev => ({ ...prev, value: e.target.value }))}
+                        placeholder="12345, user@email.com, myname"
+                        className="w-full"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          checked={editMetadataField.shouldHash}
+                          onChange={(e) => setEditMetadataField(prev => ({ ...prev, shouldHash: e.target.checked }))}
+                          className="rounded border-gray-600 text-purple-600 focus:ring-purple-500"
+                        />
+                        <span className="text-sm text-gray-300">Hash with partner salt</span>
+                      </label>
+                      <p className="text-xs text-gray-400 mt-1 ml-6">
+                        Protects sensitive information
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Right Column - Live Alignment View */}
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
+                        <span>👀</span>
+                        Live Alignment View
+                      </h4>
+                      
+                      {(() => {
+                        const keys = editMetadataField.key.split(',').map(k => k.trim()).filter(k => k.length > 0);
+                        const values = editMetadataField.value.split(',').map(v => v.trim()).filter(v => v.length > 0);
+                        const hasInput = editMetadataField.key.trim() || editMetadataField.value.trim();
+                        
+                        if (!hasInput) {
+                          return (
+                            <div className="bg-gray-800/30 rounded-lg p-4 text-center text-gray-500 text-sm">
+                              Start typing to see alignment...
+                            </div>
+                          );
+                        }
+
+                        const maxLength = Math.max(keys.length, values.length);
+                        const hasError = keys.length !== values.length;
+                        
+                        return (
+                          <div className="bg-gray-800/50 rounded-lg border border-gray-600 overflow-hidden">
+                            {/* Header */}
+                            <div className="bg-gray-700/50 px-3 py-2 border-b border-gray-600">
+                              <div className="grid grid-cols-2 gap-2 text-xs font-medium text-gray-300">
+                                <div className="flex items-center gap-1">
+                                  <span>Key</span>
+                                  <span className="text-blue-400">({keys.length})</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span>Value</span>
+                                  <span className="text-green-400">({values.length})</span>
+                                  {editMetadataField.shouldHash && <span className="text-orange-400">(hashed)</span>}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Rows */}
+                            <div className="max-h-48 overflow-y-auto">
+                              {Array.from({ length: maxLength }, (_, i) => {
+                                const key = keys[i] || '';
+                                const value = values[i] || '';
+                                const keyMissing = i >= keys.length;
+                                const valueMissing = i >= values.length;
+                                
+                                return (
+                                  <div 
+                                    key={i} 
+                                    className={`grid grid-cols-2 gap-2 px-3 py-2 text-xs border-b border-gray-700/50 last:border-b-0 ${
+                                      keyMissing || valueMissing ? 'bg-red-900/20' : 'hover:bg-gray-700/30'
+                                    }`}
+                                  >
+                                    <div className={`font-mono ${keyMissing ? 'text-red-400' : 'text-white'}`}>
+                                      {key || (keyMissing ? '❌ missing' : '⚪ empty')}
+                                    </div>
+                                    <div className={`font-mono ${valueMissing ? 'text-red-400' : 'text-gray-300'}`}>
+                                      {value ? (
+                                        editMetadataField.shouldHash ? `🔒 ${value.substring(0, 10)}...` : value
+                                      ) : (
+                                        valueMissing ? '❌ missing' : '⚪ empty'
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            
+                            {/* Status Footer */}
+                            <div className={`px-3 py-2 text-xs ${hasError ? 'bg-red-900/20 text-red-300' : 'bg-green-900/20 text-green-300'}`}>
+                              {hasError ? (
+                                <span>⚠️ Mismatch: {keys.length} keys ≠ {values.length} values</span>
+                              ) : (
+                                <span>✅ Perfect alignment: {keys.length} pair(s) ready</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="p-6 border-t border-gray-700 flex space-x-3">
+                <Button
+                  onClick={() => {
+                    setShowEditMetadataModal(false);
+                    setEditMetadataField({key: '', value: '', shouldHash: true});
+                  }}
+                  className="flex-1 bg-gray-600 hover:bg-gray-700"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={addEditMetadataField}
+                  disabled={!editMetadataField.key.trim() || !editMetadataField.value.trim()}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700"
+                >
+                  {(() => {
+                    const keys = editMetadataField.key.split(',').map(k => k.trim()).filter(k => k.length > 0);
+                    return keys.length > 1 ? `Add ${keys.length} Fields` : 'Add Field';
+                  })()}
                 </Button>
               </div>
             </div>

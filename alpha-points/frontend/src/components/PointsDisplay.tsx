@@ -55,36 +55,39 @@ export const PointsDisplay: React.FC = () => {
   }, [registerRefreshCallback, refreshData, currentEpoch, stakePositions, currentAccount]);
 
   // Fetch system state for epoch info
-  useEffect(() => {
-    let isMounted = true;
-    const fetchSystemState = async () => {
-      try {
-        const state: SuiSystemStateSummary = await suiClient.getLatestSuiSystemState();
-        if (isMounted) {
-          const epoch = BigInt(state.epoch);
-          const startMs = BigInt(state.epochStartTimestampMs);
-          const durationMs = BigInt(state.epochDurationMs);
-          const nextEpochStartMs = Number(startMs + durationMs);
-          
-          setCurrentEpoch(epoch);
-          setNextEpochTime(nextEpochStartMs);
-        }
-      } catch (error) {
-        console.error("[PointsDisplay] Error fetching Sui system state:", error);
-        if (isMounted) {
-          setTimeLeft("Error fetching epoch time");
-        }
+  const fetchSystemState = async () => {
+    try {
+      const state: SuiSystemStateSummary = await suiClient.getLatestSuiSystemState();
+      const epoch = BigInt(state.epoch);
+      const startMs = BigInt(state.epochStartTimestampMs);
+      const durationMs = BigInt(state.epochDurationMs);
+      let nextEpochStartMs = Number(startMs + durationMs);
+      
+      // If the calculated next epoch time is in the past (stale RPC data),
+      // calculate the correct next epoch time based on 24-hour cycles
+      const now = Date.now();
+      if (nextEpochStartMs <= now) {
+        const epochDuration = Number(durationMs); // Should be ~24 hours
+        const epochsPassed = Math.ceil((now - nextEpochStartMs) / epochDuration);
+        nextEpochStartMs = nextEpochStartMs + (epochsPassed * epochDuration);
       }
-    };
+      
+      setCurrentEpoch(epoch);
+      setNextEpochTime(nextEpochStartMs);
+    } catch (error) {
+      console.error("[PointsDisplay] Error fetching Sui system state:", error);
+      setTimeLeft("Error fetching epoch time");
+    }
+  };
 
+  useEffect(() => {
     fetchSystemState();
-    return () => { isMounted = false; };
   }, [suiClient]);
 
   // Update countdown timer
   useEffect(() => {
     if (nextEpochTime === null) {
-      setTimeLeft("Waiting for epoch data...");
+      setTimeLeft("Calculating...");
       return;
     }
 
@@ -92,10 +95,6 @@ export const PointsDisplay: React.FC = () => {
       const now = Date.now();
       const remainingMs = nextEpochTime - now;
       setTimeLeft(formatTimeLeft(remainingMs));
-
-      if (remainingMs <= 0) {
-        clearInterval(intervalId);
-      }
     }, 1000);
 
     return () => clearInterval(intervalId);
