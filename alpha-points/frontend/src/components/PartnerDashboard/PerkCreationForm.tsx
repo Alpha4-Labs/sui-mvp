@@ -4,7 +4,7 @@ import { PartnerSettings } from '../../hooks/usePartnerSettings';
 import { formatUSD, usdToAlphaPointsDisplay } from '../../utils/conversionUtils';
 import { hashMetadata } from '../../utils/privacy';
 import { toast } from 'react-hot-toast';
-import { Transaction } from '@mysten/sui.js';
+import { Transaction } from '@mysten/sui/transactions';
 
 interface PerkCreationFormProps {
   partnerCap: PartnerCapInfo;

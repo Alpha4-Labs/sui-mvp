@@ -1,8 +1,8 @@
 // Utility to fetch and aggregate SuiVision events for a user
 // https://docs.blockvision.org/reference/retrieve-account-events
 
-import { SuiClient, getFullnodeUrl, EventId } from '@mysten/sui/client';
-import { NETWORK_TYPE } from '../config/network'; // Import NETWORK_TYPE
+import { SuiClient, EventId } from '@mysten/sui/client';
+import { NETWORK_TYPE, CURRENT_NETWORK } from '../config/network'; // Import NETWORK_TYPE and CURRENT_NETWORK
 
 export interface SuiVisionEvent {
   type: 'earned' | 'spent' | 'locked' | 'unlocked';
@@ -42,7 +42,7 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
   // --- Use Sui RPC for testnet, devnet, localnet ---
   if (NETWORK_TYPE === 'testnet' || NETWORK_TYPE === 'devnet' || NETWORK_TYPE === 'localnet') {
     // Use Mysten Sui SDK to fetch transactions and events
-    const client = new SuiClient({ url: getFullnodeUrl(NETWORK_TYPE) });
+    const client = new SuiClient({ url: CURRENT_NETWORK.rpcUrl });
     // Fetch all relevant Alpha Point events (Earned, Spent, Locked, Unlocked) for the address
     const eventTypes = [
       'alpha_points::ledger::Earned',

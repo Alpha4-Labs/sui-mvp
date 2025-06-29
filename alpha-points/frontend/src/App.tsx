@@ -25,9 +25,6 @@ import { SecurityDemo } from './components/SecurityDemo';
 // Create a client for React Query
 const queryClient = new QueryClient();
 
-// Add console logs for debugging network configuration
-
-
 // Setup network configuration
 const { networkConfig } = createNetworkConfig({
   [NETWORK_TYPE]: {

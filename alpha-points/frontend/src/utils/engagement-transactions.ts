@@ -6,7 +6,7 @@
 import { Transaction } from '@mysten/sui/transactions';
 import { PACKAGE_ID, SHARED_OBJECTS, CLOCK_ID } from '../config/contract';
 import { ACTIVITY_TYPES, findEngagementTracker } from './engagement';
-import { SuiClient } from '@mysten/sui.js/client';
+import { SuiClient } from '@mysten/sui/client';
 
 /**
  * Builds a transaction for earning Alpha Points with engagement tracking

@@ -3,7 +3,8 @@ import { useCurrentAccount, useDisconnectWallet, useSuiClient } from '@mysten/da
 import { useAlphaPoints } from '../hooks/useAlphaPoints';
 import { useStakePositions } from '../hooks/useStakePositions';
 import { useLoans } from '../hooks/useLoans';
-import { useZkLogin } from '../hooks/useZkLogin';
+// DEPRECATED: Removed zkLogin import - using only dapp-kit wallet connections
+// import { useZkLogin } from '../hooks/useZkLogin';
 import { useAllUserStakes, GenericStakedSui } from '../hooks/useAllUserStakes';
 import { Loan, StakePosition, PointBalance, DurationOption } from '../types';
 import { retryWithBackoff } from '../utils/retry';
@@ -138,7 +139,8 @@ const DEFAULT_DURATIONS: DurationOption[] = [
 
 export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const currentAccount = useCurrentAccount();
-  const zkLogin = useZkLogin();
+  // DEPRECATED: Removed zkLogin usage - using only dapp-kit wallet connections
+  // const zkLogin = useZkLogin();
   const { mutate: disconnectWalletDappKit } = useDisconnectWallet();
   const suiClient = useSuiClient();
 
@@ -146,8 +148,8 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const { positions: stakePositions, loading: loadingPositions, error: errorPositions, refetch: refetchPositions } = useStakePositions(false); // Don't auto-load positions
   const { loans, loading: loadingLoans, error: errorLoans, refetch: refetchLoans } = useLoans(false); // Don't auto-load loans
   
-  // Use the new hook
-  const activeAddress = zkLogin.address || currentAccount?.address;
+  // Use only currentAccount address (zkLogin deprecated)
+  const activeAddress = currentAccount?.address;
   const { 
     allStakedSuiObjects, 
     loading: loadingAllUserStakes, 
@@ -340,20 +342,21 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [activeAddress]); // Removed refreshData from deps, it's stable
 
   const logout = useCallback(() => {
-    if (zkLogin.isAuthenticated) {
-      zkLogin.logout();
-    }
+    // DEPRECATED: Removed zkLogin logout logic
+    // if (zkLogin.isAuthenticated) {
+    //   zkLogin.logout();
+    // }
     if (currentAccount) {
       disconnectWalletDappKit();
     }
     // Data clearing should be handled by the refreshData effect when addresses become null
     refreshData();
-  }, [zkLogin, currentAccount, disconnectWalletDappKit, refreshData]);
+  }, [currentAccount, disconnectWalletDappKit, refreshData]);
 
   const value: AlphaContextType = {
-    isConnected: zkLogin.isAuthenticated || !!currentAccount,
+    isConnected: !!currentAccount,
     address: activeAddress,
-    provider: zkLogin.isAuthenticated ? zkLogin.provider : (currentAccount ? 'dapp-kit' : null),
+    provider: currentAccount ? 'dapp-kit' : null,
     authLoading: authLoadingState,
     mode,
     setMode,

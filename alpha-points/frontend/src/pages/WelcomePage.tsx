@@ -4,7 +4,8 @@ import {
   useConnectWallet,
   useDisconnectWallet
 } from '@mysten/dapp-kit';
-import { useZkLogin } from '../hooks/useZkLogin';
+// DEPRECATED: Removed unused zkLogin import
+// import { useZkLogin } from '../hooks/useZkLogin';
 import { useAlphaContext } from '../context/AlphaContext';
 import { useNavigate } from 'react-router-dom';
 import alphaPointsLogo from '../assets/alpha4-logo.svg'; // Verify this path
@@ -14,7 +15,8 @@ import 'react-toastify/dist/ReactToastify.css';
 
 export const WelcomePage: React.FC = () => {
   const alphaContext = useAlphaContext();
-  useZkLogin();
+  // DEPRECATED: Removed unused zkLogin call
+  // useZkLogin();
   const navigate = useNavigate();
   
   // Get all available wallets
