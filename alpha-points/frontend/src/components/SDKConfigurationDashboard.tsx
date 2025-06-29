@@ -158,7 +158,7 @@ export const SDKConfigurationDashboard: React.FC = () => {
     src="https://onboard.alpha4.io/sui-points-adapter.js"
     data-package-id="YOUR_PACKAGE_ID"
     data-partner-cap-id="YOUR_PARTNER_CAP_ID"
-    data-rpc-url="https://fullnode.testnet.sui.io:443"
+    data-rpc-url="https://rpc-testnet.suiscan.xyz:443"
     data-allowed-origins="${security.domainWhitelist.join(',')}"
     data-rate-limit="${security.rateLimitPerMinute}"
     data-require-signature="${security.requireUserSignature}"

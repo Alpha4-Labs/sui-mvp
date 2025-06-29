@@ -58,19 +58,15 @@ export const useZkLogin = () => {
    }, []);
 
   const login = useCallback(async (provider: Provider = 'google') => {
-    // console.log("--- Running UPDATED useZkLogin login function (using Enoki nonce) ---"); // Updated entry log
     setLoading(true);
     setError(null);
-    // console.log(`Initiating zkLogin with ${provider} via Enoki nonce...`);
 
     try {
       // Generate ephemeral keypair first
       const ephemeralKeypair = new Ed25519Keypair();
       const ephemeralPublicKeyBase64 = ephemeralKeypair.getPublicKey().toSuiPublicKey();
-      // console.log("[useZkLogin] Generated Ephemeral Public Key (Base64):", ephemeralPublicKeyBase64);
 
       // --- Call Enoki Nonce Endpoint --- 
-      // console.log("[useZkLogin] Calling Enoki /v1/zklogin/nonce endpoint...");
       const VITE_ENOKI_KEY = import.meta.env.VITE_ENOKI_KEY;
       if (!VITE_ENOKI_KEY) {
           throw new Error("Configuration error: VITE_ENOKI_KEY is missing.");
@@ -102,17 +98,15 @@ export const useZkLogin = () => {
       }
 
       const { nonce, randomness, maxEpoch } = nonceResponse.data; // Destructure directly
-      // console.log("[useZkLogin] Received from Enoki Nonce service:", { nonce, randomness, maxEpoch });
       // --- End Enoki Nonce Endpoint Call --- 
 
       // --- Store necessary data --- 
-      // Nonce itself is sent to Google, not stored long-term here usually, but good for debug
+      // Nonce itself is sent to Google, not stored long-term here usually
       localStorage.setItem('zkLogin_nonce_from_enoki', nonce);
       
       // Store key seed (INSECURE - for demo only) 
       const ephemeralSecretKeySeedString = JSON.stringify(Array.from(ephemeralKeypair.getSecretKey()));
       localStorage.setItem('zkLogin_ephemeralSecretKeySeed', ephemeralSecretKeySeedString);
-      // console.log("Stored ephemeral key seed (INSECURE METHOD)");
 
       // Store Enoki-provided randomness and maxEpoch
       localStorage.setItem('zkLogin_maxEpoch', maxEpoch.toString());

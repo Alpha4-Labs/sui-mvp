@@ -1491,15 +1491,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   // Test RPC connectivity
   const testRpcConnection = async () => {
     try {
-      console.log('🔧 Testing RPC connectivity...');
-      console.log('Current network:', CURRENT_NETWORK);
-      
       // Simple connectivity test
       const startTime = Date.now();
       await suiClient.getLatestSuiSystemState();
       const duration = Date.now() - startTime;
       
-      console.log(`✅ RPC connection successful (${duration}ms)`);
       toast.success(`RPC connection successful (${duration}ms)`);
     } catch (error) {
       console.error('RPC test failed:', error);

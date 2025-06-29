@@ -125,7 +125,7 @@ export const SDKDemo: React.FC = () => {
     src="https://cdn.alphapoints.com/sui-points-adapter.js"
     data-package-id="0x123..."
     data-partner-cap-id="${mockPartnerCap.id}"
-    data-rpc-url="https://fullnode.testnet.sui.io:443"
+    data-rpc-url="https://rpc-testnet.suiscan.xyz:443"
     data-allowed-origins="yoursite.com"
     data-enable-notifications="true">
 </script>`}
@@ -173,7 +173,7 @@ export const SDKDemo: React.FC = () => {
     src="https://onboard.alpha4.io/sui-points-adapter.js"
     data-package-id="0x123..."
     data-partner-cap-id="${mockPartnerCap.id}"
-    data-rpc-url="https://fullnode.testnet.sui.io:443"
+    data-rpc-url="https://rpc-testnet.suiscan.xyz:443"
     data-allowed-origins="yoursite.com"
     data-enable-notifications="true">
 </script>`);
