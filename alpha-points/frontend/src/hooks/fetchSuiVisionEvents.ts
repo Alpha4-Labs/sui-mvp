@@ -74,7 +74,6 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
         hasNext = !!cursor && res.data && res.data.length > 0;
       }
     }
-    // Debug log
 
     // Filter by timestamp window
     allEvents = allEvents.filter(e => e.timestamp >= fromTimestamp && e.timestamp <= toTimestamp);
@@ -97,7 +96,6 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
       }
       dailyBalances.push({ timestamp: dayStart, balance: runningBalance });
     }
-    // Debug log
 
     eventCache.set(cacheKey, dailyBalances);
     return dailyBalances;

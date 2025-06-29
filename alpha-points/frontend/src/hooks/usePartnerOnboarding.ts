@@ -647,46 +647,33 @@ export function usePartnerOnboarding() {
     try {
       console.log('🔍 Extracting PartnerCapFlex ID from transaction:', txDigest);
       
-      // Query the transaction block from Sui RPC
-      const response = await fetch('https://fullnode.testnet.sui.io/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'sui_getTransactionBlock',
-          params: [
-            txDigest,
-            {
-              showInput: false,
-              showRawInput: false,
-              showEffects: true,
-              showEvents: true,
-              showObjectChanges: true,
-              showBalanceChanges: false
-            }
-          ]
-        })
+      // Use suiClient instead of direct fetch to avoid CORS issues
+      const data = await suiClient.getTransactionBlock({
+        digest: txDigest,
+        options: {
+          showInput: false,
+          showRawInput: false,
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+          showBalanceChanges: false
+        }
       });
-
-      const data = await response.json();
       
-      if (!data.result) {
+      if (!data) {
         console.error('❌ Failed to fetch transaction data');
         throw new Error('Failed to fetch transaction data');
       }
 
       console.log('📋 Transaction data received:', {
-        hasEvents: !!data.result.events,
-        eventsCount: data.result.events?.length || 0,
-        hasObjectChanges: !!data.result.objectChanges,
-        objectChangesCount: data.result.objectChanges?.length || 0
+        hasEvents: !!data.events,
+        eventsCount: data.events?.length || 0,
+        hasObjectChanges: !!data.objectChanges,
+        objectChangesCount: data.objectChanges?.length || 0
       });
 
       // Look for created objects in objectChanges
-      const objectChanges = data.result.objectChanges || [];
+      const objectChanges = data.objectChanges || [];
       
       console.log('🔍 Searching through', objectChanges.length, 'object changes');
       
@@ -708,7 +695,7 @@ export function usePartnerOnboarding() {
       }
 
       // Also check events for PartnerCapFlex creation
-      const events = data.result.events || [];
+      const events = data.events || [];
       console.log('🔍 Searching through', events.length, 'events');
       
       for (const event of events) {
@@ -733,7 +720,7 @@ export function usePartnerOnboarding() {
       }
 
       console.warn('⚠️ No PartnerCapFlex object found in transaction effects');
-      console.log('🐛 Full transaction data for debugging:', JSON.stringify(data.result, null, 2));
+      console.log('🐛 Full transaction data for debugging:', JSON.stringify(data, null, 2));
       return null;
       
     } catch (error) {
@@ -750,46 +737,33 @@ export function usePartnerOnboarding() {
     try {
       console.log('🔍 Extracting PartnerPerkStats ID from transaction:', txDigest);
       
-      // Query the transaction block from Sui RPC
-      const response = await fetch('https://fullnode.testnet.sui.io/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'sui_getTransactionBlock',
-          params: [
-            txDigest,
-            {
-              showInput: false,
-              showRawInput: false,
-              showEffects: true,
-              showEvents: true,
-              showObjectChanges: true,
-              showBalanceChanges: false
-            }
-          ]
-        })
+      // Use suiClient instead of direct fetch to avoid CORS issues
+      const data = await suiClient.getTransactionBlock({
+        digest: txDigest,
+        options: {
+          showInput: false,
+          showRawInput: false,
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+          showBalanceChanges: false
+        }
       });
-
-      const data = await response.json();
       
-      if (!data.result) {
+      if (!data) {
         console.error('❌ Failed to fetch transaction data');
         throw new Error('Failed to fetch transaction data');
       }
 
       console.log('📋 Transaction data received for stats:', {
-        hasEvents: !!data.result.events,
-        eventsCount: data.result.events?.length || 0,
-        hasObjectChanges: !!data.result.objectChanges,
-        objectChangesCount: data.result.objectChanges?.length || 0
+        hasEvents: !!data.events,
+        eventsCount: data.events?.length || 0,
+        hasObjectChanges: !!data.objectChanges,
+        objectChangesCount: data.objectChanges?.length || 0
       });
 
       // Look for created objects in objectChanges
-      const objectChanges = data.result.objectChanges || [];
+      const objectChanges = data.objectChanges || [];
       
       console.log('🔍 Searching through', objectChanges.length, 'object changes for PartnerPerkStats');
       
@@ -811,7 +785,7 @@ export function usePartnerOnboarding() {
       }
 
       // Also check events for PartnerPerkStats creation
-      const events = data.result.events || [];
+      const events = data.events || [];
       console.log('🔍 Searching through', events.length, 'events for PartnerPerkStats');
       
       for (const event of events) {
@@ -837,7 +811,7 @@ export function usePartnerOnboarding() {
       }
 
       console.warn('⚠️ No PartnerPerkStats object found in transaction effects');
-      console.log('🐛 Full transaction data for debugging:', JSON.stringify(data.result, null, 2));
+      console.log('🐛 Full transaction data for debugging:', JSON.stringify(data, null, 2));
       return null;
       
     } catch (error) {
