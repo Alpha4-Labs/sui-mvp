@@ -229,15 +229,16 @@ export const buildUnstakeTransaction = (
 ) => {
   const tx = new Transaction();
   
+  // Updated for Sui Move 1.0 - ensure proper argument order and types
   tx.moveCall({
     target: `${PACKAGE_ID}::integration::request_unstake_native_sui`,
     arguments: [
-      tx.object(SHARED_OBJECTS.stakingManager), // Arg0
-      tx.object(SHARED_OBJECTS.config),         // Arg1
-      tx.object(SUI_SYSTEM_STATE_ID),           // Arg2
-      tx.object(stakeId),                       // Arg3
-      tx.object(CLOCK_ID),                      // Arg4 - Added Clock
-      tx.object(SHARED_OBJECTS.ledger)          // Arg5 - Added Ledger
+      tx.object(SHARED_OBJECTS.stakingManager), // StakingManager shared object
+      tx.object(SHARED_OBJECTS.config),         // Config shared object
+      tx.object(SUI_SYSTEM_STATE_ID),           // SuiSystemState shared object
+      tx.object(stakeId),                       // StakePosition object to unstake
+      tx.object(CLOCK_ID),                      // Clock shared object
+      tx.object(SHARED_OBJECTS.ledger)          // Ledger shared object
     ]
   });
   
@@ -302,26 +303,28 @@ export const buildRedeemPointsTransaction = (pointsToRedeem: string): Transactio
 
 /**
  * Builds a transaction for reclaiming principal SUI from a matured early-withdrawn stake
- * User returns the Alpha Points they received during early withdrawal to get their principal SUI back
+ * This uses the standard loan repayment mechanism since early withdrawal creates a loan
  * 
- * @param stakeId Object ID of the matured early-withdrawn stake position
+ * @param loanId Object ID of the loan created during early withdrawal
+ * @param stakeId Object ID of the stake position used as collateral
  * @param alphaPointsToReturn Amount of Alpha Points to return (should match what was received during early withdrawal)
  * @returns Transaction object ready for execution
  */
 export const buildReclaimPrincipalTransaction = (
+  loanId: string,
   stakeId: string,
   alphaPointsToReturn: string
 ) => {
   const tx = new Transaction();
   tx.moveCall({
-    target: `${PACKAGE_ID}::integration::reclaim_principal_from_matured_early_withdrawal`,
+    target: `${PACKAGE_ID}::loan::repay_loan`,
+    typeArguments: ['0x3::staking_pool::StakedSui'],
     arguments: [
       tx.object(SHARED_OBJECTS.config),
       tx.object(SHARED_OBJECTS.ledger),
+      tx.object(loanId),
       tx.object(stakeId),
-      tx.object(SHARED_OBJECTS.oracle),
-      tx.pure.u64(BigInt(alphaPointsToReturn)),
-      tx.object(CLOCK_ID)
+      tx.pure.u64(BigInt(alphaPointsToReturn))
     ]
   });
   return tx;
@@ -1339,7 +1342,7 @@ export const ensurePartnerStatsExists = async (
     console.log('🔍 Ensuring PartnerPerkStatsV2 exists for partner:', partnerCapId);
     
     // First, try to find existing stats
-    const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
+      const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
     if (existingStatsId) {
       console.log('✅ Found existing PartnerPerkStatsV2:', existingStatsId);
       return existingStatsId;
@@ -2240,19 +2243,19 @@ export const findOrSuggestCreatePartnerStats = async (
     const statsId = await findPartnerStatsId(suiClient, partnerCapId);
     
     if (statsId) {
-      console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
-      return {
-        statsId,
-        needsCreation: false
-      };
+    console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
+    return {
+      statsId,
+      needsCreation: false
+    };
     } else {
-      console.log('❌ No PartnerPerkStatsV2 found for partner:', partnerCapId);
-      
-      return {
-        needsCreation: true,
-        suggestion: 'This partner needs to create their PartnerPerkStatsV2 object before users can purchase perks. Please contact the partner to complete their setup.'
-      };
-    }
+    console.log('❌ No PartnerPerkStatsV2 found for partner:', partnerCapId);
+    
+    return {
+      needsCreation: true,
+      suggestion: 'This partner needs to create their PartnerPerkStatsV2 object before users can purchase perks. Please contact the partner to complete their setup.'
+    };
+  }
   } catch (error) {
     console.log('❌ Error checking stats for partner:', partnerCapId);
     return {
@@ -2647,19 +2650,98 @@ export const buildCreatePerkDefinitionTransaction = (
     console.log(`🎁 Sponsored perk creation: Gas fees will be paid by ${sponsorAddress}`);
   }
 
+  // Convert USD cents to USD for the Move function
+  const usdcPrice = Math.floor(usdcPriceCents / 100);
+
   tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::create_perk_definition`,
+    target: `${PACKAGE_ID}::perk_manager::create_perk_definition_fixed`,
     arguments: [
       tx.object(partnerCapId),
       tx.pure.string(name),
       tx.pure.string(description),
       tx.pure.string(perkType),
-      tx.pure(bcs.vector(bcs.String).serialize(tags)),
-      tx.pure.u64(usdcPriceCents.toString()),
+      tx.pure.u64(usdcPrice.toString()),
       tx.pure.u8(partnerSharePercentage),
-      tx.pure.string(icon),
-      tx.pure.u64(expiryTimestamp.toString()),
-      tx.pure.u64(maxUsesPerClaim.toString())
+      tx.pure(bcs.option(bcs.u64()).serialize(maxUsesPerClaim > 0 ? maxUsesPerClaim : null)),
+      tx.pure(bcs.option(bcs.u64()).serialize(expiryTimestamp > 0 ? expiryTimestamp : null)),
+      tx.pure.bool(false), // generates_unique_claim_metadata
+      tx.pure(bcs.vector(bcs.String).serialize(tags)),
+      tx.pure(bcs.option(bcs.u64()).serialize(null)), // max_claims (no limit)
+      tx.pure(bcs.vector(bcs.String).serialize([])), // empty metadata keys
+      tx.pure(bcs.vector(bcs.String).serialize([])), // empty metadata values
+      tx.pure.bool(true), // is_active
+      tx.object(CLOCK_ID)
+    ],
+  });
+
+  return tx;
+};
+
+/**
+ * Builds a transaction for creating a perk definition with metadata support using the fixed pricing function
+ * Uses create_perk_definition_fixed which provides correct 1:1000 USD to Alpha Points conversion
+ * 
+ * @param partnerCapId Partner Cap ID
+ * @param name Perk name
+ * @param description Perk description
+ * @param perkType Type of perk (e.g. 'Access', 'Discount', etc.)
+ * @param tags Array of tags for the perk
+ * @param usdcPrice Price in USD (will be converted to proper format)
+ * @param partnerSharePercentage Partner's revenue share percentage (0-100)
+ * @param icon Perk icon emoji
+ * @param expiryTimestamp Expiry timestamp in milliseconds (0 for no expiry)
+ * @param maxUsesPerClaim Maximum uses per claim (0 for unlimited)
+ * @param metadataKeys Array of metadata keys
+ * @param metadataValues Array of metadata values  
+ * @param sponsorAddress Optional sponsor address to pay for gas fees
+ * @returns Transaction object ready for execution
+ */
+export const buildCreatePerkDefinitionWithMetadataTransaction = (
+  partnerCapId: string,
+  name: string,
+  description: string,
+  perkType: string,
+  tags: string[],
+  usdcPrice: number,
+  partnerSharePercentage: number = 80,
+  icon: string = '🎁',
+  expiryTimestamp: number = 0,
+  maxUsesPerClaim: number = 0,
+  metadataKeys: string[] = [],
+  metadataValues: string[] = [],
+  sponsorAddress?: string
+): Transaction => {
+  const tx = new Transaction();
+
+  // Set up sponsorship if sponsor address is provided
+  if (sponsorAddress) {
+    tx.setSender(sponsorAddress);
+    console.log(`🎁 Sponsored perk creation with metadata: Gas fees will be paid by ${sponsorAddress}`);
+  }
+
+  // Validate metadata arrays have same length
+  if (metadataKeys.length !== metadataValues.length) {
+    throw new Error(`Metadata keys (${metadataKeys.length}) and values (${metadataValues.length}) arrays must have the same length`);
+  }
+
+  tx.moveCall({
+    target: `${PACKAGE_ID}::perk_manager::create_perk_definition_fixed`,
+    arguments: [
+      tx.object(partnerCapId),
+      tx.pure.string(name),
+      tx.pure.string(description),
+      tx.pure.string(perkType),
+      tx.pure.u64(usdcPrice.toString()),
+      tx.pure.u8(partnerSharePercentage),
+      tx.pure(bcs.option(bcs.u64()).serialize(maxUsesPerClaim > 0 ? maxUsesPerClaim : null)),
+      tx.pure(bcs.option(bcs.u64()).serialize(expiryTimestamp > 0 ? expiryTimestamp : null)),
+      tx.pure.bool(false), // generates_unique_claim_metadata
+      tx.pure(bcs.vector(bcs.String).serialize(tags)),
+      tx.pure(bcs.option(bcs.u64()).serialize(null)), // max_claims (no limit)
+      tx.pure(bcs.vector(bcs.String).serialize(metadataKeys)),
+      tx.pure(bcs.vector(bcs.String).serialize(metadataValues)),
+      tx.pure.bool(true), // is_active
+      tx.object(CLOCK_ID)
     ],
   });
 

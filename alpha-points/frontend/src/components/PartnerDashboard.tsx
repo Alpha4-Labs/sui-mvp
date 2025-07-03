@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { PartnerCapInfo } from '../hooks/usePartnerDetection';
@@ -15,6 +15,7 @@ import { usePartnerDetection } from '../hooks/usePartnerDetection';
 import { useSignAndExecuteTransaction, useSuiClient, useCurrentWallet } from '@mysten/dapp-kit';
 import { 
   buildCreatePerkDefinitionTransaction, 
+  buildCreatePerkDefinitionWithMetadataTransaction,
   buildSetPerkActiveStatusTransaction, 
   buildUpdatePerkControlSettingsTransaction, 
   buildUpdatePerkTypeListsTransaction, 
@@ -48,6 +49,7 @@ import {
 } from '../utils/conversionUtils';
 import { hashMetadata } from '../utils/privacy';
 import { formatSui } from '../utils/format';
+import { requestCache } from '../utils/cache';
 import suiLogo from '../assets/sui-logo.jpg';
 import { GenerationsTab } from './GenerationsTab';
 import { SDKConfigurationDashboard } from './SDKConfigurationDashboard';
@@ -145,6 +147,14 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   const suiClient = useSuiClient();
   const { mutate: signAndExecuteTransactionMain } = useSignAndExecuteTransaction();
   
+  // Initialize selectedPartnerCapId immediately
+  const [selectedPartnerCapId, setSelectedPartnerCapId] = useState(initialPartnerCap.id);
+  
+  // Get the currently selected partner cap (define early to avoid temporal dead zone)
+  const partnerCap = (partnerCaps && partnerCaps.length > 0) 
+    ? (partnerCaps.find(cap => cap.id === selectedPartnerCapId) || initialPartnerCap)
+    : initialPartnerCap;
+  
   // Component initialization (debug logging removed to prevent spam)
   
   // Portal Tooltip Component
@@ -167,7 +177,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     );
   };
 
-  const [selectedPartnerCapId, setSelectedPartnerCapId] = useState(initialPartnerCap.id);
+
   const [newPerkName, setNewPerkName] = useState('');
   const [newPerkDescription, setNewPerkDescription] = useState('');
   const [newPerkTags, setNewPerkTags] = useState<string[]>([]);
@@ -179,6 +189,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   
   // Metadata state
   const [showMetadataModal, setShowMetadataModal] = useState(false);
+  const [showMetadataViewModal, setShowMetadataViewModal] = useState(false);
   const [customMetadata, setCustomMetadata] = useState<Array<{key: string; value: string; shouldHash: boolean}>>([]);
   const [metadataField, setMetadataField] = useState({key: '', value: '', shouldHash: true});
   
@@ -444,12 +455,11 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     'Fitness', 'Training', 'Nutrition', 'Coaching', 'Health'
   ];
 
-  // Blockchain integration hooks
+  // Blockchain integration hooks - use marketplace approach for reliability
   const { 
-    partnerPerks, 
+    fetchAllMarketplacePerks, 
     isLoading: isLoadingPerks, 
     error: perkError, 
-    fetchPartnerPerks, 
     refreshPerkData,
     preloadPartnerPerks,
     getPartnerPerkMetrics,
@@ -457,7 +467,73 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
   } = usePerkData();
   const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const client = useSuiClient();
+
+  // Local state for all perks (marketplace approach)
+  const [allMarketplacePerks, setAllMarketplacePerks] = useState<PerkDefinition[]>([]);
+  const [isLoadingAllPerks, setIsLoadingAllPerks] = useState(false);
+  const [hasLoadedPerks, setHasLoadedPerks] = useState(false);
+
+  // Filter all perks by current partner cap
+  const partnerPerks = useMemo(() => {
+    if (!partnerCap?.id || !Array.isArray(allMarketplacePerks)) {
+      console.log('🔍 PartnerPerks: No partner cap ID or invalid perks array', {
+        partnerCapId: partnerCap?.id,
+        allMarketplacePerksLength: allMarketplacePerks?.length,
+        isArray: Array.isArray(allMarketplacePerks)
+      });
+      return [];
+    }
+    
+    const filtered = allMarketplacePerks.filter(perk => perk.creator_partner_cap_id === partnerCap.id);
+    console.log('🔍 PartnerPerks: Filtering results', {
+      partnerCapId: partnerCap.id,
+      totalPerks: allMarketplacePerks.length,
+      filteredPerks: filtered.length,
+      allCreatorIds: allMarketplacePerks.map(p => p.creator_partner_cap_id),
+      uniqueCreatorIds: [...new Set(allMarketplacePerks.map(p => p.creator_partner_cap_id))],
+      matchingPerks: filtered.map(p => ({ name: p.name, id: p.id, creator: p.creator_partner_cap_id }))
+    });
+    
+    return filtered;
+  }, [allMarketplacePerks, partnerCap?.id]);
+
+  // Load all perks using marketplace approach
+  const loadAllPerks = useCallback(async () => {
+    if (isLoadingAllPerks) return; // Prevent duplicate calls
+    
+    setIsLoadingAllPerks(true);
+    console.log('🔄 Loading all marketplace perks for partner dashboard...');
+    
+    try {
+      const allPerks = await fetchAllMarketplacePerks();
+      console.log(`📦 Loaded ${allPerks.length} total perks from marketplace`);
+      setAllMarketplacePerks(allPerks);
+      setHasLoadedPerks(true);
+    } catch (error) {
+      console.error('❌ Failed to load marketplace perks:', error);
+    } finally {
+      setIsLoadingAllPerks(false);
+    }
+  }, [fetchAllMarketplacePerks, isLoadingAllPerks]);
+
+  // Helper function to clear perk cache and refresh data
+  const refreshPerksWithCacheClear = useCallback(async (partnerCapId: string) => {
+    console.log(`🗑️ Clearing all perk caches and refreshing for partner: ${partnerCapId}`);
+    
+    // Clear all caches
+    refreshPerkData();
+    requestCache.clear();
+    
+    // Reset state
+    setAllMarketplacePerks([]);
+    setHasLoadedPerks(false);
+    
+    // Reload all perks
+    await loadAllPerks();
+  }, [refreshPerkData, loadAllPerks]);
   
+
+
   // Partner analytics hook
   const {
     dailyData,
@@ -624,15 +700,25 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
     setSaltRegenerationFlow({ step: 0, confirmationText: '', showModal: false });
   };
 
-  // Get the currently selected partner cap
-  const partnerCap = partnerCaps.find(cap => cap.id === selectedPartnerCapId) || initialPartnerCap;
-
-  // Load partner perks when component mounts or partner changes
+  // Load all perks when component mounts or tab changes
   useEffect(() => {
-    if (partnerCap.id && currentTab === 'perks') {
-      fetchPartnerPerks(partnerCap.id);
+    if (currentTab === 'perks' && !hasLoadedPerks && !isLoadingAllPerks) {
+      console.log(`[PartnerDashboard] Loading perks for tab: ${currentTab}`);
+      // Clear cache to ensure fresh data with new limits
+      refreshPerkData();
+      loadAllPerks();
     }
-  }, [partnerCap.id, currentTab, fetchPartnerPerks]);
+  }, [currentTab, hasLoadedPerks, isLoadingAllPerks, loadAllPerks, refreshPerkData]);
+
+  // Refresh perks when partner cap changes
+  useEffect(() => {
+    if (partnerCap.id && hasLoadedPerks) {
+      console.log(`[PartnerDashboard] Partner cap changed to: ${partnerCap.id}, filtering existing perks`);
+      // No need to reload - just let the useMemo filter do its work
+      const filteredPerks = allMarketplacePerks.filter(perk => perk.creator_partner_cap_id === partnerCap.id);
+      console.log(`[PartnerDashboard] Found ${filteredPerks.length} perks for partner ${partnerCap.id}`);
+    }
+  }, [partnerCap.id, hasLoadedPerks, allMarketplacePerks]);
 
   // OPTIMIZATION: Preload perks on partner selection change
   useEffect(() => {
@@ -1157,24 +1243,34 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         metadataValues = processedMetadata.map(field => field.value);
       }
       
-      const transaction = buildCreatePerkDefinitionTransaction(
-        partnerCap.id,
-        {
-          name: newPerkName.trim(),
-          description: newPerkDescription.trim(),
-          perkType: newPerkType,
-          usdcPrice: usdcPrice,
-          partnerSharePercentage: newPerkPartnerShare,
-          maxUsesPerClaim: getMaxUsesPerClaim(),
-          expirationTimestampMs: calculateExpiryTimestamp(),
-          generatesUniqueClaimMetadata: false,
-          tags: newPerkTags,
-          maxClaims: undefined,
-          initialDefinitionMetadataKeys: metadataKeys,
-          initialDefinitionMetadataValues: metadataValues,
-          isActive: true
-        }
-      );
+      // Choose the appropriate transaction builder based on whether metadata is present
+      const transaction = metadataKeys.length > 0
+        ? buildCreatePerkDefinitionWithMetadataTransaction(
+            partnerCap.id,
+            newPerkName.trim(),
+            newPerkDescription.trim(),
+            newPerkType,
+            newPerkTags,
+            usdcPrice, // USD price (not cents) for the fixed function
+            newPerkPartnerShare,
+            newPerkIcon,
+            calculateExpiryTimestamp() || 0,
+            getMaxUsesPerClaim() || 0,
+            metadataKeys,
+            metadataValues
+          )
+        : buildCreatePerkDefinitionTransaction(
+            partnerCap.id,
+            newPerkName.trim(),
+            newPerkDescription.trim(),
+            newPerkType,
+            newPerkTags,
+            usdcPrice * 100, // Convert to cents for the regular function
+            newPerkPartnerShare,
+            newPerkIcon,
+            calculateExpiryTimestamp() || 0,
+            getMaxUsesPerClaim() || 0
+          );
 
 
 
@@ -1302,9 +1398,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             
             // Refresh perk data
             setTimeout(() => {
-              refreshPerkData();
-              fetchPartnerPerks(partnerCap.id);
-        }, 2000);
+              refreshPerksWithCacheClear(partnerCap.id);
+        }, 1000);
       }
     } catch (error: any) {
             console.error('Perk creation failed:', error);
@@ -1376,9 +1471,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
             
             // Refresh perk data
             setTimeout(() => {
-              refreshPerkData();
-              fetchPartnerPerks(partnerCap.id);
-            }, 2000);
+              refreshPerksWithCacheClear(partnerCap.id);
+            }, 1000);
       }
     } catch (error: any) {
             console.error('Perk status update failed:', error);
@@ -1522,7 +1616,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           { autoClose: 8000 }
         );
       }
-
+      
       // 1. Update tags if they changed
       if (JSON.stringify(editForm.tags) !== JSON.stringify(editingPerk.tags)) {
         const updateTagsTransaction = new Transaction();
@@ -1565,9 +1659,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
       
       // Refresh perk data
       setTimeout(() => {
-        refreshPerkData();
-        fetchPartnerPerks(partnerCap.id);
-      }, 2000);
+        refreshPerksWithCacheClear(partnerCap.id);
+      }, 1000);
 
     } catch (error: any) {
       console.error('Perk update failed:', error);
@@ -3113,14 +3206,24 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                     title="Describe what users get with this perk. Be specific about benefits and any redemption instructions."
                   />
                 </div>
-                <Button 
-                  onClick={() => setShowMetadataModal(true)}
-                  disabled={!perkSettings?.partnerSalt || isCreatingPerk}
-                  className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600"
-                  title={!perkSettings?.partnerSalt ? "Partner salt required - generate in settings" : "Add custom metadata fields"}
-                >
-                  🏷️ Metadata
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={() => setShowMetadataModal(true)}
+                    disabled={!perkSettings?.partnerSalt || isCreatingPerk}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600"
+                    title={!perkSettings?.partnerSalt ? "Partner salt required - generate in settings" : "Add custom metadata fields"}
+                  >
+                    🏷️ Metadata
+                  </Button>
+                  <Button 
+                    onClick={() => setShowMetadataViewModal(true)}
+                    disabled={customMetadata.length === 0 || isCreatingPerk}
+                    className={`px-3 ${customMetadata.length > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-600'} disabled:bg-gray-600`}
+                    title="View current metadata"
+                  >
+                    👁️
+                  </Button>
+                </div>
                 <Button 
                   onClick={handleCreatePerk}
                   disabled={
@@ -3137,64 +3240,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 </Button>
               </div>
               
-              {/* Show added metadata fields if any exist */}
-              {customMetadata.length > 0 && (
-                <div className="mt-4 p-3 bg-gray-900/30 rounded-lg border border-gray-700">
-                  <div className="flex items-center justify-between mb-3">
-                    <h5 className="text-sm font-medium text-gray-300 flex items-center gap-2">
-                      <span>🏷️</span>
-                      Custom Metadata ({customMetadata.length})
-                    </h5>
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="text-gray-400">
-                        {customMetadata.filter(f => f.shouldHash).length} hashed
-                      </span>
-                      <span className="text-gray-500">•</span>
-                      <span className="text-gray-400">
-                        {customMetadata.filter(f => !f.shouldHash).length} plain
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* JSON-like view */}
-                  <div className="bg-gray-800/50 rounded p-3 border border-gray-600">
-                    <pre className="text-xs text-gray-300 font-mono">
-{JSON.stringify(
-  customMetadata.reduce((acc, field) => {
-    acc[field.key] = field.shouldHash ? 
-      `<hashed: ${field.value.substring(0, 8)}...>` : 
-      field.value;
-    return acc;
-  }, {} as Record<string, string>), 
-  null, 
-  2
-)}
-                    </pre>
-                  </div>
-                  
-                  {/* Individual field management */}
-                  <div className="mt-3 space-y-1">
-                    <p className="text-xs text-gray-500 mb-2">Individual field controls:</p>
-                    {customMetadata.map((field, index) => (
-                      <div key={index} className="flex items-center justify-between p-2 bg-gray-800/30 rounded text-xs">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-white font-medium">{field.key}</span>
-                          {field.shouldHash && (
-                            <span className="px-1 py-0.5 bg-green-600/20 text-green-300 text-xs rounded">🔒</span>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => removeMetadataField(field.key)}
-                          className="text-red-400 hover:text-red-300 text-sm px-2 py-1 rounded hover:bg-red-900/20"
-                          title="Remove metadata field"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+
             </div>
           </div>
           
@@ -3905,21 +3951,51 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
         <div className="bg-background-card rounded-lg p-3">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-lg font-semibold text-white">Your Perks</h4>
-            <div className="text-xs text-gray-400">
-              {partnerCap.partnerName}
+            <div className="flex items-center gap-2">
+              {/* Debug buttons - more discreet */}
+              <button 
+                onClick={async () => {
+                  console.log('🗑️ Manual cache clear and deep refresh');
+                  await refreshPerksWithCacheClear(partnerCap.id);
+                }}
+                disabled={isLoadingAllPerks}
+                className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded border border-blue-600/30 transition-colors disabled:opacity-50"
+                title="Force refresh perks data"
+              >
+                {isLoadingAllPerks ? '⏳' : '🔄'}
+              </button>
+              <button 
+                onClick={() => {
+                  console.log('🔍 Debug info:');
+                  console.log('Partner Cap ID:', partnerCap.id);
+                  console.log('All Marketplace Perks:', allMarketplacePerks.length);
+                  console.log('Filtered Partner Perks:', partnerPerks.length);
+                  console.log('Has Loaded Perks:', hasLoadedPerks);
+                  console.log('Is Loading:', isLoadingAllPerks);
+                  console.log('Partner Perks:', partnerPerks);
+                  console.log('Cache Stats:', requestCache.getStats());
+                }}
+                className="px-2 py-1 text-xs bg-gray-600/20 hover:bg-gray-600/30 text-gray-400 rounded border border-gray-600/30 transition-colors"
+                title="Show debug information"
+              >
+                🔍
+              </button>
+              <div className="text-xs text-gray-400">
+                {partnerCap.partnerName}
+              </div>
             </div>
           </div>
           
           {/* Real Blockchain Data */}
           {(() => {
             // Show loading state
-            if (isLoadingPerks) {
+            if (isLoadingAllPerks || (!hasLoadedPerks && currentTab === 'perks')) {
               return (
                 <div className="text-center py-6">
                   <div className="text-4xl mb-4">⏳</div>
-                  <div className="text-gray-400 mb-2">Loading your perks...</div>
+                  <div className="text-gray-400 mb-2">Loading marketplace perks...</div>
                   <div className="text-sm text-gray-500">
-                    Fetching PerkDefinition objects from the blockchain
+                    Fetching all perks from blockchain to filter for this partner
                   </div>
                 </div>
               );
@@ -3932,12 +4008,9 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   <div className="text-4xl mb-4">❌</div>
                   <div className="text-red-400 mb-2">Error loading perks</div>
                   <div className="text-sm text-gray-500 mb-4">{perkError}</div>
-                  <Button 
-                    onClick={() => fetchPartnerPerks(partnerCap.id)}
-                    className="bg-red-600 hover:bg-red-700"
-                  >
-                    Retry
-                  </Button>
+                  <div className="text-xs text-gray-500">
+                    Use the 🔄 button above to retry
+                  </div>
                 </div>
               );
             }
@@ -3953,7 +4026,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 <div className="text-center py-6">
                   <div className="text-6xl mb-4">🎁</div>
                   <div className="text-gray-400 mb-4">No perks created yet</div>
-                  <p className="text-sm text-gray-500 max-w-md mx-auto">
+                  <p className="text-sm text-gray-500 max-w-md mx-auto mb-4">
                     Create your first perk using the form above. Once created, perks will appear here 
                     with management options, claim statistics, and revenue tracking.
                   </p>
@@ -6206,6 +6279,8 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           </div>
         </div>
 
+
+
         {/* Tab Content */}
         <div>
           {currentTab === 'overview' && renderOverviewTab()}
@@ -6603,11 +6678,26 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           <div className="bg-gray-900 rounded-lg max-w-6xl w-full border border-gray-700">
             <div className="p-6 border-b border-gray-700">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-bold text-white">Add Custom Metadata</h3>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2 group relative cursor-help">
+                  Add Custom Metadata
+                  <span className="text-gray-400 group-hover:text-blue-400 transition-colors">ℹ️</span>
+                  
+                  {/* Title tooltip */}
+                  <div className="absolute top-full right-0 mt-2 px-3 py-2 bg-gray-800 text-white text-sm rounded shadow-lg border border-gray-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-20 w-72">
+                    <div className="font-medium text-blue-300 mb-1">Custom Metadata Fields</div>
+                    <div className="text-xs text-gray-300 space-y-1">
+                      <div>• Add extra data that users provide when claiming perks</div>
+                      <div>• Perfect for contact info, preferences, or verification data</div>
+                      <div>• Sensitive fields can be hashed for privacy protection</div>
+                    </div>
+                    {/* Tooltip arrow */}
+                    <div className="absolute bottom-full right-4 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-gray-800"></div>
+                  </div>
+                </h3>
                 <button
                   onClick={() => {
                     setShowMetadataModal(false);
-                    setMetadataField({key: '', value: '', shouldHash: true});
+                    // Don't reset metadataField - preserve work in progress
                   }}
                   className="text-gray-400 hover:text-white"
                 >
@@ -6627,12 +6717,69 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                 </div>
               </div>
 
+              {/* Show existing metadata fields if any */}
+              {customMetadata.length > 0 && (
+                <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3 mb-4">
+                  <div className="flex items-start space-x-2">
+                    <span className="text-green-400 text-sm">✅</span>
+                    <div className="text-xs text-green-300">
+                      <p className="font-medium mb-1">
+                        Already Added ({customMetadata.length} field{customMetadata.length === 1 ? '' : 's'})
+                      </p>
+                                             <div className="flex flex-wrap gap-1">
+                         {customMetadata.map((field, index) => (
+                           <span 
+                             key={index}
+                             className="px-2 py-1 bg-green-800/30 rounded text-xs font-mono cursor-help relative group"
+                             title={field.shouldHash ? `🔒 ${field.value.substring(0, 20)}${field.value.length > 20 ? '...' : ''}` : field.value}
+                           >
+                             {field.key}{field.shouldHash ? ' 🔒' : ''}
+                             
+                             {/* Hover tooltip */}
+                             <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded shadow-lg border border-gray-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
+                               <div className="font-medium text-green-300 mb-1">{field.key}</div>
+                               <div className="font-mono text-gray-300">
+                                 {field.shouldHash ? (
+                                   <>🔒 {field.value.substring(0, 25)}{field.value.length > 25 ? '...' : ''}</>
+                                 ) : (
+                                   field.value.length > 30 ? `${field.value.substring(0, 30)}...` : field.value
+                                 )}
+                               </div>
+                               {field.shouldHash && (
+                                 <div className="text-xs text-orange-300 mt-1">Hashed for privacy</div>
+                               )}
+                               {/* Tooltip arrow */}
+                               <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800"></div>
+                             </div>
+                           </span>
+                         ))}
+                       </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-6">
                 {/* Left Column - Input Fields */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Key(s) *
+                    <label className="block text-sm font-medium text-gray-300 mb-2 group relative cursor-help">
+                      <span className="flex items-center gap-1">
+                        Key(s) *
+                        <span className="text-gray-500 group-hover:text-blue-400 transition-colors text-xs">ℹ️</span>
+                      </span>
+                      
+                      {/* Keys tooltip */}
+                      <div className="absolute top-full left-0 mt-1 px-3 py-2 bg-gray-800 text-white text-xs rounded shadow-lg border border-gray-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-20">
+                        <div className="font-medium text-blue-300 mb-1">Field Names (Keys)</div>
+                        <div className="text-gray-300 space-y-1">
+                          <div>• Names for the data you want to collect</div>
+                          <div>• Use commas to add multiple: <span className="font-mono text-green-300">email, discord, phone</span></div>
+                          <div>• Keep names simple and consistent</div>
+                        </div>
+                        {/* Tooltip arrow */}
+                        <div className="absolute bottom-full left-4 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-gray-800"></div>
+                      </div>
                     </label>
                     <Input
                       type="text"
@@ -6644,8 +6791,23 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Value(s) *
+                    <label className="block text-sm font-medium text-gray-300 mb-2 group relative cursor-help">
+                      <span className="flex items-center gap-1">
+                        Value(s) *
+                        <span className="text-gray-500 group-hover:text-blue-400 transition-colors text-xs">ℹ️</span>
+                      </span>
+                      
+                      {/* Values tooltip */}
+                      <div className="absolute top-full left-0 mt-1 px-3 py-2 bg-gray-800 text-white text-xs rounded shadow-lg border border-gray-600 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-20">
+                        <div className="font-medium text-green-300 mb-1">Default Values</div>
+                        <div className="text-gray-300 space-y-1">
+                          <div>• Example values that users will see as placeholders</div>
+                          <div>• Use commas to match keys: <span className="font-mono text-blue-300">user@email.com, @username, +1234567890</span></div>
+                          <div>• Must align 1:1 with your keys (watch preview on right)</div>
+                        </div>
+                        {/* Tooltip arrow */}
+                        <div className="absolute bottom-full left-4 w-0 h-0 border-l-4 border-r-4 border-b-4 border-transparent border-b-gray-800"></div>
+                      </div>
                     </label>
                     <Input
                       type="text"
@@ -6765,7 +6927,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
               <Button
                 onClick={() => {
                   setShowMetadataModal(false);
-                  setMetadataField({key: '', value: '', shouldHash: true});
+                  // Don't reset metadataField - preserve work in progress
                 }}
                 className="flex-1 bg-gray-600 hover:bg-gray-700"
               >
@@ -6785,6 +6947,138 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
                   return count > 1 ? `Add ${count} Fields` : 'Add Field';
                 })()}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Metadata View Modal */}
+      {showMetadataViewModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-gray-900 rounded-lg max-w-4xl w-full max-h-[80vh] border border-gray-700">
+            <div className="p-6 border-b border-gray-700">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>👁️</span>
+                  Current Metadata ({customMetadata.length})
+                </h3>
+                <button
+                  onClick={() => setShowMetadataViewModal(false)}
+                  className="text-gray-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex items-center gap-2 text-xs mt-2">
+                <span className="text-gray-400">
+                  {customMetadata.filter(f => f.shouldHash).length} hashed
+                </span>
+                <span className="text-gray-500">•</span>
+                <span className="text-gray-400">
+                  {customMetadata.filter(f => !f.shouldHash).length} plain
+                </span>
+              </div>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {customMetadata.length === 0 ? (
+                <div className="text-center text-gray-500 py-8">
+                  <span className="text-4xl">📝</span>
+                  <p className="mt-2">No metadata added yet</p>
+                  <p className="text-xs mt-1">Click the Metadata button to add fields</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* JSON-like view */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-300 mb-2">JSON Preview</h4>
+                    <div className="bg-gray-800/50 rounded p-4 border border-gray-600">
+                      <pre className="text-sm text-gray-300 font-mono whitespace-pre-wrap">
+{JSON.stringify(
+  customMetadata.reduce((acc, field) => {
+    acc[field.key] = field.shouldHash ? 
+      `<hashed: ${field.value.substring(0, 8)}...>` : 
+      field.value;
+    return acc;
+  }, {} as Record<string, string>), 
+  null, 
+  2
+)}
+                      </pre>
+                    </div>
+                  </div>
+                  
+                  {/* Individual field view */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-300 mb-2">Field Details</h4>
+                    <div className="space-y-2">
+                      {customMetadata.map((field, index) => (
+                        <div key={index} className="bg-gray-800/30 rounded p-3 border border-gray-700">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-white font-medium">{field.key}</span>
+                              {field.shouldHash && (
+                                <span className="px-2 py-1 bg-green-600/20 text-green-300 text-xs rounded flex items-center gap-1">
+                                  🔒 Hashed
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => {
+                                removeMetadataField(field.key);
+                                // If this was the last field, close the modal with a delay
+                                if (customMetadata.length === 1) {
+                                  setTimeout(() => {
+                                    setShowMetadataViewModal(false);
+                                  }, 500);
+                                }
+                              }}
+                              className="text-red-400 hover:text-red-300 text-sm px-2 py-1 rounded hover:bg-red-900/20 transition-colors"
+                              title="Remove metadata field"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <div className="text-sm text-gray-400">
+                            <span className="font-mono">
+                              {field.shouldHash ? `<hashed: ${field.value.substring(0, 12)}...>` : field.value}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-6 border-t border-gray-700 flex justify-between items-center">
+              <div className="text-xs text-gray-400">
+                {customMetadata.length > 0 ? (
+                  <>These {customMetadata.length} field(s) will be included when creating the perk</>
+                ) : (
+                  <>No metadata fields queued yet</>
+                )}
+              </div>
+              <div className="flex space-x-3">
+                <Button
+                  onClick={() => setShowMetadataViewModal(false)}
+                  className="bg-gray-600 hover:bg-gray-700"
+                >
+                  Close
+                </Button>
+                <Button
+                  onClick={() => {
+                    setShowMetadataViewModal(false);
+                    // Don't reset metadataField - preserve any work in progress
+                    setShowMetadataModal(true);
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700"
+                  disabled={!perkSettings?.partnerSalt}
+                >
+                  Add More
+                </Button>
+              </div>
             </div>
           </div>
         </div>

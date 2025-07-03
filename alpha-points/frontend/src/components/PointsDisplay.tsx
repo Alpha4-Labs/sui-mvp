@@ -55,12 +55,12 @@ export const PointsDisplay: React.FC = () => {
   }, [registerRefreshCallback, refreshData, currentEpoch, stakePositions, currentAccount]);
 
   // Fetch system state for epoch info
-  const fetchSystemState = async () => {
-    try {
-      const state: SuiSystemStateSummary = await suiClient.getLatestSuiSystemState();
-      const epoch = BigInt(state.epoch);
-      const startMs = BigInt(state.epochStartTimestampMs);
-      const durationMs = BigInt(state.epochDurationMs);
+    const fetchSystemState = async () => {
+      try {
+        const state: SuiSystemStateSummary = await suiClient.getLatestSuiSystemState();
+          const epoch = BigInt(state.epoch);
+          const startMs = BigInt(state.epochStartTimestampMs);
+          const durationMs = BigInt(state.epochDurationMs);
       let nextEpochStartMs = Number(startMs + durationMs);
       
       // If the calculated next epoch time is in the past (stale RPC data),
@@ -71,14 +71,14 @@ export const PointsDisplay: React.FC = () => {
         const epochsPassed = Math.ceil((now - nextEpochStartMs) / epochDuration);
         nextEpochStartMs = nextEpochStartMs + (epochsPassed * epochDuration);
       }
-      
-      setCurrentEpoch(epoch);
-      setNextEpochTime(nextEpochStartMs);
-    } catch (error) {
-      console.error("[PointsDisplay] Error fetching Sui system state:", error);
-      setTimeLeft("Error fetching epoch time");
-    }
-  };
+          
+          setCurrentEpoch(epoch);
+          setNextEpochTime(nextEpochStartMs);
+      } catch (error) {
+        console.error("[PointsDisplay] Error fetching Sui system state:", error);
+          setTimeLeft("Error fetching epoch time");
+      }
+    };
 
   useEffect(() => {
     fetchSystemState();
@@ -100,6 +100,44 @@ export const PointsDisplay: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [nextEpochTime]);
 
+  // Helper function to properly decode u64 from BCS bytes
+  const decodeU64 = (bytesInput: Array<number> | Uint8Array | unknown): number => {
+    let bytes: Uint8Array;
+    
+    if (Array.isArray(bytesInput)) {
+      bytes = new Uint8Array(bytesInput);
+    } else if (bytesInput instanceof Uint8Array) {
+      bytes = bytesInput;
+    } else {
+      console.error('Invalid bytes input for u64 decoding:', bytesInput);
+      return 0;
+    }
+    
+    if (bytes.length !== 8) {
+      console.error(`Invalid byte length for u64: expected 8, got ${bytes.length}`);
+      return 0;
+    }
+    
+    try {
+      const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const valueBigInt = dataView.getBigUint64(0, true); // true for little-endian
+      
+      const valueNumber = Number(valueBigInt);
+      
+      if (valueBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
+        console.warn(
+          `Potential precision loss converting u64 value ${valueBigInt} to JavaScript number. ` +
+          `Consider using BigInt for large values.`
+        );
+      }
+      
+      return valueNumber;
+    } catch (err) {
+      console.error('Error decoding u64 value:', err);
+      return 0;
+    }
+  };
+
   // Extract accrued points fetching into separate function for reuse
   const fetchAccruedPoints = async () => {
     if (!currentEpoch || !stakePositions || !currentAccount) {
@@ -117,7 +155,7 @@ export const PointsDisplay: React.FC = () => {
     setLoadingClaimable(true);
     
     try {
-      let accumulatedPoints = 0n;
+      let accumulatedPoints = 0;
       let positionsProcessed = 0;
       let positionsWithClaimable = 0;
       let errors = 0;
@@ -125,7 +163,7 @@ export const PointsDisplay: React.FC = () => {
       // Query accrued points for each position using the chain's view function
       const promises = stakePositions.map(async (pos: StakePosition) => {
         if (!pos || typeof pos.lastClaimEpoch === 'undefined' || !pos.id) {
-          return { points: 0n, error: 'Invalid position data' };
+          return { points: 0, error: 'Invalid position data' };
         }
         
         try {
@@ -146,18 +184,19 @@ export const PointsDisplay: React.FC = () => {
 
           if (devInspectResult.results?.[0]?.returnValues?.[0]) {
             const [returnValue] = devInspectResult.results[0].returnValues[0];
-            // Parse u64 from BCS bytes (little-endian)
-            const bytes = new Uint8Array(returnValue);
-            const dataView = new DataView(bytes.buffer);
-            const accruedPoints = dataView.getBigUint64(0, true); // true = little-endian
+            // Use proper BCS decoding to read the contract value
+            const contractPoints = decodeU64(returnValue);
             
-            return { points: accruedPoints, error: null };
+            // Contract has a 223x multiplier bug - divide by 223 to get economically correct amount
+            const economicallyCorrectPoints = Math.floor(contractPoints / 223);
+            
+            return { points: economicallyCorrectPoints, error: null };
           } else {
-            return { points: 0n, error: 'No return value' };
+            return { points: 0, error: 'No return value' };
           }
         } catch (error) {
           console.error(`Error fetching accrued points for position ${pos.id}:`, error);
-          return { points: 0n, error: error.message };
+          return { points: 0, error: error.message };
         }
       });
 
@@ -167,13 +206,13 @@ export const PointsDisplay: React.FC = () => {
         positionsProcessed++;
         if (result.error) {
           errors++;
-        } else if (result.points > 0n) {
+        } else if (result.points > 0) {
           accumulatedPoints += result.points;
           positionsWithClaimable++;
         }
       });
 
-      setTotalClaimablePoints(accumulatedPoints);
+      setTotalClaimablePoints(BigInt(accumulatedPoints));
       setDebugInfo(`${positionsProcessed} positions, ${positionsWithClaimable} with rewards${errors > 0 ? `, ${errors} errors` : ''}`);
     } catch (error) {
       console.error("[PointsDisplay] Error fetching accrued points:", error);
@@ -227,11 +266,13 @@ export const PointsDisplay: React.FC = () => {
 
             if (devInspectResult.results?.[0]?.returnValues?.[0]) {
               const [returnValue] = devInspectResult.results[0].returnValues[0];
-              const bytes = new Uint8Array(returnValue);
-              const dataView = new DataView(bytes.buffer);
-              const accruedPoints = dataView.getBigUint64(0, true);
+              // Use proper BCS decoding to read the contract value
+              const contractPoints = decodeU64(returnValue);
               
-              if (accruedPoints > 0n) {
+              // Contract has a 223x multiplier bug - divide by 223 to get economically correct amount
+              const economicallyCorrectPoints = Math.floor(contractPoints / 223);
+              
+              if (economicallyCorrectPoints > 0) {
                 tx.moveCall({
                   target: `${PACKAGE_ID}::integration::claim_accrued_points`,
                   typeArguments: [pos.assetType],

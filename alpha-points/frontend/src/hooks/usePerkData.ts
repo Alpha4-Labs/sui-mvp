@@ -37,10 +37,11 @@ export interface ClaimedPerk {
   packageId: string;
 }
 
-// Optimized batch processing
-const BATCH_SIZE = 5; // REDUCED from 10 to 5 for faster response
-const CACHE_DURATION = 60000; // INCREASED to 60 seconds for better caching
-const MAX_CONCURRENT_BATCHES = 3; // Limit concurrent processing
+// OPTIMIZED: Reduced limits for better performance
+const BATCH_SIZE = 10; // Reasonable batch size
+const CACHE_DURATION = 120000; // 2 minutes cache for better performance
+const MAX_PACKAGES_TO_SEARCH = 20; // INCREASED: Search more packages to find all perks
+const MAX_EVENTS_PER_PACKAGE = 500; // INCREASED: More events per package to ensure we find all perks
 
 export function usePerkData() {
   const { currentWallet } = useCurrentWallet();
@@ -51,186 +52,158 @@ export function usePerkData() {
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * HEAVILY OPTIMIZED: Much faster batch processing with limits and timeouts
+   * OPTIMIZED: Fast batch processing with strict limits
    */
   const fetchPerkObjectsBatch = async (perkIds: string[], packageId: string): Promise<PerkDefinition[]> => {
     if (perkIds.length === 0) return [];
     
-
+    // Limit the number of perks we fetch to avoid throttling
+    const limitedPerkIds = perkIds.slice(0, 20); // MAX 20 perks per batch
     
-    // SIMPLE & FAST: Fetch all objects in parallel without artificial delays
-    const fetchPromises = perkIds.map(async (id) => {
-      try {
-        const result = await client.getObject({
-          id,
-          options: {
-            showContent: true,
-            showType: true,
-          },
-        });
-        return result;
-      } catch (err: any) {
+    try {
+      // Use multiGetObjects for better efficiency
+      const allObjects = await client.multiGetObjects({
+        ids: limitedPerkIds,
+        options: {
+          showContent: true,
+          showType: true,
+        },
+      });
+      
+      // Parse objects into PerkDefinition format
+      const perks: PerkDefinition[] = [];
+      for (const perkObject of allObjects) {
+        if (perkObject?.data?.content && perkObject.data.content.dataType === 'moveObject') {
+          try {
+            const fields = (perkObject.data.content as any).fields;
+            
+            // Parse USDC price correctly
+            const rawUsdcPrice = parseFloat(fields.usdc_price || '0');
+            const alphaPrice = parseFloat(fields.current_alpha_points_price || '0');
 
-        return null;
-      }
-    });
+            // Parse revenue split policy
+            const revenueSplit = fields.revenue_split_policy?.fields || fields.revenue_split_policy || {};
+            const partnerSharePercentage = parseInt(revenueSplit.partner_share_percentage || '70');
+            const platformSharePercentage = parseInt(revenueSplit.platform_share_percentage || '30');
 
-    // Wait for all requests to complete in parallel
-    const allObjects = await Promise.all(fetchPromises);
-    const validObjects = allObjects.filter(obj => obj !== null);
-    
-    // Parse objects into PerkDefinition format
-    const perks: PerkDefinition[] = [];
-    for (const perkObject of validObjects) {
-      if (perkObject?.data?.content && perkObject.data.content.dataType === 'moveObject') {
-        try {
-          const fields = (perkObject.data.content as any).fields;
-          
-          // 🚨 WORKAROUND: Parse USDC price correctly accounting for contract format
-          // Smart contract stores centi-dollars (100 = $1.00), not micro-USDC
-          // For perks created with the pricing workaround, usdc_price contains transformed values
-          // We should NOT convert this - it's already transformed for contract compatibility
-          const rawUsdcPrice = parseFloat(fields.usdc_price || '0');
-          
-          // Get Alpha Points price - keep as raw value
-          const alphaPrice = parseFloat(fields.current_alpha_points_price || '0');
-
-          // Parse revenue split policy
-          const revenueSplit = fields.revenue_split_policy?.fields || fields.revenue_split_policy || {};
-          const partnerSharePercentage = parseInt(revenueSplit.partner_share_percentage || '70');
-          const platformSharePercentage = parseInt(revenueSplit.platform_share_percentage || '30');
-
-          perks.push({
-            id: perkObject.data.objectId,
-            name: fields.name || 'Unknown Perk',
-            description: fields.description || '',
-            creator_partner_cap_id: fields.creator_partner_cap_id,
-            perk_type: fields.perk_type || 'General',
-            usdc_price: rawUsdcPrice, // Keep raw value - display logic will handle conversion
-            current_alpha_points_price: alphaPrice,
-            last_price_update_timestamp_ms: parseInt(fields.last_price_update_timestamp_ms || '0'),
-            partner_share_percentage: partnerSharePercentage,
-            platform_share_percentage: platformSharePercentage,
-            max_claims: fields.max_claims ? parseInt(fields.max_claims) : undefined,
-            total_claims_count: parseInt(fields.total_claims_count || '0'),
-            is_active: fields.is_active || false,
-            generates_unique_claim_metadata: fields.generates_unique_claim_metadata || false,
-            max_uses_per_claim: fields.max_uses_per_claim ? parseInt(fields.max_uses_per_claim) : undefined,
-            expiration_timestamp_ms: fields.expiration_timestamp_ms ? parseInt(fields.expiration_timestamp_ms) : undefined,
-            tags: Array.isArray(fields.tags) ? fields.tags : (fields.tags?.length > 0 ? [fields.tags] : []),
-            icon: fields.icon,
-            packageId,
-          });
-        } catch (parseErr) {
-
+            perks.push({
+              id: perkObject.data.objectId,
+              name: fields.name || 'Unknown Perk',
+              description: fields.description || '',
+              creator_partner_cap_id: fields.creator_partner_cap_id,
+              perk_type: fields.perk_type || 'General',
+              usdc_price: rawUsdcPrice,
+              current_alpha_points_price: alphaPrice,
+              last_price_update_timestamp_ms: parseInt(fields.last_price_update_timestamp_ms || '0'),
+              partner_share_percentage: partnerSharePercentage,
+              platform_share_percentage: platformSharePercentage,
+              max_claims: fields.max_claims ? parseInt(fields.max_claims) : undefined,
+              total_claims_count: parseInt(fields.total_claims_count || '0'),
+              is_active: fields.is_active || false,
+              generates_unique_claim_metadata: fields.generates_unique_claim_metadata || false,
+              max_uses_per_claim: fields.max_uses_per_claim ? parseInt(fields.max_uses_per_claim) : undefined,
+              expiration_timestamp_ms: fields.expiration_timestamp_ms ? parseInt(fields.expiration_timestamp_ms) : undefined,
+              tags: Array.isArray(fields.tags) ? fields.tags : (fields.tags?.length > 0 ? [fields.tags] : []),
+              icon: fields.icon,
+              packageId,
+            });
+          } catch (parseErr) {
+            // Skip invalid perks
+          }
         }
       }
+      
+      return perks;
+    } catch (error) {
+      console.error('Error fetching perk objects batch:', error);
+      return [];
     }
-    
-    return perks;
   };
 
   /**
-   * SMART CATALOG SEARCH: Single-phase parallel search using ecommerce best practices
+   * HEAVILY OPTIMIZED: Only search recent packages to avoid excessive RPC calls
    */
   const fetchPartnerPerks = useCallback(async (partnerCapId: string): Promise<PerkDefinition[]> => {
     if (!client || !partnerCapId) {
+      console.log(`[usePerkData] No client or partnerCapId provided`);
       return [];
     }
 
     const cacheKey = `partner_perks_${partnerCapId}`;
     setIsLoading(true);
     setError(null);
+    
+    console.log(`[usePerkData] Fetching perks for partner: ${partnerCapId}`);
 
     try {
       const perks = await requestCache.getOrFetch(
         cacheKey,
         async () => {
-          // SMART PRIORITIZATION: Latest packages likely have most recent perks
-          const prioritizedPackages = ALL_PACKAGE_IDS.filter(Boolean).reverse();
+          // EXPANDED SEARCH: Search more packages to find all perks
+          const recentPackages = ALL_PACKAGE_IDS.filter(Boolean).slice(0, MAX_PACKAGES_TO_SEARCH);
+          console.log(`[usePerkData] Searching ${recentPackages.length} packages:`, recentPackages);
           
-          // PARALLEL SEARCH: Search all packages simultaneously for speed
-          const packageSearchPromises = prioritizedPackages.map(async (packageId, index) => {
+          let allPerks: PerkDefinition[] = [];
+          
+          // Search packages sequentially to avoid overwhelming the RPC
+          for (const packageId of recentPackages) {
             try {
-              // ADAPTIVE LIMITS: More recent packages get higher limits first
-              const initialLimit = index === 0 ? 200 : index === 1 ? 150 : 100;
-              let allPackagePerkIds: string[] = [];
-              let cursor: string | null = null;
-              let hasMoreEvents = true;
+              console.log(`[usePerkData] Searching package: ${packageId}`);
               
-              // EFFICIENT PAGINATION: Get events in chunks until we find all perks
-              while (hasMoreEvents) {
-                const queryParams: any = {
-                  query: {
-                    MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
-                  },
-                  order: 'descending',
-                  limit: initialLimit,
-                };
-                
-                if (cursor) {
-                  queryParams.cursor = cursor;
-                }
+              // Get recent perk creation events for this partner
+              const perkCreatedEvents = await client.queryEvents({
+                query: {
+                  MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
+                },
+                order: 'descending',
+                limit: MAX_EVENTS_PER_PACKAGE, // Expanded limit
+              });
 
-                const perkCreatedEvents = await client.queryEvents(queryParams);
+              console.log(`[usePerkData] Found ${perkCreatedEvents.data.length} perk creation events in ${packageId}`);
 
-                // SCAN FOR PARTNER PERKS
-                let foundInThisBatch = 0;
-                for (const event of perkCreatedEvents.data) {
-                  if (event.parsedJson && typeof event.parsedJson === 'object') {
-                    const eventData = event.parsedJson as any;
-                    
-                    if (eventData.creator_partner_cap_id === partnerCapId) {
-                      allPackagePerkIds.push(eventData.perk_definition_id);
-                      foundInThisBatch++;
-                    }
+              // Filter for this partner's perks
+              const partnerPerkIds: string[] = [];
+              let totalEventsChecked = 0;
+              for (const event of perkCreatedEvents.data) {
+                totalEventsChecked++;
+                if (event.parsedJson && typeof event.parsedJson === 'object') {
+                  const eventData = event.parsedJson as any;
+                  
+                  if (eventData.creator_partner_cap_id === partnerCapId) {
+                    console.log(`[usePerkData] Found matching perk for partner: ${eventData.perk_definition_id}`);
+                    partnerPerkIds.push(eventData.perk_definition_id);
                   }
                 }
-
-                // SMART CONTINUATION: Continue if we found perks and there are more pages
-                if (perkCreatedEvents.hasNextPage && (foundInThisBatch > 0 || allPackagePerkIds.length === 0)) {
-                  cursor = perkCreatedEvents.nextCursor as string | null;
-                } else {
-                  hasMoreEvents = false;
-                }
-
-                // PERFORMANCE LIMIT: Don't scan indefinitely
-                if (allPackagePerkIds.length > 100) { // Reasonable cap per package
-                  break;
-                }
+                
+                // Stop if we have enough perks
+                if (partnerPerkIds.length >= 25) break; // Increased limit
               }
 
-              // BATCH FETCH: Get all perk objects for this package
-              if (allPackagePerkIds.length > 0) {
-                const packagePerks = await fetchPerkObjectsBatch(allPackagePerkIds, packageId);
-                return packagePerks;
-              }
+              console.log(`[usePerkData] Package ${packageId}: Found ${partnerPerkIds.length} perks for partner (checked ${totalEventsChecked} events)`);
 
-              return [];
+              if (partnerPerkIds.length > 0) {
+                const packagePerks = await fetchPerkObjectsBatch(partnerPerkIds, packageId);
+                console.log(`[usePerkData] Successfully fetched ${packagePerks.length} perk objects from ${packageId}`);
+                allPerks.push(...packagePerks);
+              }
               
-            } catch (err) {
-              return []; // Don't fail entire search due to one package
+            } catch (error) {
+              console.warn(`[usePerkData] Error searching package ${packageId}:`, error);
             }
-          });
+          }
 
-          // CONCURRENT EXECUTION: Wait for all package searches to complete
-          const allPackageResults = await Promise.all(packageSearchPromises);
-          const allPerks = allPackageResults.flat();
-
-          // DEDUPLICATION: Remove duplicate perks by ID (can happen across packages)
-          const uniquePerks = allPerks.filter((perk, index, arr) => 
-            arr.findIndex(p => p.id === perk.id) === index
-          );
-
-          return uniquePerks;
+          console.log(`[usePerkData] Total perks found for partner ${partnerCapId}: ${allPerks.length}`);
+          return allPerks;
         },
         CACHE_DURATION
       );
-      
+
       setPartnerPerks(perks);
+      console.log(`[usePerkData] Final result for partner ${partnerCapId}: ${perks.length} perks`);
       return perks;
-    } catch (err: any) {
-      setError(err.message || 'Failed to search for partner perks');
+    } catch (error: any) {
+      console.error('[usePerkData] Error fetching partner perks:', error);
+      setError(error.message || 'Failed to fetch partner perks');
       return [];
     } finally {
       setIsLoading(false);
@@ -328,6 +301,11 @@ export function usePerkData() {
                   // COMPREHENSIVE SEARCH: Query ALL packages to find all perks from all companies
         const prioritizedPackages = ALL_PACKAGE_IDS.filter(Boolean); // Query ALL packages to ensure we find all perks
           
+          console.log('🔍 Searching packages for perks:', {
+            totalPackages: prioritizedPackages.length,
+            packages: prioritizedPackages.slice(0, 5).map(p => p?.substring(0, 10) + '...')
+          });
+          
           const packagePromises = prioritizedPackages.map(async (packageId, packageIndex) => {
             try {
               
@@ -337,14 +315,14 @@ export function usePerkData() {
                   MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
                 },
                 order: 'descending',
-                limit: 50, // Increased to find more perks
+                limit: 200, // Increased to find more perks
               });
 
 
               
               // COMPREHENSIVE SEARCH: Extract more perk IDs to find all perks
               const allPerkIds: string[] = [];
-              for (const event of perkCreatedEvents.data.slice(0, 40)) {
+              for (const event of perkCreatedEvents.data.slice(0, 150)) {
                 if (event.parsedJson && typeof event.parsedJson === 'object') {
                   const eventData = event.parsedJson as any;
                   allPerkIds.push(eventData.perk_definition_id);
@@ -359,7 +337,7 @@ export function usePerkData() {
               // OPTIMIZATION 5: Return active perks only
               const activePerks = packagePerks.filter(perk => perk.is_active);
               
-
+              console.log(`📦 Package ${packageId.substring(0, 10)}... found ${activePerks.length} active perks (${packagePerks.length} total)`);
               
               return activePerks;
               

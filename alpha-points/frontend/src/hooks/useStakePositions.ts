@@ -28,7 +28,7 @@ const DEFAULT_DURATIONS_FOR_APY_LOOKUP: DurationOption[] = [
 /**
  * Hook for fetching and managing user's stake positions using timestamps
  */
-export const useStakePositions = (autoLoad: boolean = false) => {
+export const useStakePositions = (userAddress: string | undefined, autoLoad: boolean = false) => {
   const client = useSuiClient();
   const currentAccount = useCurrentAccount();
   const { isConnected } = useCurrentWallet();
@@ -39,15 +39,17 @@ export const useStakePositions = (autoLoad: boolean = false) => {
   const [positions, setPositions] = useState<StakePosition[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Main fetch function - accepts userAddress
-  const fetchPositions = useCallback(async (userAddress: string | undefined) => {
-    if (!userAddress) {
+  // Main fetch function - accepts userAddress parameter
+  const fetchPositions = useCallback(async (addr: string | undefined = userAddress) => {
+    if (!addr) {
+      console.log('[useStakePositions] No address provided, clearing positions');
       setPositions([]);
       setLoading(false);
       setError(null);
       return;
     }
 
+    console.log(`[useStakePositions] Fetching positions for ${addr}`);
     setLoading(true);
     setError(null);
 
@@ -58,16 +60,20 @@ export const useStakePositions = (autoLoad: boolean = false) => {
       // Query for stake positions from all known package IDs
       for (const pkgId of ALL_PACKAGE_IDS) {
         const response = await client.getOwnedObjects({
-          owner: userAddress!,
+          owner: addr,
           filter: {
             StructType: `${pkgId}::stake_position::StakePosition<${NATIVE_STAKED_SUI_TYPE_ARG}>`,
           },
           options: { showContent: true },
         });
-        if (response.data) {
+        
+        if (response.data && response.data.length > 0) {
+          console.log(`[useStakePositions] Found ${response.data.length} objects from package ${pkgId}`);
           allOwnedObjectsData = allOwnedObjectsData.concat(response.data);
         }
       }
+      
+      console.log(`[useStakePositions] Total objects found: ${allOwnedObjectsData.length}`);
       
       // De-duplicate based on objectId in case an object somehow matches both
       const uniqueObjectsData = Array.from(new Map(allOwnedObjectsData.map(obj => [obj.data?.objectId, obj])).values());
@@ -78,7 +84,10 @@ export const useStakePositions = (autoLoad: boolean = false) => {
 
           if (content?.dataType === 'moveObject') {
             const moveStructFields = content.fields as Record<string, any>;
-            if (!moveStructFields) return null;
+            if (!moveStructFields) {
+              console.warn(`[useStakePositions] No fields found for object ${obj.data?.objectId}`);
+              return null;
+            }
 
             const principalStr = moveStructFields.amount || '0'; 
             const unlockTimeMsStr = moveStructFields.unlock_time_ms || '0';
@@ -90,7 +99,9 @@ export const useStakePositions = (autoLoad: boolean = false) => {
             const principal = BigInt(principalStr).toString(); 
 
             if (isNaN(startTimeMs) || isNaN(unlockTimeMs)) {
-              console.warn(`Invalid time/duration/unlock data for StakePosition ${obj.data?.objectId}`);
+              console.warn(`[useStakePositions] Invalid time data for StakePosition ${obj.data?.objectId}:`, {
+                startTimeMsStr, unlockTimeMsStr, startTimeMs, unlockTimeMs
+              });
               return null;
             }
             
@@ -112,7 +123,7 @@ export const useStakePositions = (autoLoad: boolean = false) => {
 
             const positionData: StakePosition = {
               id: obj.data?.objectId || '',
-              owner: typeof moveStructFields.owner === 'string' ? moveStructFields.owner : userAddress,
+              owner: typeof moveStructFields.owner === 'string' ? moveStructFields.owner : addr,
               principal: principal, 
               amount: principal, 
               stakedSuiObjectId: stakedSuiObjectId,
@@ -129,20 +140,43 @@ export const useStakePositions = (autoLoad: boolean = false) => {
               unlockEpoch: typeof moveStructFields.unlock_epoch === 'string' ? moveStructFields.unlock_epoch : '0', 
               durationEpochs: '0', 
             };
+            
             return positionData;
           }
           return null;
         })
         .filter((pos): pos is StakePosition => pos !== null);
 
+      console.log(`[useStakePositions] Final positions (${stakePositions.length})`);
+      
+      // Always update positions with the fetched data - more reliable than defensive logic
       setPositions(stakePositions);
     } catch (error: any) {
-      console.error('Error fetching stake positions:', error);
+      console.error('[useStakePositions] Error fetching stake positions:', error);
       setError(error.message || 'Failed to fetch stake positions');
     } finally {
       setLoading(false);
     }
-  }, [client]);
+  }, [client, userAddress]);
+
+  // Auto-load effect with improved reliability
+  useEffect(() => {
+    if (autoLoad && userAddress) {
+      console.log(`[useStakePositions] Auto-loading positions for ${userAddress}`);
+      fetchPositions(userAddress);
+    } else if (!userAddress && positions.length > 0) {
+      // Only clear positions if we actually have positions and user is definitely disconnected
+      console.log('[useStakePositions] User disconnected, clearing positions');
+      setPositions([]);
+      setLoading(false);
+      setError(null);
+    }
+  }, [userAddress, autoLoad]); // Remove fetchPositions from dependencies to prevent infinite loops
+
+  // Return consistent interface
+  const refetch = useCallback((addr?: string) => {
+    fetchPositions(addr || userAddress);
+  }, [fetchPositions, userAddress]);
 
   const liquidUnstakeAsLoanNativeSui = async (
     stakePositionId: string,
@@ -210,7 +244,13 @@ export const useStakePositions = (autoLoad: boolean = false) => {
     }
   };
 
-  return { positions, loading, error, refetch: fetchPositions, liquidUnstakeAsLoanNativeSui };
+  return { 
+    stakePositions: positions, 
+    loading, 
+    error, 
+    refetch,
+    liquidUnstakeAsLoanNativeSui
+  };
 };
 
 // --- IMPORTANT ---

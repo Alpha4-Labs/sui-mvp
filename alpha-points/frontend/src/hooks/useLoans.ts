@@ -10,7 +10,7 @@ const NATIVE_STAKED_SUI_TYPE_ARG = '0x3::staking_pool::StakedSui';
 /**
  * Hook for fetching and managing user's loans against staked positions
  */
-export const useLoans = (autoLoad: boolean = false) => {
+export const useLoans = (userAddress: string | undefined, autoLoad: boolean = false) => {
   const currentAccount = useCurrentAccount();
   const client = useSuiClient();
 
@@ -20,8 +20,8 @@ export const useLoans = (autoLoad: boolean = false) => {
   const [error, setError] = useState<string | null>(null);
 
   // Main fetch function
-  const fetchLoans = useCallback(async (address?: string) => {
-    const owner = address || currentAccount?.address;
+  const fetchLoans = useCallback(async (addr: string | undefined = userAddress) => {
+    const owner = addr || currentAccount?.address;
     if (!owner) {
       setLoans([]);
       setLoading(false);
@@ -102,19 +102,20 @@ export const useLoans = (autoLoad: boolean = false) => {
     } finally {
       setLoading(false);
     }
-  }, [client, currentAccount]);
+  }, [client, currentAccount, userAddress]);
 
-  // Initialize data and set up polling only if autoLoad is true
+  // Auto-load effect
   useEffect(() => {
-    if (autoLoad) {
-      fetchLoans();
-      // Set up polling interval
-      const interval = setInterval(fetchLoans, 10000); // Poll every 10 seconds
-      // Cleanup interval on unmount
-      return () => clearInterval(interval);
+    if (autoLoad && userAddress) {
+      fetchLoans(userAddress);
     }
-  }, [autoLoad, fetchLoans]);
+  }, [autoLoad, userAddress, fetchLoans]);
+
+  // Return consistent interface
+  const refetch = useCallback((addr?: string) => {
+    fetchLoans(addr || userAddress);
+  }, [fetchLoans, userAddress]);
 
   // Return loans, loading state, error state, and refetch function
-  return { loans, loading, error, refetch: fetchLoans };
+  return { loans, loading, error, refetch };
 };
