@@ -42,8 +42,7 @@ export const useStakePositions = (userAddress: string | undefined, autoLoad: boo
   // Main fetch function - accepts userAddress parameter
   const fetchPositions = useCallback(async (addr: string | undefined = userAddress) => {
     if (!addr) {
-      console.log('[useStakePositions] No address provided, clearing positions');
-      setPositions([]);
+      console.log('[useStakePositions] No address provided, skipping fetch');
       setLoading(false);
       setError(null);
       return;
@@ -164,13 +163,10 @@ export const useStakePositions = (userAddress: string | undefined, autoLoad: boo
     if (autoLoad && userAddress) {
       console.log(`[useStakePositions] Auto-loading positions for ${userAddress}`);
       fetchPositions(userAddress);
-    } else if (!userAddress && positions.length > 0) {
-      // Only clear positions if we actually have positions and user is definitely disconnected
-      console.log('[useStakePositions] User disconnected, clearing positions');
-      setPositions([]);
-      setLoading(false);
-      setError(null);
     }
+    // REMOVED: Aggressive position clearing when userAddress becomes undefined
+    // This was causing positions to disappear during rapid re-renders
+    // Position clearing should only happen on explicit user disconnect, not temporary state changes
   }, [userAddress, autoLoad]); // Remove fetchPositions from dependencies to prevent infinite loops
 
   // Return consistent interface

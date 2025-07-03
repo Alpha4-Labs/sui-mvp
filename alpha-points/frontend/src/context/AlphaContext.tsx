@@ -308,6 +308,10 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       disconnectWalletDappKit();
     }
     hasInitialized.current = false;
+    
+    // Clear all data on explicit logout
+    setSuiBalance('0');
+    setOrphanedStakes([]);
   }, [currentAccount, disconnectWalletDappKit]);
 
   const removeOrphanedStake = useCallback((stakedSuiObjectId: string) => {

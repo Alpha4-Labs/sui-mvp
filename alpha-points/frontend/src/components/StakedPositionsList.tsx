@@ -205,7 +205,7 @@ export const StakedPositionsList: React.FC = () => {
 
   // Refresh data when switching between tabs to ensure consistency
   React.useEffect(() => {
-    if (alphaIsConnected && alphaAddress) {
+    if (alphaIsConnected && alphaAddress && activeTab === 'stakes') {
       console.log('[StakedPositionsList] Tab changed to:', activeTab, '- refreshing data');
       refreshStakePositions();
       refreshLoansData();
