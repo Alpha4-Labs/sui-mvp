@@ -124,7 +124,7 @@ export const StakeCard: React.FC = () => {
   // State to track if the default duration has been set
   const [isDefaultDurationSet, setIsDefaultDurationSet] = useState(false);
 
-  // Use transaction success hook for automatic refresh
+    // Use transaction success hook for automatic refresh
   const transactionHook = useTransactionSuccess();
   const { registerRefreshCallback, signAndExecute } = transactionHook || {};
 
@@ -336,56 +336,56 @@ export const StakeCard: React.FC = () => {
 
         try {
           const fullTxBytes = await combinedTx.build({ client: suiClient as unknown as SuiClient });
-          const { signature: userSignature } = await ephemeralKeypair.signTransaction(fullTxBytes); 
+            const { signature: userSignature } = await ephemeralKeypair.signTransaction(fullTxBytes); 
 
-          const enokiZkpRequest = {
-            network: 'testnet',
-            ephemeralPublicKey: extendedEphemeralPublicKeyString,
-            maxEpoch: maxEpoch,
-            randomness: randomness,
-          };
+            const enokiZkpRequest = {
+                network: 'testnet',
+                ephemeralPublicKey: extendedEphemeralPublicKeyString,
+                maxEpoch: maxEpoch,
+                randomness: randomness,
+            };
 
-          const enokiZkpResponseRaw = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin/zkp', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${import.meta.env['VITE_ENOKI_KEY']}`,
-              'zklogin-jwt': jwt, 
-            },
-            body: JSON.stringify(enokiZkpRequest)
-          });
+            const enokiZkpResponseRaw = await fetch('https://api.enoki.mystenlabs.com/v1/zklogin/zkp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${import.meta.env['VITE_ENOKI_KEY']}`,
+                    'zklogin-jwt': jwt, 
+                },
+                body: JSON.stringify(enokiZkpRequest)
+            });
 
-          if (!enokiZkpResponseRaw.ok) {
-            const errorBody = await enokiZkpResponseRaw.text();
+            if (!enokiZkpResponseRaw.ok) {
+                const errorBody = await enokiZkpResponseRaw.text();
             throw new Error(`Enoki ZKP service error: ${enokiZkpResponseRaw.status} ${enokiZkpResponseRaw.statusText} - ${errorBody}`);
-          }
+            }
           
-          const enokiResponse: EnokiZkpResponse = await enokiZkpResponseRaw.json();
+            const enokiResponse: EnokiZkpResponse = await enokiZkpResponseRaw.json();
           if (!enokiResponse.data?.proofPoints) throw new Error("Invalid ZKP response from Enoki");
 
-          const zkLoginInputs: ActualZkLoginSignatureInputs = {
-            proofPoints: enokiResponse.data.proofPoints,
-            issBase64Details: enokiResponse.data.issBase64Details,
-            headerBase64: enokiResponse.data.headerBase64,
-            addressSeed: localStorage.getItem('zkLogin_userSalt_from_enoki') || '',
-          };
+            const zkLoginInputs: ActualZkLoginSignatureInputs = {
+                 proofPoints: enokiResponse.data.proofPoints,
+                 issBase64Details: enokiResponse.data.issBase64Details,
+                 headerBase64: enokiResponse.data.headerBase64,
+                 addressSeed: localStorage.getItem('zkLogin_userSalt_from_enoki') || '',
+            };
 
-          const actualZkLoginSignature = getZkLoginSignature({ inputs: zkLoginInputs, maxEpoch, userSignature });
+            const actualZkLoginSignature = getZkLoginSignature({ inputs: zkLoginInputs, maxEpoch, userSignature });
 
           setStakingStage('staking'); 
           const result = await suiClient.executeTransactionBlock({ 
-            transactionBlock: fullTxBytes,
-            signature: actualZkLoginSignature,
-            options: { showEffects: true, showObjectChanges: true }
-          }); 
+              transactionBlock: fullTxBytes,
+              signature: actualZkLoginSignature,
+              options: { showEffects: true, showObjectChanges: true }
+            }); 
           
           setTxDigest(result.digest);
 
         } catch (zkpError: any) {
           console.error("Error during ZKP Flow:", zkpError);
           toast.error(`Failed during ZKP flow: ${zkpError.message || 'Unknown ZKP/execution error'}`, getToastConfig());
-          setStakingStage('failed');
-          return;
+            setStakingStage('failed');
+            return;
         }
 
       } else if (alphaProvider === 'dapp-kit') {
@@ -673,9 +673,9 @@ export const StakeCard: React.FC = () => {
         <div>
           <button
             onClick={handleStake}
-            disabled={
-              !alphaIsConnected || 
-              !checkSufficientBalance() || 
+            disabled={ 
+                !alphaIsConnected || 
+                !checkSufficientBalance() ||
               !getAmountValidation().isValid || 
               stakingStage === 'staking' || 
               stakingStage === 'fetchingProof' || 

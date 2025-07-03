@@ -1522,7 +1522,7 @@ export function PartnerDashboard({ partnerCap: initialPartnerCap, onRefresh, cur
           { autoClose: 8000 }
         );
       }
-
+      
       // 1. Update tags if they changed
       if (JSON.stringify(editForm.tags) !== JSON.stringify(editingPerk.tags)) {
         const updateTagsTransaction = new Transaction();

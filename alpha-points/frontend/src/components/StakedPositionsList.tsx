@@ -720,8 +720,19 @@ export const StakedPositionsList: React.FC = () => {
 
   // --- Prepare combined data for Swiper with optimized memoization ---
   const combinedListItems = React.useMemo((): SwiperItem[] => {
+    console.log('[StakedPositionsList] Computing combinedListItems:', {
+      isLoading,
+      filteredStakePositionsLength: filteredStakePositions.length,
+      orphanedStakesLength: orphanedStakes.length,
+      filteredStakePositions,
+      orphanedStakes
+    });
+
     // Only compute if not loading to prevent premature renders
-    if (isLoading) return [];
+    if (isLoading) {
+      console.log('[StakedPositionsList] Returning empty array due to isLoading=true');
+      return [];
+    }
 
     const orphanedAsSwiperItems: SwiperOrphanedItem[] = orphanedStakes.map((orphan, index) => ({
       ...orphan,
@@ -737,6 +748,12 @@ export const StakedPositionsList: React.FC = () => {
     }));
     
     const combined = [...orphanedAsSwiperItems, ...registeredAsSwiperItems];
+    
+    console.log('[StakedPositionsList] Computed combinedListItems:', {
+      orphanedAsSwiperItems,
+      registeredAsSwiperItems,
+      combined
+    });
     
     return combined;
   }, [orphanedStakes, filteredStakePositions, isLoading]); // Removed loading and loans dependencies
@@ -938,6 +955,16 @@ export const StakedPositionsList: React.FC = () => {
           <SwiperSlide className="bg-transparent rounded-lg self-stretch h-full min-h-0 relative z-[29]">
             <div>
               {/* Stakes Content */}
+              {(() => {
+                console.log('[StakedPositionsList] Rendering decision:', {
+                  combinedListItemsLength: combinedListItems.length,
+                  isLoading,
+                  shouldShowEmpty: combinedListItems.length === 0 && !isLoading,
+                  shouldShowList: combinedListItems.length > 0
+                });
+                return null;
+              })()}
+              
               {combinedListItems.length === 0 && !isLoading ? (
                 // --- Empty State ---
                 <div className="text-center py-8 bg-black/20 backdrop-blur-lg border border-white/10 rounded-xl flex flex-col items-center justify-center">

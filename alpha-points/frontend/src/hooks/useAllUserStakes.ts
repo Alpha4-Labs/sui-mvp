@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSuiClient } from '@mysten/dapp-kit';
 import { SuiObjectResponse } from '@mysten/sui/client';
 
@@ -13,6 +13,11 @@ export interface GenericStakedSui {
   // type: string; // Should always be '0x3::staking_pool::StakedSui'
 }
 
+// Global cache to prevent duplicate requests
+const CACHE_DURATION = 30000; // 30 seconds
+const stakesCache = new Map<string, { data: GenericStakedSui[]; timestamp: number }>();
+const ongoingRequests = new Map<string, Promise<GenericStakedSui[]>>();
+
 /**
  * Fetches all '0x3::staking_pool::StakedSui' objects owned by the given address.
  * @param address The Sui address of the user.
@@ -22,72 +27,131 @@ export function useAllUserStakes(address: string | undefined, autoLoad: boolean 
   const [allStakedSuiObjects, setAllStakedSuiObjects] = useState<GenericStakedSui[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const currentRequestRef = useRef<Promise<GenericStakedSui[]> | null>(null);
 
   const fetchAllUserStakes = useCallback(async (addr: string | undefined) => {
     if (!addr) {
       setAllStakedSuiObjects([]);
-      setLoading(false); // Ensure loading is false if no address
+      setLoading(false);
       return;
     }
+
+    // Check cache first
+    const cached = stakesCache.get(addr);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log('[useAllUserStakes] Using cached data for', addr);
+      setAllStakedSuiObjects(cached.data);
+      setLoading(false);
+      return;
+    }
+
+    // Check if there's already an ongoing request for this address
+    if (ongoingRequests.has(addr)) {
+      console.log('[useAllUserStakes] Request already in progress for', addr);
+      try {
+        const result = await ongoingRequests.get(addr)!;
+        setAllStakedSuiObjects(result);
+        setLoading(false);
+        return;
+      } catch (e) {
+        // Will handle error below
+      }
+    }
+
     setLoading(true);
     setError(null);
-    try {
-      let allOwnedStakes: GenericStakedSui[] = [];
-      let cursor: string | null | undefined = undefined; // SDK expects string | null | undefined
-      let hasNextPage = true;
+    
+    const requestPromise = (async (): Promise<GenericStakedSui[]> => {
+      try {
+        let allOwnedStakes: GenericStakedSui[] = [];
+        let cursor: string | null | undefined = undefined;
+        let hasNextPage = true;
+        let pageCount = 0;
+        const MAX_PAGES = 10; // Limit to prevent infinite loops
 
-      while (hasNextPage) {
-        const response = await suiClient.getOwnedObjects({
-          owner: addr,
-          filter: { StructType: '0x3::staking_pool::StakedSui' },
-          // Fetching objectId, type, and content to get principal.
-          options: { showType: true, showContent: true, showOwner: false, showPreviousTransaction: false, showDisplay: false, showBcs: false },
-          cursor: cursor,
-        });
+        while (hasNextPage && pageCount < MAX_PAGES) {
+          console.log(`[useAllUserStakes] Fetching page ${pageCount + 1} for ${addr}`);
+          
+          const response = await suiClient.getOwnedObjects({
+            owner: addr,
+            filter: { StructType: '0x3::staking_pool::StakedSui' },
+            options: { 
+              showType: true, 
+              showContent: true, 
+              showOwner: false, 
+              showPreviousTransaction: false, 
+              showDisplay: false, 
+              showBcs: false 
+            },
+            cursor: cursor,
+            limit: 50, // Reasonable page size
+          });
 
-        if (response.data) {
-          const stakes = response.data
-            .filter(obj => obj.data?.objectId && obj.data?.type === '0x3::staking_pool::StakedSui' && obj.data?.content?.dataType === 'moveObject')
-            .map(obj => {
-              // Extract principal from content
-              // Assuming content.fields.principal exists based on StakedSui structure
-              // The actual field name might be 'staked_sui_amount' or similar, adjust if needed
-              // For StakedSui, the principal is in the 'balance' field of the StakedSui object itself.
-              // However, getOwnedObjects returns the StakedSui object directly, and its 'content' field
-              // contains the fields of the object. For a StakedSui object, the field holding the
-              // principal amount is typically named 'principal' or 'balance'.
-              // Let's assume it's 'principal' based on typical StakedSui struct.
-              // If this is incorrect, we'll need to inspect the actual object structure.
-              // The type from sui/client getObject indicates content.fields.balance for StakedSui
-              let principal: string | undefined = undefined;
-              if (obj.data?.content && 'fields' in obj.data.content && obj.data.content.fields) {
-                const fields = obj.data.content.fields as any; // Cast to any to access arbitrary fields
-                if (fields.principal) { // Standard StakedSui object has 'principal'
-                    principal = String(fields.principal);
-                } else if (fields.staked) { // Sometimes it's just 'staked' if it's a balance
-                    principal = String(fields.staked);
-                } else if (fields.balance) { // Fallback to balance if that's the field name
-                    principal = String(fields.balance);
+          if (response.data) {
+            const stakes = response.data
+              .filter(obj => obj.data?.objectId && obj.data?.type === '0x3::staking_pool::StakedSui' && obj.data?.content?.dataType === 'moveObject')
+              .map(obj => {
+                let principal: string | undefined = undefined;
+                if (obj.data?.content && 'fields' in obj.data.content && obj.data.content.fields) {
+                  const fields = obj.data.content.fields as any;
+                  if (fields.principal) {
+                      principal = String(fields.principal);
+                  } else if (fields.staked) {
+                      principal = String(fields.staked);
+                  } else if (fields.balance) {
+                      principal = String(fields.balance);
+                  }
                 }
-              }
-              return {
-                id: obj.data!.objectId,
-                principalAmount: principal,
-              };
-            });
-          allOwnedStakes = [...allOwnedStakes, ...stakes];
+                return {
+                  id: obj.data!.objectId,
+                  principalAmount: principal,
+                };
+              });
+            allOwnedStakes = [...allOwnedStakes, ...stakes];
+          }
+          
+          cursor = response.nextCursor;
+          hasNextPage = response.hasNextPage;
+          pageCount++;
+          
+          if (!hasNextPage) break;
         }
-        cursor = response.nextCursor;
-        hasNextPage = response.hasNextPage;
-        if (!hasNextPage) break; // Exit if no more pages
+
+        // Cache the result
+        stakesCache.set(addr, { data: allOwnedStakes, timestamp: Date.now() });
+        console.log(`[useAllUserStakes] Successfully fetched ${allOwnedStakes.length} stakes for ${addr}`);
+        
+        return allOwnedStakes;
+      } catch (e: any) {
+        console.error('[useAllUserStakes] Error fetching all user StakedSui objects:', e);
+        throw new Error(e.message || 'Failed to fetch all user StakedSui objects.');
       }
-      setAllStakedSuiObjects(allOwnedStakes);
+    })();
+
+    // Store the ongoing request
+    ongoingRequests.set(addr, requestPromise);
+    currentRequestRef.current = requestPromise;
+
+    try {
+      const result = await requestPromise;
+      // Only update state if this is still the current request
+      if (currentRequestRef.current === requestPromise) {
+        setAllStakedSuiObjects(result);
+        setError(null);
+      }
     } catch (e: any) {
-      console.error('[useAllUserStakes] Error fetching all user StakedSui objects:', e);
-      setError(e.message || 'Failed to fetch all user StakedSui objects.');
-      setAllStakedSuiObjects([]); // Clear on error
+      // Only update state if this is still the current request
+      if (currentRequestRef.current === requestPromise) {
+        setError(e.message || 'Failed to fetch all user StakedSui objects.');
+        setAllStakedSuiObjects([]);
+      }
     } finally {
-      setLoading(false);
+      // Clean up
+      ongoingRequests.delete(addr);
+      if (currentRequestRef.current === requestPromise) {
+        setLoading(false);
+        currentRequestRef.current = null;
+      }
     }
   }, [suiClient]);
 

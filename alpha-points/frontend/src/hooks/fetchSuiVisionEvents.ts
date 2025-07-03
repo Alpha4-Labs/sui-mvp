@@ -2,7 +2,7 @@
 // https://docs.blockvision.org/reference/retrieve-account-events
 
 import { SuiClient, EventId } from '@mysten/sui/client';
-import { NETWORK_TYPE, CURRENT_NETWORK } from '../config/network'; // Import NETWORK_TYPE and CURRENT_NETWORK
+import { NETWORK_TYPE, getSharedSuiClient } from '../config/network';
 
 export interface SuiVisionEvent {
   type: 'earned' | 'spent' | 'locked' | 'unlocked';
@@ -34,15 +34,17 @@ const eventCache = new Map<string, any>();
  * Maps activity types to: earned, spent, locked, unlocked.
  * Uses in-memory cache for session performance. Pass forceRefresh=true to bypass cache.
  */
-export async function fetchSuiVisionEvents(address: string, fromTimestamp: number, toTimestamp: number, forceRefresh = false) {
+export async function fetchSuiVisionEvents(address: string, fromTimestamp: number, toTimestamp: number, forceRefresh = false, suiClient?: SuiClient) {
   const cacheKey = `${address.toLowerCase()}-${fromTimestamp}-${toTimestamp}`;
   if (!forceRefresh && eventCache.has(cacheKey)) {
     return eventCache.get(cacheKey);
   }
+  
   // --- Use Sui RPC for testnet, devnet, localnet ---
   if (NETWORK_TYPE === 'testnet' || NETWORK_TYPE === 'devnet' || NETWORK_TYPE === 'localnet') {
-    // Use Mysten Sui SDK to fetch transactions and events
-    const client = new SuiClient({ url: CURRENT_NETWORK.rpcUrl });
+    // Use provided client or shared client
+    const client = suiClient || getSharedSuiClient();
+    
     // Fetch all relevant Alpha Point events (Earned, Spent, Locked, Unlocked) for the address
     const eventTypes = [
       'alpha_points::ledger::Earned',
@@ -54,7 +56,10 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
     for (const moveEventType of eventTypes) {
       let cursor: EventId | null | undefined = null;
       let hasNext = true;
-      while (hasNext) {
+      let pageCount = 0;
+      const maxPages = 10; // Limit pages to avoid excessive calls
+      
+      while (hasNext && pageCount < maxPages) {
         const res = await client.queryEvents({
           query: { MoveEventType: moveEventType },
           cursor,
@@ -72,6 +77,7 @@ export async function fetchSuiVisionEvents(address: string, fromTimestamp: numbe
         allEvents = allEvents.concat(events);
         cursor = res.nextCursor;
         hasNext = !!cursor && res.data && res.data.length > 0;
+        pageCount++;
       }
     }
 

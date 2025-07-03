@@ -55,12 +55,12 @@ export const PointsDisplay: React.FC = () => {
   }, [registerRefreshCallback, refreshData, currentEpoch, stakePositions, currentAccount]);
 
   // Fetch system state for epoch info
-  const fetchSystemState = async () => {
-    try {
-      const state: SuiSystemStateSummary = await suiClient.getLatestSuiSystemState();
-      const epoch = BigInt(state.epoch);
-      const startMs = BigInt(state.epochStartTimestampMs);
-      const durationMs = BigInt(state.epochDurationMs);
+    const fetchSystemState = async () => {
+      try {
+        const state: SuiSystemStateSummary = await suiClient.getLatestSuiSystemState();
+          const epoch = BigInt(state.epoch);
+          const startMs = BigInt(state.epochStartTimestampMs);
+          const durationMs = BigInt(state.epochDurationMs);
       let nextEpochStartMs = Number(startMs + durationMs);
       
       // If the calculated next epoch time is in the past (stale RPC data),
@@ -71,14 +71,14 @@ export const PointsDisplay: React.FC = () => {
         const epochsPassed = Math.ceil((now - nextEpochStartMs) / epochDuration);
         nextEpochStartMs = nextEpochStartMs + (epochsPassed * epochDuration);
       }
-      
-      setCurrentEpoch(epoch);
-      setNextEpochTime(nextEpochStartMs);
-    } catch (error) {
-      console.error("[PointsDisplay] Error fetching Sui system state:", error);
-      setTimeLeft("Error fetching epoch time");
-    }
-  };
+          
+          setCurrentEpoch(epoch);
+          setNextEpochTime(nextEpochStartMs);
+      } catch (error) {
+        console.error("[PointsDisplay] Error fetching Sui system state:", error);
+          setTimeLeft("Error fetching epoch time");
+      }
+    };
 
   useEffect(() => {
     fetchSystemState();

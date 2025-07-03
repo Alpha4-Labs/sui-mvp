@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSignAndExecuteTransaction, useCurrentWallet } from '@mysten/dapp-kit';
+import { useSignAndExecuteTransaction, useCurrentWallet, useSuiClient } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { SUI_TYPE_ARG, SUI_CLOCK_OBJECT_ID } from '@mysten/sui/utils'; // Assuming SUI_TYPE_ARG is still relevant or adjust if needed
 import { PACKAGE_ID, SHARED_OBJECTS } from '../config/contract'; // Removed SPONSOR_CONFIG import
@@ -40,6 +40,7 @@ const SUI_INPUT_DECIMALS = 9; // For converting human-readable SUI to MIST
 export function usePartnerOnboarding() {
   const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
   const { currentWallet } = useCurrentWallet();
+  const suiClient = useSuiClient();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [transactionDigest, setTransactionDigest] = useState<string | null>(null);
@@ -645,86 +646,47 @@ export function usePartnerOnboarding() {
    */
   const extractPartnerCapIdFromTransaction = async (txDigest: string): Promise<string | null> => {
     try {
-      console.log('🔍 Extracting PartnerCapFlex ID from transaction:', txDigest);
+      // Use the current client from useSuiClient hook
       
-      // Use suiClient instead of direct fetch to avoid CORS issues
-      const data = await suiClient.getTransactionBlock({
+      const txDetails = await suiClient.getTransactionBlock({
         digest: txDigest,
         options: {
-          showInput: false,
-          showRawInput: false,
           showEffects: true,
-          showEvents: true,
           showObjectChanges: true,
-          showBalanceChanges: false
-        }
-      });
-      
-      if (!data) {
-        console.error('❌ Failed to fetch transaction data');
-        throw new Error('Failed to fetch transaction data');
-      }
-
-      console.log('📋 Transaction data received:', {
-        hasEvents: !!data.events,
-        eventsCount: data.events?.length || 0,
-        hasObjectChanges: !!data.objectChanges,
-        objectChangesCount: data.objectChanges?.length || 0
+        },
       });
 
-      // Look for created objects in objectChanges
-      const objectChanges = data.objectChanges || [];
-      
-      console.log('🔍 Searching through', objectChanges.length, 'object changes');
-      
-      // Find the PartnerCapFlex object (look for created objects with PartnerCapFlex type)
-      for (const change of objectChanges) {
-        console.log('📦 Object change:', {
-          type: change.type,
-          objectType: change.objectType,
-          objectId: change.objectId
-        });
-        
-        if (change.type === 'created' && 
-            change.objectType && 
-            (change.objectType.includes('PartnerCapFlex') || 
-             change.objectType.includes('partner_flex::PartnerCapFlex'))) {
-          console.log('✅ Found PartnerCapFlex object:', change.objectId);
-          return change.objectId;
-        }
-      }
-
-      // Also check events for PartnerCapFlex creation
-      const events = data.events || [];
-      console.log('🔍 Searching through', events.length, 'events');
-      
-      for (const event of events) {
-        console.log('📣 Event:', {
-          type: event.type,
-          parsedJson: event.parsedJson
-        });
-        
-        // Look for PartnerCapCreated event (this is what the Move contract emits)
-        if (event.type && event.type.includes('PartnerCapCreated')) {
-          // The event structure is: { partner_cap_id, partner_name, partner_address, initial_usdc_value }
-          if (event.parsedJson && event.parsedJson.partner_cap_id) {
-            console.log('✅ Found PartnerCapFlex ID in PartnerCapCreated event:', event.parsedJson.partner_cap_id);
-            return event.parsedJson.partner_cap_id;
+      // Look through object changes to find the created PartnerCapFlex
+      if (txDetails.objectChanges) {
+        for (const change of txDetails.objectChanges) {
+          if (change.type === 'created' && 
+              change.objectType && 
+              (change.objectType.includes('PartnerCapFlex') || change.objectType.includes('PartnerCap'))) {
+            return change.objectId;
           }
         }
-        
-        // Fallback: look for any event with object_id field
-        if (event.parsedJson && event.parsedJson.object_id) {
-          console.log('🤔 Found object_id in event:', event.parsedJson.object_id);
+      }
+
+      // Fallback: Look through created objects in effects
+      if (txDetails.effects?.created) {
+        for (const created of txDetails.effects.created) {
+          // Get the object details to check its type
+          const objectDetails = await suiClient.getObject({
+            id: created.reference.objectId,
+            options: { showType: true },
+          });
+          
+          if (objectDetails.data?.type && 
+              (objectDetails.data.type.includes('PartnerCapFlex') || objectDetails.data.type.includes('PartnerCap'))) {
+            return created.reference.objectId;
+          }
         }
       }
 
-      console.warn('⚠️ No PartnerCapFlex object found in transaction effects');
-      console.log('🐛 Full transaction data for debugging:', JSON.stringify(data, null, 2));
+      console.warn('Could not extract PartnerCap ID from transaction:', txDigest);
       return null;
-      
     } catch (error) {
-      console.error('❌ Failed to extract PartnerCapFlex ID:', error);
+      console.error('Error extracting PartnerCap ID from transaction:', error);
       return null;
     }
   };
@@ -735,87 +697,46 @@ export function usePartnerOnboarding() {
    */
   const extractStatsIdFromTransaction = async (txDigest: string): Promise<string | null> => {
     try {
-      console.log('🔍 Extracting PartnerPerkStats ID from transaction:', txDigest);
+      // Use the current client from useSuiClient hook
       
-      // Use suiClient instead of direct fetch to avoid CORS issues
-      const data = await suiClient.getTransactionBlock({
+      const txDetails = await suiClient.getTransactionBlock({
         digest: txDigest,
         options: {
-          showInput: false,
-          showRawInput: false,
           showEffects: true,
-          showEvents: true,
           showObjectChanges: true,
-          showBalanceChanges: false
-        }
-      });
-      
-      if (!data) {
-        console.error('❌ Failed to fetch transaction data');
-        throw new Error('Failed to fetch transaction data');
-      }
-
-      console.log('📋 Transaction data received for stats:', {
-        hasEvents: !!data.events,
-        eventsCount: data.events?.length || 0,
-        hasObjectChanges: !!data.objectChanges,
-        objectChangesCount: data.objectChanges?.length || 0
+        },
       });
 
-      // Look for created objects in objectChanges
-      const objectChanges = data.objectChanges || [];
-      
-      console.log('🔍 Searching through', objectChanges.length, 'object changes for PartnerPerkStats');
-      
-      // Find the PartnerPerkStats object
-      for (const change of objectChanges) {
-        console.log('📦 Object change:', {
-          type: change.type,
-          objectType: change.objectType,
-          objectId: change.objectId
-        });
-        
-        if (change.type === 'created' && 
-            change.objectType && 
-            (change.objectType.includes('PartnerPerkStats') || 
-             change.objectType.includes('perk_manager::PartnerPerkStats'))) {
-          console.log('✅ Found PartnerPerkStats object:', change.objectId);
-          return change.objectId;
-        }
-      }
-
-      // Also check events for PartnerPerkStats creation
-      const events = data.events || [];
-      console.log('🔍 Searching through', events.length, 'events for PartnerPerkStats');
-      
-      for (const event of events) {
-        console.log('📣 Event:', {
-          type: event.type,
-          parsedJson: event.parsedJson
-        });
-        
-        // Look for PartnerPerkStatsCreated or similar event
-        if (event.type && 
-            (event.type.includes('PartnerPerkStats') || 
-             event.type.includes('StatsCreated'))) {
-          // Try to extract object ID from event data
-          if (event.parsedJson && event.parsedJson.object_id) {
-            console.log('✅ Found PartnerPerkStats ID in event:', event.parsedJson.object_id);
-            return event.parsedJson.object_id;
-          }
-          if (event.parsedJson && event.parsedJson.stats_id) {
-            console.log('✅ Found PartnerPerkStats ID in event (stats_id):', event.parsedJson.stats_id);
-            return event.parsedJson.stats_id;
+      // Look through object changes to find the created PartnerPerkStats
+      if (txDetails.objectChanges) {
+        for (const change of txDetails.objectChanges) {
+          if (change.type === 'created' && 
+              change.objectType && 
+              change.objectType.includes('PartnerPerkStats')) {
+            return change.objectId;
           }
         }
       }
 
-      console.warn('⚠️ No PartnerPerkStats object found in transaction effects');
-      console.log('🐛 Full transaction data for debugging:', JSON.stringify(data, null, 2));
+      // Fallback: Look through created objects in effects
+      if (txDetails.effects?.created) {
+        for (const created of txDetails.effects.created) {
+          // Get the object details to check its type
+          const objectDetails = await suiClient.getObject({
+            id: created.reference.objectId,
+            options: { showType: true },
+          });
+          
+          if (objectDetails.data?.type && objectDetails.data.type.includes('PartnerPerkStats')) {
+            return created.reference.objectId;
+          }
+        }
+      }
+
+      console.warn('Could not extract PartnerPerkStats ID from transaction:', txDigest);
       return null;
-      
     } catch (error) {
-      console.error('❌ Failed to extract PartnerPerkStats ID:', error);
+      console.error('Error extracting PartnerPerkStats ID from transaction:', error);
       return null;
     }
   };

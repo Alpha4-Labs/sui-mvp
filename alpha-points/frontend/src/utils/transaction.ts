@@ -1339,7 +1339,7 @@ export const ensurePartnerStatsExists = async (
     console.log('🔍 Ensuring PartnerPerkStatsV2 exists for partner:', partnerCapId);
     
     // First, try to find existing stats
-    const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
+      const existingStatsId = await findPartnerStatsId(suiClient, partnerCapId);
     if (existingStatsId) {
       console.log('✅ Found existing PartnerPerkStatsV2:', existingStatsId);
       return existingStatsId;
@@ -2240,19 +2240,19 @@ export const findOrSuggestCreatePartnerStats = async (
     const statsId = await findPartnerStatsId(suiClient, partnerCapId);
     
     if (statsId) {
-      console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
-      return {
-        statsId,
-        needsCreation: false
-      };
+    console.log('✅ Found existing PartnerPerkStatsV2:', statsId);
+    return {
+      statsId,
+      needsCreation: false
+    };
     } else {
-      console.log('❌ No PartnerPerkStatsV2 found for partner:', partnerCapId);
-      
-      return {
-        needsCreation: true,
-        suggestion: 'This partner needs to create their PartnerPerkStatsV2 object before users can purchase perks. Please contact the partner to complete their setup.'
-      };
-    }
+    console.log('❌ No PartnerPerkStatsV2 found for partner:', partnerCapId);
+    
+    return {
+      needsCreation: true,
+      suggestion: 'This partner needs to create their PartnerPerkStatsV2 object before users can purchase perks. Please contact the partner to complete their setup.'
+    };
+  }
   } catch (error) {
     console.log('❌ Error checking stats for partner:', partnerCapId);
     return {

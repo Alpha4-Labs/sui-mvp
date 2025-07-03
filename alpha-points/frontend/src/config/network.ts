@@ -1,4 +1,6 @@
 // Network configuration
+import { SuiClient } from '@mysten/sui/client';
+
 export type NetworkType = 'testnet' | 'mainnet' | 'devnet' | 'localnet';
 
 export interface NetworkConfig {
@@ -24,13 +26,13 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
   },
   testnet: {
     name: 'testnet',
-    rpcUrl: 'https://rpc-testnet.suiscan.xyz:443',
+    rpcUrl: import.meta.env.VITE_SUI_RPC_URL || 'https://fullnode.testnet.sui.io',
     faucetUrl: 'https://faucet.testnet.sui.io',
     explorerUrl: 'https://explorer.testnet.sui.io',
   },
   mainnet: {
     name: 'mainnet',
-    rpcUrl: 'https://fullnode.mainnet.sui.io',
+    rpcUrl: import.meta.env.VITE_SUI_RPC_URL || 'https://fullnode.mainnet.sui.io',
     faucetUrl: '',
     explorerUrl: 'https://explorer.sui.io',
   },
@@ -38,3 +40,13 @@ export const NETWORKS: Record<NetworkType, NetworkConfig> = {
 
 export const NETWORK_TYPE: NetworkType = (import.meta.env['VITE_SUI_NETWORK'] as NetworkType) || 'testnet';
 export const CURRENT_NETWORK = NETWORKS[NETWORK_TYPE];
+
+// Shared SuiClient instance to avoid creating multiple clients
+let sharedSuiClient: SuiClient | null = null;
+
+export function getSharedSuiClient(): SuiClient {
+  if (!sharedSuiClient) {
+    sharedSuiClient = new SuiClient({ url: CURRENT_NETWORK.rpcUrl });
+  }
+  return sharedSuiClient;
+}
