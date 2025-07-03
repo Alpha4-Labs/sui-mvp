@@ -1,0 +1,319 @@
+/* src/index.css */
+
+/* Import Tailwind's base styles */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Define base styles and CSS variables */
+@layer base {
+  :root {
+    /* Partner Dashboard Light Theme (Default) */
+    --bg-primary: 255 255 255;        /* White background */
+    --bg-secondary: 248 250 252;      /* Slate-50 */
+    --bg-tertiary: 241 245 249;       /* Slate-100 */
+    --bg-card: 255 255 255;           /* White cards */
+    --bg-elevated: 248 250 252;       /* Elevated surfaces */
+    
+    --text-primary: 15 23 42;         /* Slate-900 */
+    --text-secondary: 51 65 85;       /* Slate-700 */
+    --text-muted: 100 116 139;        /* Slate-500 */
+    --text-inverse: 255 255 255;      /* White */
+    
+    --border-primary: 226 232 240;    /* Slate-200 */
+    --border-secondary: 203 213 225;  /* Slate-300 */
+    --border-focus: 99 102 241;       /* Indigo-500 */
+
+    /* Legacy support */
+    --color-primary: #6366F1;
+    --color-background: rgb(var(--bg-primary));
+    --color-background-card: rgb(var(--bg-card));
+  }
+
+  .dark {
+    /* Partner Dashboard Dark Theme */
+    --bg-primary: 15 23 42;           /* Slate-900 */
+    --bg-secondary: 30 41 59;         /* Slate-800 */
+    --bg-tertiary: 51 65 85;          /* Slate-700 */
+    --bg-card: 30 41 59;              /* Slate-800 */
+    --bg-elevated: 51 65 85;          /* Elevated surfaces */
+    
+    --text-primary: 248 250 252;      /* Slate-50 */
+    --text-secondary: 203 213 225;    /* Slate-300 */
+    --text-muted: 148 163 184;        /* Slate-400 */
+    --text-inverse: 15 23 42;         /* Slate-900 */
+    
+    --border-primary: 51 65 85;       /* Slate-700 */
+    --border-secondary: 71 85 105;    /* Slate-600 */
+    --border-focus: 129 140 248;      /* Indigo-400 */
+
+    /* Legacy support for dark mode */
+    --color-background: rgb(var(--bg-primary));
+    --color-background-card: rgb(var(--bg-card));
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary antialiased transition-colors duration-300;
+    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 
+                 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 
+                 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+/* Customizations and Animations Layer */
+@layer utilities {
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  .animate-fade-in-on-load {
+    animation: fadeIn 0.5s ease-out forwards;
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes gradient {
+    0%, 100% { 
+      background-position: 0% 50%; 
+    }
+    50% { 
+      background-position: 100% 50%; 
+    }
+  }
+
+  @keyframes blob {
+    0% {
+      transform: translate(0px, 0px) scale(1);
+    }
+    33% {
+      transform: translate(30px, -50px) scale(1.1);
+    }
+    66% {
+      transform: translate(-20px, 20px) scale(0.9);
+    }
+    100% {
+      transform: translate(0px, 0px) scale(1);
+    }
+  }
+
+  .animate-blob {
+    animation: blob 7s infinite;
+  }
+
+  /* Custom scrollbar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(75 85 99) transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgb(75 85 99);
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(107 114 128);
+  }
+  
+  /* Glass morphism effects */
+  .glass {
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  
+  /* Modern gradient backgrounds */
+  .bg-gradient-purple-blue {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  }
+  
+  .bg-gradient-blue-purple {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  }
+
+  /* View Transition Classes */
+  .view-enter {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  .view-enter-active {
+    opacity: 1;
+    transform: translateX(0);
+    transition: opacity 300ms ease-out, transform 300ms ease-out;
+  }
+  .view-exit {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .view-exit-active {
+    opacity: 0;
+    transform: translateX(-20px);
+    transition: opacity 300ms ease-in, transform 300ms ease-in;
+  }
+} /* End @layer utilities */
+
+/* Swiper Pagination Custom Styles */
+@layer components {
+  .btn-primary {
+    @apply bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg 
+           transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-outline {
+    @apply border border-gray-500 text-gray-300 hover:bg-gray-700 font-semibold py-2 px-4 
+           rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .card {
+    @apply bg-gray-800 bg-opacity-90 backdrop-blur-sm rounded-xl border border-gray-700;
+  }
+
+  .card-modern {
+    @apply bg-gray-800/60 hover:bg-gray-700/80 rounded-xl border border-gray-700/50 
+           hover:border-gray-600 transition-all duration-300 backdrop-blur-sm;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .bg-discord {
+    background-color: #5865F2;
+  }
+  
+  .bg-discord-dark {
+    background-color: #4C5BDC;
+  }
+  
+  .text-discord {
+    color: #5865F2;
+  }
+  
+  .border-discord {
+    border-color: #5865F2;
+  }
+
+  /* Modern button styles */
+  .btn-modern-primary {
+    @apply bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 
+           text-white font-semibold py-2.5 px-6 rounded-lg transition-all duration-200 
+           shadow-lg hover:shadow-xl hover:scale-[1.02] disabled:opacity-50 
+           disabled:cursor-not-allowed disabled:hover:scale-100;
+  }
+
+  .btn-modern-secondary {
+    @apply bg-gray-700/50 hover:bg-gray-600/80 border border-gray-600/50 hover:border-gray-500 
+           text-gray-300 hover:text-white font-semibold py-2.5 px-6 rounded-lg 
+           transition-all duration-200 backdrop-blur-sm;
+  }
+
+  .input-modern {
+    @apply bg-gray-800/60 border border-gray-700/50 hover:border-gray-600 focus:border-purple-500 
+           text-white placeholder-gray-400 rounded-lg px-4 py-3 transition-all duration-200 
+           backdrop-blur-sm focus:ring-2 focus:ring-purple-500/20;
+  }
+
+  .modal-modern {
+    @apply bg-gray-800/95 backdrop-blur-sm border border-gray-700/50 rounded-xl shadow-2xl;
+  }
+
+  /* Status indicators */
+  .status-indicator-active {
+    @apply w-3 h-3 bg-green-500 rounded-full animate-pulse;
+  }
+
+  .status-indicator-inactive {
+    @apply w-3 h-3 bg-gray-500 rounded-full;
+  }
+
+  /* Swiper Pagination Custom Styles */
+  .swiper-pagination-custom .swiper-pagination-bullet {
+    @apply w-2 h-2 bg-gray-600 rounded-full opacity-70 transition-all duration-200;
+  }
+  
+  .swiper-pagination-custom .swiper-pagination-bullet-active {
+    @apply bg-primary opacity-100 transform scale-125;
+  }
+
+  /* Stats Swiper Styles */
+  .stats-swiper .swiper-pagination {
+    position: relative !important;
+    bottom: 0 !important;
+    margin-top: 12px !important;
+  }
+
+  .stats-swiper .swiper-pagination-bullet {
+    width: 6px !important;
+    height: 6px !important;
+    border-radius: 50% !important;
+    margin: 0 3px !important;
+    background: rgba(255, 255, 255, 0.3) !important;
+    opacity: 0.4 !important;
+    transition: all 0.3s ease !important;
+  }
+
+  .stats-swiper .swiper-pagination-bullet-active {
+    background: rgba(255, 255, 255, 1) !important;
+    opacity: 1 !important;
+    transform: scale(1.2) !important;
+  }
+}
+
+/* Global styles */
+* {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply scrollbar-thin;
+}
+
+/* Tooltip z-index */
+.relative[data-headlessui-state="open"] > .absolute {
+  z-index: 999;
+}
+
+/* Remove any duplicated CSS rules that are now handled by Tailwind config or @layer */
