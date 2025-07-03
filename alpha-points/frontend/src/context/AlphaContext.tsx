@@ -194,6 +194,37 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     refetch: refetchAllUserStakes 
   } = useAllUserStakes(activeAddress, false);
 
+  // SUI Balance fetching effect
+  useEffect(() => {
+    const fetchSuiBalance = async () => {
+      if (!activeAddress || !suiClient) {
+        console.log('[AlphaContext] SUI Balance: No address or client, setting to 0');
+        setSuiBalance('0');
+        setLoadingSuiBalance(false);
+        return;
+      }
+
+      console.log('[AlphaContext] Fetching SUI balance for:', activeAddress);
+      setLoadingSuiBalance(true);
+      try {
+        const balance = await suiClient.getBalance({
+          owner: activeAddress,
+          coinType: '0x2::sui::SUI'
+        });
+        console.log('[AlphaContext] SUI Balance response:', balance);
+        setSuiBalance(balance.totalBalance || '0');
+        console.log('[AlphaContext] SUI Balance set to:', balance.totalBalance || '0');
+      } catch (error) {
+        console.error('[AlphaContext] Error fetching SUI balance:', error);
+        setSuiBalance('0');
+      } finally {
+        setLoadingSuiBalance(false);
+      }
+    };
+
+    fetchSuiBalance();
+  }, [activeAddress, suiClient, version]); // Refresh when version changes
+
   // Simple initialization effect
   useEffect(() => {
     if (activeAddress && !hasInitialized.current) {
@@ -204,15 +235,16 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         clearTimeout(initTimeoutRef.current);
       }
       
-      // Load data sequentially to avoid race conditions
+      // Load critical data first
       refetchPoints(activeAddress);
       
+      // Load secondary data after a brief delay to ensure primary data loads first
       initTimeoutRef.current = setTimeout(() => {
-        // Don't automatically refetch stake positions since initial load works
-        // refetchPositions();
+        // Explicitly refetch stake positions to ensure they load properly
+        refetchPositions();
         refetchAllUserStakes();
         refetchLoans();
-      }, 1500);
+      }, 1000); // Reduced timeout to 1 second
     }
     
     if (!activeAddress) {
@@ -255,14 +287,15 @@ export const AlphaProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // Stable callback functions - no complex dependencies
   const refreshData = useCallback(() => {
     setVersion(prev => prev + 1);
-    hasInitialized.current = false;
+    // Don't reset initialization state during refresh - this prevents data clearing
     if (activeAddress) {
       refetchPoints(activeAddress);
+      // Immediately refresh stake positions without delay to prevent missing data
+      refetchPositions();
       setTimeout(() => {
-        refetchPositions();
         refetchAllUserStakes();
         refetchLoans();
-      }, 1000);
+      }, 500);
     }
   }, [activeAddress]); // Minimal dependencies
 

@@ -34,8 +34,8 @@ import 'swiper/css/navigation';
 // @ts-ignore
 import 'swiper/css/pagination';
 
-// Import SuiClient type for old package detection
-import { SuiClient } from '@mysten/sui/client';
+// Import SuiClient type
+import { SuiClient, SuiTransactionBlockResponse } from '@mysten/sui/client';
 
 // Old package constants removed - migration functionality no longer needed
 
@@ -139,6 +139,10 @@ export const StakedPositionsList: React.FC = () => {
 
   // Helper function to extract original ID from prefixed display ID
   const extractOriginalId = (displayId: string): string => {
+    // Handle double prefixing: stake-stake-xxx -> xxx
+    if (displayId.startsWith('stake-stake-')) {
+      return displayId.replace('stake-stake-', '');
+    }
     if (displayId.startsWith('orphaned-')) {
       return displayId.replace('orphaned-', '');
     }
@@ -150,15 +154,33 @@ export const StakedPositionsList: React.FC = () => {
 
   // Helper function to check if an encumbered stake is loan collateral vs early withdrawn
   const hasAssociatedLoan = (stakeId: string): boolean => {
+    // stakeId should already be the raw ID, but ensure it's clean
     const originalId = extractOriginalId(stakeId);
-    return loans.some(loan => loan.stakeId === originalId);
+    const hasLoan = loans.some(loan => loan.stakeId === originalId);
+    console.log(`[hasAssociatedLoan] Checking stake ${originalId}:`, {
+      inputStakeId: stakeId,
+      cleanedStakeId: originalId,
+      availableLoans: loans.map(l => l.stakeId),
+      hasLoan
+    });
+    return hasLoan;
   };
 
   // Helper function to determine if a stake should be considered as loan collateral
   // This accounts for potential data synchronization issues
   const isStakeLoanCollateral = (position: any, stakeId: string): boolean => {
     const isEncumbered = position.encumbered === true;
-    const hasLoan = hasAssociatedLoan(stakeId);
+    // Ensure we're using the raw stake ID for loan checking
+    const rawStakeId = extractOriginalId(stakeId);
+    const hasLoan = hasAssociatedLoan(rawStakeId);
+    
+    console.log(`[isStakeLoanCollateral] Position ${rawStakeId}:`, {
+      inputStakeId: stakeId,
+      rawStakeId,
+      isEncumbered,
+      hasLoan,
+      result: isEncumbered && hasLoan
+    });
     
     // If not encumbered, it's definitely not loan collateral
     if (!isEncumbered) return false;
@@ -180,6 +202,31 @@ export const StakedPositionsList: React.FC = () => {
       refreshLoansData();
     }
   }, [alphaIsConnected, alphaAddress, refreshLoansData]);
+
+  // Refresh data when switching between tabs to ensure consistency
+  React.useEffect(() => {
+    if (alphaIsConnected && alphaAddress) {
+      console.log('[StakedPositionsList] Tab changed to:', activeTab, '- refreshing data');
+      refreshStakePositions();
+      refreshLoansData();
+    }
+  }, [activeTab, alphaIsConnected, alphaAddress, refreshStakePositions, refreshLoansData]);
+
+  // Refresh data when user comes back to the tab/window
+  React.useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && alphaIsConnected && alphaAddress) {
+        console.log('[StakedPositionsList] Tab became visible - refreshing data');
+        refreshStakePositions();
+        refreshLoansData();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [alphaIsConnected, alphaAddress, refreshStakePositions, refreshLoansData]);
 
   // checkForOldPackageStakes function removed - no longer needed
 
@@ -219,7 +266,15 @@ export const StakedPositionsList: React.FC = () => {
     try {
       const transaction = buildUnstakeTransaction(stakeId);
       
-      const result = await signAndExecute({ transaction });
+      // Use raw signAndExecute instead of the wrapped one to avoid toJSON issues
+      const result = await rawSignAndExecute({
+        transaction,
+        options: {
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+        },
+      });
       
       if (!result || typeof result !== 'object' || !('digest' in result)) {
         throw new Error('Transaction returned an unexpected response format');
@@ -236,7 +291,14 @@ export const StakedPositionsList: React.FC = () => {
         toast.success(`Successfully unstaked ${formatSui(principal)} SUI! Digest: ${txDigest.substring(0, 10)}...`);
       });
       
-      // Component will automatically refresh via transaction success hook
+      // Manual refresh since we're not using the wrapped signAndExecute
+      try {
+        await refreshStakePositions();
+        await refreshLoansData();
+        await refreshData();
+      } catch (refreshError) {
+        console.warn('Failed to refresh data after successful unstake:', refreshError);
+      }
 
     } catch (err: any) {
       console.error('Error unstaking position:', err);
@@ -342,14 +404,31 @@ export const StakedPositionsList: React.FC = () => {
     setTransactionLoading(true);
 
     try {
+      // Find the associated loan for this stake
+      const originalStakeId = extractOriginalId(stakeId);
+      const associatedLoan = loans.find(loan => loan.stakeId === originalStakeId);
+      
+      if (!associatedLoan) {
+        throw new Error('No associated loan found for this stake. Cannot reclaim principal without loan ID.');
+      }
+
       // Calculate the Alpha Points that were received during early withdrawal
       // Using centralized constants to match the smart contract
       const principalSui = convertMistToSui(principal);
       const alphaPointsReceived = convertSuiToAlphaPointsWithFee(principalSui);
       const alphaPointsToReturn = alphaPointsReceived.toString();
 
-      const transaction = buildReclaimPrincipalTransaction(stakeId, alphaPointsToReturn);
-      const result = await signAndExecute({ transaction });
+      const transaction = buildReclaimPrincipalTransaction(associatedLoan.id, stakeId, alphaPointsToReturn);
+      
+      // Use raw signAndExecute instead of the wrapped one to avoid toJSON issues
+      const result = await rawSignAndExecute({
+        transaction,
+        options: {
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+        },
+      });
       
       if (!result || typeof result !== 'object' || !('digest' in result)) {
         throw new Error('Transaction returned an unexpected response format');
@@ -371,7 +450,14 @@ export const StakedPositionsList: React.FC = () => {
         );
       });
       
-      // Component will automatically refresh via transaction success hook
+      // Manual refresh since we're not using the wrapped signAndExecute
+      try {
+        await refreshStakePositions();
+        await refreshLoansData();
+        await refreshData();
+      } catch (refreshError) {
+        console.warn('Failed to refresh data after successful reclaim:', refreshError);
+      }
 
     } catch (err: any) {
       console.error('Error reclaiming principal:', err);
@@ -401,7 +487,16 @@ export const StakedPositionsList: React.FC = () => {
 
     try {
       const transaction = buildClaimWithdrawalTicketTransaction(withdrawalTicketId);
-      const result = await signAndExecute({ transaction });
+      
+      // Use raw signAndExecute instead of the wrapped one to avoid toJSON issues
+      const result = await rawSignAndExecute({
+        transaction,
+        options: {
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+        },
+      });
       
       if (!result || typeof result !== 'object' || !('digest' in result)) {
         throw new Error('Transaction returned an unexpected response format');
@@ -422,7 +517,14 @@ export const StakedPositionsList: React.FC = () => {
         );
       });
       
-      // Component will automatically refresh via transaction success hook
+      // Manual refresh since we're not using the wrapped signAndExecute
+      try {
+        await refreshStakePositions();
+        await refreshLoansData();
+        await refreshData();
+      } catch (refreshError) {
+        console.warn('Failed to refresh data after successful claim:', refreshError);
+      }
 
     } catch (err: any) {
       console.error('Error claiming withdrawal ticket:', err);
@@ -537,90 +639,27 @@ export const StakedPositionsList: React.FC = () => {
       const tx = buildRegisterStakeTransaction(stakedSuiObjectId, durationDays);
 
       if (alphaProvider === 'google') {
-        tx.setSender(alphaAddress);
-        
-        const jwt = localStorage.getItem('zkLogin_jwt');
-        const secretKeySeedString = localStorage.getItem('zkLogin_ephemeralSecretKeySeed');
-        const maxEpochString = localStorage.getItem('zkLogin_maxEpoch');
-        const randomnessString = localStorage.getItem('zkLogin_randomness');
-        const publicKeyBytesString = localStorage.getItem('zkLogin_ephemeralPublicKeyBytes');
-
-        if (!jwt || !secretKeySeedString || !maxEpochString || !randomnessString || !publicKeyBytesString) {
-          throw new Error("Missing required zkLogin data from localStorage for registration.");
-        }
-
-        const secretKeySeed = Uint8Array.from(JSON.parse(secretKeySeedString));
-        const ephemeralKeypair = Ed25519Keypair.fromSecretKey(secretKeySeed.slice(0, 32));
-        const maxEpoch = parseInt(maxEpochString, 10);
-        const randomness = randomnessString;
-        const publicKeyBytes = Uint8Array.from(JSON.parse(publicKeyBytesString));
-        const ephemeralPublicKey = new Ed25519PublicKey(publicKeyBytes);
-        const extendedEphemeralPublicKeyString = ephemeralPublicKey.toSuiPublicKey();
-        
-        const fullTxBytes = await tx.build({ client: suiClient as unknown as SuiClient });
-        const { signature: userSignature } = await ephemeralKeypair.signTransaction(fullTxBytes);
-
-        // Note: Simplified implementation without Enoki ZKP service
-        // Using direct zkLogin signature construction
-        const zkLoginInputs: ActualZkLoginSignatureInputs = {
-           proofPoints: {
-             a: ["0", "0", "0"],
-             b: [["0", "0"], ["0", "0"], ["0", "0"]],
-             c: ["0", "0", "0"]
-           },
-           issBase64Details: { value: "test", indexMod4: 0 },
-           headerBase64: "",
-           addressSeed: localStorage.getItem('zkLogin_userSalt_from_enoki') || '',
-        };
-
-        const actualZkLoginSignature = getZkLoginSignature({ inputs: zkLoginInputs, maxEpoch, userSignature });
-
-        const result = await suiClient.executeTransactionBlock({ 
-          transactionBlock: fullTxBytes,
-          signature: actualZkLoginSignature,
-          options: { showEffects: true, showObjectChanges: true }
-        });
-        txDigest = result.digest;
+        // zkLogin is deprecated - redirect to use wallet connection instead
+        throw new Error("zkLogin authentication is deprecated. Please use wallet connection instead.");
 
       } else if (alphaProvider === 'dapp-kit') {
-        const signResult = await signAndExecute({ transaction: tx });
+        // Use raw signAndExecute instead of the wrapped one to avoid toJSON issues
+        const signResult = await rawSignAndExecute({
+          transaction: tx,
+          options: {
+            showEffects: true,
+            showEvents: true,
+            showObjectChanges: true,
+          },
+        });
         
         if (!signResult || typeof signResult !== 'object' || !('digest' in signResult)) {
            throw new Error('Transaction returned an unexpected response format from dapp-kit.');
         }
         txDigest = signResult.digest;
 
-        let confirmedTx: SuiTransactionBlockResponse | null = null;
-        let attempts = 0;
-        const maxAttempts = 5;
-        const delayMs = 1000;
-
-        while (attempts < maxAttempts) {
-          try {
-            confirmedTx = await suiClient.getTransactionBlock({
-                digest: txDigest,
-                options: { showEffects: true }
-            });
-            if (confirmedTx) break; // Exit loop if transaction found
-          } catch (e: any) {
-            if (e.message && e.message.includes('Could not find the referenced transaction')) {
-              attempts++;
-              if (attempts >= maxAttempts) {
-                console.error(`Failed to confirm transaction ${txDigest} after ${maxAttempts} attempts.`);
-                throw e; // Re-throw the error if max attempts reached
-              }
-              await new Promise(resolve => setTimeout(resolve, delayMs)); // Wait before retrying
-            } else {
-              throw e; // Re-throw other errors immediately
-            }
-          }
-        }
-
-        if (!confirmedTx) {
-          throw new Error(`Transaction ${txDigest} could not be confirmed after ${maxAttempts} attempts.`);
-        }
-        
-        const responseError = getTransactionResponseError(confirmedTx);
+        // No need for manual transaction confirmation with rawSignAndExecute
+        const responseError = getTransactionResponseError(signResult);
         if (responseError) throw new Error(responseError);
       } else {
         throw new Error("Unknown provider for transaction execution.");
@@ -628,7 +667,15 @@ export const StakedPositionsList: React.FC = () => {
       
       toast.success(`Successfully registered stake${principalDisplay ? ' for ' + formatSui(principalDisplay) : ''} SUI! Digest: ${txDigest?.substring(0, 10)}...`);
       removeOrphanedStake(stakedSuiObjectId); // Remove from context/local state
-      // Component will automatically refresh via transaction success hook
+      
+      // Manual refresh since we're not using the wrapped signAndExecute
+      try {
+        await refreshStakePositions();
+        await refreshLoansData();
+        await refreshData();
+      } catch (refreshError) {
+        console.warn('Failed to refresh data after successful registration:', refreshError);
+      }
 
     } catch (err: any) {
       console.error('Error completing stake registration:', err);
@@ -649,32 +696,48 @@ export const StakedPositionsList: React.FC = () => {
     const stakedSuiObjectId = position.stakedSuiObjectId || '';
     const startTimeMs = position.startTimeMs ? parseInt(position.startTimeMs) : 0;
     
-            // Check if this is an early withdrawn position (encumbered = true but not loan collateral)
-        const isEncumbered = position.encumbered === true;
-        const isLoanCollateral = isStakeLoanCollateral(position, `stake-${position.id}`);
-        const isEarlyWithdrawn = isEncumbered && !isLoanCollateral;
+    // Check if this is an early withdrawn position (encumbered = true but not loan collateral)
+    const isEncumbered = position.encumbered === true;
+    // Use the raw position ID for loan checking, not the prefixed version
+    const rawStakeId = extractOriginalId(positionId);
+    const hasLoan = hasAssociatedLoan(rawStakeId);
+    const isLoanCollateral = isStakeLoanCollateral(position, rawStakeId);
+    const isEarlyWithdrawn = isEncumbered && !isLoanCollateral;
     
     // Log details for debugging
     console.log(`Checking position ${positionId}:`, {
       encumbered: isEncumbered,
+      rawStakeId,
+      hasLoan,
       isLoanCollateral,
       isEarlyWithdrawn,
       startTimeMs,
       calculatedUnlockDate: position.calculatedUnlockDate,
-      principal: position.principal
+      principal: position.principal,
+      id: position.id,
+      hasCalculatedUnlockDate: !!position.calculatedUnlockDate,
+      hasId: !!position.id,
+      hasPrincipal: !!position.principal,
+      principalValue: position.principal,
+      allFields: Object.keys(position)
     });
     
-    // ULTRA-AGGRESSIVE: Filter out ALL early withdrawn positions for safety
-    // This is because they all seem to have migration issues right now
+    // If it's a legitimate loan collateral position, allow it
+    if (isLoanCollateral) {
+      console.log('✅ ALLOWING loan collateral position:', positionId);
+      return false;
+    }
+    
+    // For early withdrawn positions (encumbered=true but no loan), they are problematic
+    // These positions have already been paid back in some way due to contract logic errors
     if (isEarlyWithdrawn) {
-      console.log('🚫 BLOCKING early withdrawn position (migration safety):', positionId);
+      console.log('🚫 BLOCKING early withdrawn position (already paid back):', positionId);
       return true;
     }
     
-    // Additional safety checks for other potential issues
+    // Check for other problematic conditions
     const hasKnownIssues = (
       // Missing critical fields
-      !position.calculatedUnlockDate ||
       !position.id ||
       !position.principal ||
       position.principal === '0' ||
@@ -693,32 +756,31 @@ export const StakedPositionsList: React.FC = () => {
       return true;
     }
     
+    // Allow legitimate active positions
+    console.log('✅ ALLOWING legitimate position:', positionId);
     return false;
   };
 
   // --- First, filter problematic positions with minimal logging ---
   const filteredStakePositions = React.useMemo(() => {
-    if (isLoading || stakePositions.length === 0) return [];
+    if (isLoading || stakePositions.length === 0) {
+      return [];
+    }
     
-    // Only log when positions actually change
-    const positionIds = stakePositions.map(p => p.id).join(',');
-    const filtered = stakePositions.filter(pos => {
+    const filtered = stakePositions.filter((pos) => {
       const isProblematic = isProblematicWithdrawalTicket(pos);
-      if (isProblematic) {
-        console.log('🚫 Filtering out problematic withdrawal ticket:', pos.id);
-      }
       return !isProblematic;
     });
     
     // Only log summary if there's a difference
     if (filtered.length !== stakePositions.length) {
-      console.log(`Filtered ${stakePositions.length - filtered.length} problematic positions. ${filtered.length} positions remaining.`);
+      console.log(`[StakedPositionsList] Filtered ${stakePositions.length - filtered.length} problematic positions. ${filtered.length} positions remaining.`);
     }
     
     return filtered;
   }, [stakePositions, isLoading]); // Only depend on actual position data
 
-  // --- Prepare combined data for Swiper with optimized memoization ---
+  // --- Prepare combined data for Swiper with simplified logic ---
   const combinedListItems = React.useMemo((): SwiperItem[] => {
     console.log('[StakedPositionsList] Computing combinedListItems:', {
       isLoading,
@@ -728,12 +790,7 @@ export const StakedPositionsList: React.FC = () => {
       orphanedStakes
     });
 
-    // Only compute if not loading to prevent premature renders
-    if (isLoading) {
-      console.log('[StakedPositionsList] Returning empty array due to isLoading=true');
-      return [];
-    }
-
+    // Always compute the combined list - don't return empty during loading
     const orphanedAsSwiperItems: SwiperOrphanedItem[] = orphanedStakes.map((orphan, index) => ({
       ...orphan,
       id: `orphaned-${orphan.stakedSuiObjectId || index}`, // Ensure unique ID
@@ -756,7 +813,7 @@ export const StakedPositionsList: React.FC = () => {
     });
     
     return combined;
-  }, [orphanedStakes, filteredStakePositions, isLoading]); // Removed loading and loans dependencies
+  }, [orphanedStakes, filteredStakePositions, isLoading]); // Simplified dependencies
 
   // --- Loading State ---
   if (isLoading) {
@@ -956,10 +1013,11 @@ export const StakedPositionsList: React.FC = () => {
             <div>
               {/* Stakes Content */}
               {(() => {
+                const shouldShowEmpty = combinedListItems.length === 0 && !isLoading;
                 console.log('[StakedPositionsList] Rendering decision:', {
                   combinedListItemsLength: combinedListItems.length,
                   isLoading,
-                  shouldShowEmpty: combinedListItems.length === 0 && !isLoading,
+                  shouldShowEmpty,
                   shouldShowList: combinedListItems.length > 0
                 });
                 return null;
@@ -1037,11 +1095,11 @@ export const StakedPositionsList: React.FC = () => {
                 const statusText = isOrphaned
                   ? "Pending Registration"
                   : isLoanCollateral
-                    ? "Collateral"
+                    ? "Loan Collateral"
                     : isEarlyWithdrawnAndMatured
-                      ? "Ready to Reclaim"
+                      ? "Loan Collateral (Matured)"
                     : isEarlyWithdrawn
-                      ? "Withdrawn"
+                      ? "Loan Collateral"
                       : isMature 
                         ? "Mature" 
                         : "Staking";
@@ -1198,20 +1256,10 @@ export const StakedPositionsList: React.FC = () => {
                             This position is collateral. Repay loan to unstake.
                           </div>
                         ) : canReclaimPrincipal ? (
-                          <button
-                            onClick={e => { e.preventDefault(); e.stopPropagation(); handleReclaimPrincipal(extractOriginalId(item.id), item.principal); }}
-                            disabled={reclaimPrincipalInProgress === extractOriginalId(item.id) || loading.transaction}
-                            className="w-full btn-modern-primary relative z-[28]"
-                          >
-                            {reclaimPrincipalInProgress === extractOriginalId(item.id) ? (
-                              <span className="absolute inset-0 flex items-center justify-center">
-                                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                              </span>
-                            ) : 'Reclaim Principal'}
-                          </button>
+                          <div className="p-2 bg-blue-900/30 border border-blue-700/50 rounded text-blue-300 text-xs text-center backdrop-blur-sm">
+                            💰 Early withdrawn stake has matured.<br/>
+                            <strong>Check the Loans tab</strong> to repay your loan and unlock this collateral.
+                          </div>
                         ) : isEarlyWithdrawn ? (
                           // Safety net: Don't show claim button for positions that might have migration issues
                           isProblematicWithdrawalTicket(item as any) ? (

@@ -40,8 +40,8 @@ export interface ClaimedPerk {
 // OPTIMIZED: Reduced limits for better performance
 const BATCH_SIZE = 10; // Reasonable batch size
 const CACHE_DURATION = 120000; // 2 minutes cache for better performance
-const MAX_PACKAGES_TO_SEARCH = 3; // CRITICAL: Only search recent packages
-const MAX_EVENTS_PER_PACKAGE = 100; // Limit events per package to avoid throttling
+const MAX_PACKAGES_TO_SEARCH = 20; // INCREASED: Search more packages to find all perks
+const MAX_EVENTS_PER_PACKAGE = 500; // INCREASED: More events per package to ensure we find all perks
 
 export function usePerkData() {
   const { currentWallet } = useCurrentWallet();
@@ -125,67 +125,84 @@ export function usePerkData() {
    */
   const fetchPartnerPerks = useCallback(async (partnerCapId: string): Promise<PerkDefinition[]> => {
     if (!client || !partnerCapId) {
+      console.log(`[usePerkData] No client or partnerCapId provided`);
       return [];
     }
 
     const cacheKey = `partner_perks_${partnerCapId}`;
     setIsLoading(true);
     setError(null);
+    
+    console.log(`[usePerkData] Fetching perks for partner: ${partnerCapId}`);
 
     try {
       const perks = await requestCache.getOrFetch(
         cacheKey,
         async () => {
-          // CRITICAL OPTIMIZATION: Only search the most recent packages
+          // EXPANDED SEARCH: Search more packages to find all perks
           const recentPackages = ALL_PACKAGE_IDS.filter(Boolean).slice(0, MAX_PACKAGES_TO_SEARCH);
+          console.log(`[usePerkData] Searching ${recentPackages.length} packages:`, recentPackages);
           
           let allPerks: PerkDefinition[] = [];
           
           // Search packages sequentially to avoid overwhelming the RPC
           for (const packageId of recentPackages) {
             try {
+              console.log(`[usePerkData] Searching package: ${packageId}`);
+              
               // Get recent perk creation events for this partner
               const perkCreatedEvents = await client.queryEvents({
                 query: {
                   MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
                 },
                 order: 'descending',
-                limit: MAX_EVENTS_PER_PACKAGE, // Strict limit
+                limit: MAX_EVENTS_PER_PACKAGE, // Expanded limit
               });
+
+              console.log(`[usePerkData] Found ${perkCreatedEvents.data.length} perk creation events in ${packageId}`);
 
               // Filter for this partner's perks
               const partnerPerkIds: string[] = [];
+              let totalEventsChecked = 0;
               for (const event of perkCreatedEvents.data) {
+                totalEventsChecked++;
                 if (event.parsedJson && typeof event.parsedJson === 'object') {
                   const eventData = event.parsedJson as any;
                   
                   if (eventData.creator_partner_cap_id === partnerCapId) {
+                    console.log(`[usePerkData] Found matching perk for partner: ${eventData.perk_definition_id}`);
                     partnerPerkIds.push(eventData.perk_definition_id);
                   }
                 }
                 
                 // Stop if we have enough perks
-                if (partnerPerkIds.length >= 15) break;
+                if (partnerPerkIds.length >= 25) break; // Increased limit
               }
+
+              console.log(`[usePerkData] Package ${packageId}: Found ${partnerPerkIds.length} perks for partner (checked ${totalEventsChecked} events)`);
 
               if (partnerPerkIds.length > 0) {
                 const packagePerks = await fetchPerkObjectsBatch(partnerPerkIds, packageId);
+                console.log(`[usePerkData] Successfully fetched ${packagePerks.length} perk objects from ${packageId}`);
                 allPerks.push(...packagePerks);
               }
               
             } catch (error) {
-              console.warn(`Error searching package ${packageId}:`, error);
+              console.warn(`[usePerkData] Error searching package ${packageId}:`, error);
             }
           }
 
+          console.log(`[usePerkData] Total perks found for partner ${partnerCapId}: ${allPerks.length}`);
           return allPerks;
         },
         CACHE_DURATION
       );
 
+      setPartnerPerks(perks);
+      console.log(`[usePerkData] Final result for partner ${partnerCapId}: ${perks.length} perks`);
       return perks;
     } catch (error: any) {
-      console.error('Error fetching partner perks:', error);
+      console.error('[usePerkData] Error fetching partner perks:', error);
       setError(error.message || 'Failed to fetch partner perks');
       return [];
     } finally {
@@ -284,6 +301,11 @@ export function usePerkData() {
                   // COMPREHENSIVE SEARCH: Query ALL packages to find all perks from all companies
         const prioritizedPackages = ALL_PACKAGE_IDS.filter(Boolean); // Query ALL packages to ensure we find all perks
           
+          console.log('🔍 Searching packages for perks:', {
+            totalPackages: prioritizedPackages.length,
+            packages: prioritizedPackages.slice(0, 5).map(p => p?.substring(0, 10) + '...')
+          });
+          
           const packagePromises = prioritizedPackages.map(async (packageId, packageIndex) => {
             try {
               
@@ -293,14 +315,14 @@ export function usePerkData() {
                   MoveEventType: `${packageId}::perk_manager::PerkDefinitionCreated`
                 },
                 order: 'descending',
-                limit: 50, // Increased to find more perks
+                limit: 200, // Increased to find more perks
               });
 
 
               
               // COMPREHENSIVE SEARCH: Extract more perk IDs to find all perks
               const allPerkIds: string[] = [];
-              for (const event of perkCreatedEvents.data.slice(0, 40)) {
+              for (const event of perkCreatedEvents.data.slice(0, 150)) {
                 if (event.parsedJson && typeof event.parsedJson === 'object') {
                   const eventData = event.parsedJson as any;
                   allPerkIds.push(eventData.perk_definition_id);
@@ -315,7 +337,7 @@ export function usePerkData() {
               // OPTIMIZATION 5: Return active perks only
               const activePerks = packagePerks.filter(perk => perk.is_active);
               
-
+              console.log(`📦 Package ${packageId.substring(0, 10)}... found ${activePerks.length} active perks (${packagePerks.length} total)`);
               
               return activePerks;
               

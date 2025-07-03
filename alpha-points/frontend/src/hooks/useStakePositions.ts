@@ -42,6 +42,7 @@ export const useStakePositions = (userAddress: string | undefined, autoLoad: boo
   // Main fetch function - accepts userAddress parameter
   const fetchPositions = useCallback(async (addr: string | undefined = userAddress) => {
     if (!addr) {
+      console.log('[useStakePositions] No address provided, clearing positions');
       setPositions([]);
       setLoading(false);
       setError(null);
@@ -148,16 +149,8 @@ export const useStakePositions = (userAddress: string | undefined, autoLoad: boo
 
       console.log(`[useStakePositions] Final positions (${stakePositions.length})`);
       
-      // Only update positions if we found some OR if this is the first load
-      // This prevents clearing existing data if the refetch fails
-      setPositions(prevPositions => {
-        if (stakePositions.length > 0 || prevPositions.length === 0) {
-          return stakePositions;
-        } else {
-          console.log(`[useStakePositions] Keeping existing ${prevPositions.length} positions - refetch returned empty`);
-          return prevPositions;
-        }
-      });
+      // Always update positions with the fetched data - more reliable than defensive logic
+      setPositions(stakePositions);
     } catch (error: any) {
       console.error('[useStakePositions] Error fetching stake positions:', error);
       setError(error.message || 'Failed to fetch stake positions');
@@ -166,12 +159,19 @@ export const useStakePositions = (userAddress: string | undefined, autoLoad: boo
     }
   }, [client, userAddress]);
 
-  // Auto-load effect
+  // Auto-load effect with improved reliability
   useEffect(() => {
     if (autoLoad && userAddress) {
+      console.log(`[useStakePositions] Auto-loading positions for ${userAddress}`);
       fetchPositions(userAddress);
+    } else if (!userAddress && positions.length > 0) {
+      // Only clear positions if we actually have positions and user is definitely disconnected
+      console.log('[useStakePositions] User disconnected, clearing positions');
+      setPositions([]);
+      setLoading(false);
+      setError(null);
     }
-  }, [userAddress, autoLoad, fetchPositions]);
+  }, [userAddress, autoLoad]); // Remove fetchPositions from dependencies to prevent infinite loops
 
   // Return consistent interface
   const refetch = useCallback((addr?: string) => {
