@@ -334,12 +334,10 @@ export function usePerkData() {
               // OPTIMIZATION 4: Faster batch fetch with limits
               const packagePerks = await fetchPerkObjectsBatch(allPerkIds, packageId);
               
-              // OPTIMIZATION 5: Return active perks only
-              const activePerks = packagePerks.filter(perk => perk.is_active);
+              // OPTIMIZATION 5: Return ALL perks for partner dashboard management
+              console.log(`📦 Package ${packageId.substring(0, 10)}... found ${packagePerks.length} perks (${packagePerks.filter(p => p.is_active).length} active, ${packagePerks.filter(p => !p.is_active).length} paused)`);
               
-              console.log(`📦 Package ${packageId.substring(0, 10)}... found ${activePerks.length} active perks (${packagePerks.length} total)`);
-              
-              return activePerks;
+              return packagePerks;
               
             } catch (err) {
               return [];

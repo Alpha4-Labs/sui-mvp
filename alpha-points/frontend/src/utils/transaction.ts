@@ -2752,12 +2752,14 @@ export const buildCreatePerkDefinitionWithMetadataTransaction = (
  * Builds a transaction for setting a perk's active status
  * This allows partners to enable or disable their perks
  * 
+ * @param partnerCapId Partner Cap ID that owns the perk
  * @param perkDefinitionId Perk definition ID to update
  * @param isActive Whether the perk should be active or inactive
  * @param sponsorAddress Optional sponsor address to pay for gas fees
  * @returns Transaction object ready for execution
  */
 export const buildSetPerkActiveStatusTransaction = (
+  partnerCapId: string,
   perkDefinitionId: string,
   isActive: boolean,
   sponsorAddress?: string
@@ -2771,10 +2773,11 @@ export const buildSetPerkActiveStatusTransaction = (
   }
 
   tx.moveCall({
-    target: `${PACKAGE_ID}::perk_manager::set_perk_active_status`,
+    target: `${PACKAGE_ID}::perk_manager::set_perk_definition_active_status`,
     arguments: [
-      tx.object(perkDefinitionId),
-      tx.pure.bool(isActive)
+      tx.object(partnerCapId), // First argument: partner_cap
+      tx.object(perkDefinitionId), // Second argument: perk_definition
+      tx.pure.bool(isActive) // Third argument: is_active
     ],
   });
 
